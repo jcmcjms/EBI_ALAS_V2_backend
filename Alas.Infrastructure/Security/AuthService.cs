@@ -49,7 +49,33 @@ public sealed class AuthService
             return null;
         }
 
-        var passwordValid = await _userManager.ChangePasswordAsync(user, request.Password);
+        var passwordValid = await _userManager.CheckPasswordAsync(user, request.Password);
+        if (!passwordValid)
+        {
+            await _userManager.AccessFailedAsync(user);
+            return null;
+        }
+
+        await _userManager.ResetAccessFailedCountAsync(user);
+
+        var permissionSet = await _permissionProvider.GetAsync(user.Id, cancellationToken);
+
+        if (!permissionSet.IsActive)
+        {
+            return null;
+        }
+
+        var accessToken = _tokenService.CreateAccessToken(user, permissionSet.PermissionVersion);
+
+        var refreshToken = await _refreshTokenService.CreateAsync(
+            user.Id,
+            ipAddress,
+            userAgent, cancellationToken);
+
+        return new TokenResponse(
+            accessToken,
+            refreshToken,
+            _jwtOptions.AccessTokenExpirationMinutes * 60);
     }
 
     public async Task<TokenResponse?> RefreshAsync(
