@@ -1,4 +1,5 @@
-﻿using Alas.Infrastructure.Identity;
+﻿using Alas.Infrastructure.Auditing;
+using Alas.Infrastructure.Identity;
 using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
 
@@ -12,6 +13,7 @@ public class AlasDbContext: IdentityDbContext<AppUser, AppRole, Guid>
     }
 
     public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
+    public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {
@@ -55,6 +57,19 @@ public class AlasDbContext: IdentityDbContext<AppUser, AppRole, Guid>
             entity.Ignore(e => e.IsRevoked);
             entity.Ignore(e => e.IsExpired);
             entity.Ignore(e => e.IsActive);
+        });
+
+        builder.Entity<AuditLog>(entity =>
+        {
+            entity.ToTable("AuditLogs", "audit");
+
+            entity.HasKey(e => e.Id);
+
+            entity.Property(e => e.Action)
+                .HasMaxLength(200)
+                .IsRequired();
+            
+            
         });
     }
 }
