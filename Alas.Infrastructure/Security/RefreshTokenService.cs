@@ -3,6 +3,7 @@ using System.Text;
 using Alas.Infrastructure.Identity;
 using Alas.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 
 namespace Alas.Infrastructure.Security;
 
@@ -11,10 +12,10 @@ public sealed class RefreshTokenService
     private readonly AlasDbContext _context;
     private readonly JwtOptions _jwtOptions;
 
-    public RefreshTokenService(AlasDbContext context, JwtOptions jwtOptions)
+    public RefreshTokenService(AlasDbContext context, IOptions<JwtOptions> jwtOptions)
     {
         _context = context;
-        _jwtOptions = jwtOptions;
+        _jwtOptions = jwtOptions.Value;
     }
 
     public async Task<RefreshToken?> FindByTokenAsync(string token, CancellationToken cancellationToken)
