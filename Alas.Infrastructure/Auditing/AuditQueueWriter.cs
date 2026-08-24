@@ -1,11 +1,12 @@
 ﻿using System.ComponentModel;
 using Alas.Infrastructure.Persistence;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
 namespace Alas.Infrastructure.Auditing;
 
-public sealed class AuditQueueWriter: BackgroundWorker
+public sealed class AuditQueueWriter: BackgroundService
 {
     private const int BatchSize = 100;
     private readonly AuditChannel _channel;
@@ -48,7 +49,10 @@ public sealed class AuditQueueWriter: BackgroundWorker
 
                 var dbContext = scope.ServiceProvider.GetRequiredService<AlasDbContext>();
                 
-                dbContext.Aud
+                dbContext.AuditLogs.AddRange(batch);
+                await dbContext.SaveChangesAsync(stoppingToken);
+
+                batch.Clear();
             }
         }
         catch (OperationCanceledException)

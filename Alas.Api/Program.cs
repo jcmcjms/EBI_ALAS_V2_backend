@@ -1,11 +1,13 @@
 using System.Text;
 using System.Threading.RateLimiting;
 using Alas.Api.Endpoints;
+using Alas.Api.Endpoints.Auth;
 using Alas.Api.Security;
 using Alas.Application.Common.Security;
 using Alas.Infrastructure.Identity;
 using Alas.Infrastructure.Persistence;
 using Alas.Infrastructure.Security;
+using FluentValidation;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
@@ -14,6 +16,7 @@ using Microsoft.IdentityModel.Tokens;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// ── Rate Limiting ────────────────────────────────────────────────────────────
 builder.Services.AddMemoryCache();
 builder.Services.AddRateLimiter(options =>
 {
@@ -23,7 +26,7 @@ builder.Services.AddRateLimiter(options =>
         var ipAddress = context.Connection.RemoteIpAddress?.ToString() ?? "unknown";
 
         return RateLimitPartition.GetFixedWindowLimiter(
-            partitionKey: $"auth: {ipAddress}",
+            partitionKey: $"auth:{ipAddress}",
             factory: _ => new FixedWindowRateLimiterOptions
             {
                 PermitLimit = 20,
@@ -33,6 +36,7 @@ builder.Services.AddRateLimiter(options =>
     });
 });
 
+// ── Database ─────────────────────────────────────────────────────────────────
 builder.Services.AddDbContext<AlasDbContext>(options =>
 {
     options.UseSqlServer(
@@ -45,6 +49,7 @@ builder.Services.AddDbContext<AlasDbContext>(options =>
     options.UseQueryTrackingBehavior(QueryTrackingBehavior.NoTracking);
 });
 
+// ── Identity ─────────────────────────────────────────────────────────────────
 builder.Services.AddIdentityCore<AppUser>(options =>
     {
         options.User.RequireUniqueEmail = true;
@@ -63,20 +68,12 @@ builder.Services.AddIdentityCore<AppUser>(options =>
     .AddEntityFrameworkStores<AlasDbContext>()
     .AddDefaultTokenProviders();
 
+// ── JWT Configuration ────────────────────────────────────────────────────────
 builder.Services.Configure<JwtOptions>(builder.Configuration.GetSection("Jwt"));
-
-builder.Services.AddScoped<TokenService>();
-builder.Services.AddScoped<RefreshTokenService>();
-builder.Services.AddScoped<AuthService>();
-builder.Services.AddScoped<IUserPermissionProvider, UserPermissionProvider>();
-builder.Services.AddScoped<IAuthorizationHandler, PermissionAuthorizationHandler>();
-
-
-builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen();
 
 var jwtOptions = builder.Configuration.GetSection("Jwt")
     .Get<JwtOptions>() ?? throw new InvalidOperationException("JWT options are missing.");
+
 builder.Services
     .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
@@ -97,22 +94,59 @@ builder.Services
         };
     });
 
+// ── Authorization (Permission-based RBAC) ────────────────────────────────────
 builder.Services.AddAuthorization(options =>
 {
     foreach (var permission in AlasPermissions.All)
     {
         options.AddPolicy(permission, policy =>
         {
-            policy.RequirePermission(permission)
-                ;
+            policy.RequirePermission(permission);
         });
     }
 });
 
+// ── Application Services ─────────────────────────────────────────────────────
+builder.Services.AddHttpContextAccessor();
+builder.Services.AddScoped<TokenService>();
+builder.Services.AddScoped<RefreshTokenService>();
+builder.Services.AddScoped<AuthService>();
+builder.Services.AddScoped<IUserPermissionProvider, UserPermissionProvider>();
+builder.Services.AddScoped<IAuthorizationHandler, PermissionAuthorizationHandler>();
+
+// ── FluentValidation ─────────────────────────────────────────────────────────
+builder.Services.AddValidatorsFromAssemblyContaining<LoginRequestValidator>();
+
+// ── CORS ─────────────────────────────────────────────────────────────────────
+var frontendOrigins = builder.Configuration
+    .GetSection("Frontend:Origins")
+    .Get<string[]>() ?? ["http://localhost:5173"];
+
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy("frontend", policy =>
+    {
+        policy
+            .WithOrigins(frontendOrigins)
+            .AllowAnyHeader()
+            .AllowAnyMethod()
+            .AllowCredentials();
+    });
+});
+
+// ── Swagger ──────────────────────────────────────────────────────────────────
 builder.Services.AddEndpointsApiExplorer();
+builder.Services.AddSwaggerGen();
 
 var app = builder.Build();
 
+// ── Seed RBAC in Development ────────────────────────────────────────────────
+if (app.Environment.IsDevelopment())
+{
+    await RbacSeeder.SeedAsync(app.Services);
+}
+
+// ── Middleware Pipeline ──────────────────────────────────────────────────────
 if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
@@ -120,11 +154,10 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseHttpsRedirection();
+app.UseCors("frontend");
 app.UseRateLimiter();
 app.UseAuthentication();
 app.UseAuthorization();
 app.MapAuthEndpoints();
 
-
 app.Run();
-

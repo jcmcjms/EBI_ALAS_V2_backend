@@ -2,25 +2,53 @@
 
 public static class AlasRoles
 {
+    public const string SuperAdmin = "SuperAdmin";
     public const string Admin = "Admin";
+    public const string LoanManager = "LoanManager";
+    public const string LoanOfficer = "LoanOfficer";
     public const string Auditor = "Auditor";
-    public const string Approver = "Approver";
 
-    public static readonly Dictionary<string, string[]> Matrix = new()
-    {
-        [Admin] = AlasPermissions.All,
+    public static readonly string[] All =
+    [
+        SuperAdmin,
+        Admin,
+        LoanManager,
+        LoanOfficer,
+        Auditor
+    ];
 
-        [Auditor] =
-        [
-            AlasPermissions.LoansRead,
-            AlasPermissions.ReportsRead,
-            AlasPermissions.AuditRead
-        ],
+    public static readonly IReadOnlyDictionary<string, string[]> Matrix =
+        new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase)
+        {
+            [SuperAdmin] = [AlasPermissions.SuperAdmin],
 
-        [Approver] =
-        [
-            AlasPermissions.LoansRead,
-            AlasPermissions.LoansApprove
-        ]
-    };
+            [Admin] =
+            [
+                AlasPermissions.UsersManage,
+                AlasPermissions.RolesManage,
+                AlasPermissions.AuditRead,
+                AlasPermissions.DashboardAdmin
+            ],
+
+            [LoanManager] =
+            [
+                AlasPermissions.LoansRead,
+                AlasPermissions.LoansCreate,
+                AlasPermissions.LoansApprove,
+                AlasPermissions.LoansMonitor
+            ],
+
+            [LoanOfficer] =
+            [
+                AlasPermissions.LoansRead,
+                AlasPermissions.LoansCreate,
+                AlasPermissions.LoansMonitor
+            ],
+
+            [Auditor] =
+            [
+                AlasPermissions.LoansRead,
+                AlasPermissions.AuditRead
+            ]
+        };
 }

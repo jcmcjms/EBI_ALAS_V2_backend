@@ -4,5 +4,3 @@ public static class AlasPolicies
 {
     public const string Mfa = "Mfa";
 }
-
-public static class Al;

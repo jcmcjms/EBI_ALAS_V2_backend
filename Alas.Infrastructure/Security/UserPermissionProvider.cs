@@ -5,7 +5,7 @@ using Microsoft.Extensions.Caching.Memory;
 
 namespace Alas.Infrastructure.Security;
 
-public class UserPermissionProvider: IUserPermissionProvider
+public class UserPermissionProvider : IUserPermissionProvider
 {
     private static readonly TimeSpan CacheDuration = TimeSpan.FromSeconds(60);
 
@@ -29,20 +29,24 @@ public class UserPermissionProvider: IUserPermissionProvider
 
         var user = await _context.Users
             .AsNoTracking()
-            .Where(e => e.Id == userId)
-            .Select(e => new
+            .Where(x => x.Id == userId)
+            .Select(x => new
             {
-                e.IsActive,
-                e.PermissionVersion
+                x.IsActive,
+                x.PermissionVersion
             })
             .FirstOrDefaultAsync(cancellationToken);
 
         if (user is null)
         {
-            return new UserPermissionSet(userId, false, 0, new HashSet<string>(StringComparer.Ordinal));
+            return new UserPermissionSet(
+                userId,
+                false,
+                0,
+                new HashSet<string>(StringComparer.Ordinal));
         }
 
-        var permissions = await _context.UserRoles
+        var rawPermissions = await _context.UserRoles
             .AsNoTracking()
             .Where(userRole => userRole.UserId == userId)
             .Join(
@@ -55,11 +59,16 @@ public class UserPermissionProvider: IUserPermissionProvider
             .Distinct()
             .ToListAsync(cancellationToken);
 
+        var permissions = rawPermissions
+            .Where(p => !string.IsNullOrWhiteSpace(p))
+            .Select(AlasPermissions.Normalize)
+            .ToHashSet(StringComparer.Ordinal);
+
         var permissionSet = new UserPermissionSet(
             userId,
             user.IsActive,
             user.PermissionVersion,
-            permissions.ToHashSet(StringComparer.Ordinal));
+            permissions);
 
         _cache.Set(cacheKey, permissionSet, CacheDuration);
         return permissionSet;

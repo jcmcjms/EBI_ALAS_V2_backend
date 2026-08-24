@@ -4,5 +4,4 @@ public sealed record UserPermissionSet(
     Guid UserId,
     bool IsActive,
     int PermissionVersion,
-    bool TwoFactorEnabled,
     IReadOnlySet<string> Permissions);
