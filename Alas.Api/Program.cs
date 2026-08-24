@@ -1,11 +1,21 @@
 using System.Text;
 using System.Threading.RateLimiting;
 using Alas.Api.Endpoints;
+using Alas.Api.Endpoints.Admin;
 using Alas.Api.Endpoints.Auth;
+using Alas.Api.Endpoints.Audit;
+using Alas.Api.Endpoints.Loans;
 using Alas.Api.Security;
+using Alas.Application.Admin.Roles;
+using Alas.Application.Admin.Users;
+using Alas.Application.Audit;
+using Alas.Application.Common.Auditing;
 using Alas.Application.Common.Security;
+using Alas.Application.Loans;
+using Alas.Infrastructure.Auditing;
 using Alas.Infrastructure.Identity;
 using Alas.Infrastructure.Persistence;
+using Alas.Infrastructure.Services;
 using Alas.Infrastructure.Security;
 using FluentValidation;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -114,6 +124,17 @@ builder.Services.AddScoped<AuthService>();
 builder.Services.AddScoped<IUserPermissionProvider, UserPermissionProvider>();
 builder.Services.AddScoped<IAuthorizationHandler, PermissionAuthorizationHandler>();
 
+// ── Domain Services ──────────────────────────────────────────────────────────
+builder.Services.AddScoped<UserService>();
+builder.Services.AddScoped<RoleService>();
+builder.Services.AddScoped<LoanService>();
+builder.Services.AddScoped<AuditQueryService>();
+
+// ── Audit Infrastructure ─────────────────────────────────────────────────────
+builder.Services.AddSingleton<AuditChannel>();
+builder.Services.AddSingleton<IAuditLogger, ChannelAuditLogger>();
+builder.Services.AddHostedService<AuditQueueWriter>();
+
 // ── FluentValidation ─────────────────────────────────────────────────────────
 builder.Services.AddValidatorsFromAssemblyContaining<LoginRequestValidator>();
 
@@ -158,6 +179,11 @@ app.UseCors("frontend");
 app.UseRateLimiter();
 app.UseAuthentication();
 app.UseAuthorization();
+
 app.MapAuthEndpoints();
+app.MapUserEndpoints();
+app.MapRoleEndpoints();
+app.MapLoanEndpoints();
+app.MapAuditEndpoints();
 
 app.Run();

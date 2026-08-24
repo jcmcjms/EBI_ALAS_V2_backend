@@ -1,25 +1,29 @@
-﻿using Alas.Infrastructure.Auditing;
+﻿using Alas.Domain.Entities;
+using Alas.Infrastructure.Auditing;
 using Alas.Infrastructure.Identity;
+using Alas.Infrastructure.Loans;
 using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
 
 namespace Alas.Infrastructure.Persistence;
 
-public class AlasDbContext: IdentityDbContext<AppUser, AppRole, Guid>
+public class AlasDbContext : IdentityDbContext<AppUser, AppRole, Guid>
 {
     public AlasDbContext(DbContextOptions<AlasDbContext> options) : base(options)
     {
-        
     }
 
     public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
     public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
+    public DbSet<Loan> Loans => Set<Loan>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {
         builder.HasDefaultSchema("identity");
-        
+
         base.OnModelCreating(builder);
+
+        builder.ApplyConfigurationsFromAssembly(typeof(AlasDbContext).Assembly);
 
         builder.Entity<AppUser>(entity =>
         {
@@ -68,8 +72,8 @@ public class AlasDbContext: IdentityDbContext<AppUser, AppRole, Guid>
             entity.Property(e => e.Action)
                 .HasMaxLength(200)
                 .IsRequired();
-            
-            
         });
+
+        builder.ApplyConfigurationsFromAssembly(typeof(LoanEntityConfiguration).Assembly);
     }
 }

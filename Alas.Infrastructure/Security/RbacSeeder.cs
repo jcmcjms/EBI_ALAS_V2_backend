@@ -22,6 +22,15 @@ public static class RbacSeeder
 
     private static async Task SeedRolesAsync(RoleManager<AppRole> roleManager)
     {
+        var descriptions = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            [AlasRoles.SuperAdmin] = "Full system access with all permissions",
+            [AlasRoles.Admin] = "Manages users, roles, and system settings",
+            [AlasRoles.LoanManager] = "Approves and monitors loan applications",
+            [AlasRoles.LoanOfficer] = "Creates and processes loan applications",
+            [AlasRoles.Auditor] = "Read-only access to loans and audit logs"
+        };
+
         foreach (var roleName in AlasRoles.All)
         {
             if (!await roleManager.RoleExistsAsync(roleName))
@@ -29,7 +38,8 @@ public static class RbacSeeder
                 await roleManager.CreateAsync(new AppRole
                 {
                     Name = roleName,
-                    NormalizedName = roleName.ToUpperInvariant()
+                    NormalizedName = roleName.ToUpperInvariant(),
+                    Description = descriptions.GetValueOrDefault(roleName, $"{roleName} role")
                 });
             }
         }
