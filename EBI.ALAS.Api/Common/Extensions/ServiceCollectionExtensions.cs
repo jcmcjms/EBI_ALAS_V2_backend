@@ -3,6 +3,7 @@ using EBI.ALAS.Api.Features.Auth;
 using EBI.ALAS.Api.Features.Dashboard;
 using EBI.ALAS.Api.Features.Loans;
 using EBI.ALAS.Api.Features.Users;
+using EBI.ALAS.Api.Features.WebLoans;
 using EBI.ALAS.Api.Infrastructure.Data;
 using Microsoft.AspNetCore.Authorization;
 
@@ -39,6 +40,9 @@ public static class ServiceCollectionExtensions
         // ─── User Management Services ────────────────────────────────────
         services.AddScoped<IUserRepository, UserRepository>();
         services.AddScoped<IUserService, UserService>();
+
+        // ─── WebLoan Integration (read-only) ─────────────────────────────
+        services.AddScoped<IWebLoanService, WebLoanService>();
 
         // ─── Authorization ───────────────────────────────────────────────
         services.AddScoped<IAuthorizationHandler, PermissionAuthorizationHandler>();

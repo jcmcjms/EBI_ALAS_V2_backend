@@ -12,6 +12,7 @@ using EBI.ALAS.Api.Features.Dashboard;
 using EBI.ALAS.Api.Features.Loans;
 using EBI.ALAS.Api.Features.RoleManagement;
 using EBI.ALAS.Api.Features.Users;
+using EBI.ALAS.Api.Features.WebLoans;
 using EBI.ALAS.Api.Infrastructure.Data;
 using EBI.ALAS.Api.Infrastructure.Interceptors;
 using FluentValidation;
@@ -33,6 +34,14 @@ builder.Services.AddDbContext<AppDbContext>(options =>
 {
     options.UseSqlServer(configuration.GetConnectionString("DefaultConnection"));
     options.AddInterceptors(new AuditSaveChangesInterceptor());
+});
+
+// WebLoan system database (same server, read-only access)
+builder.Services.AddDbContext<WebLoanDbContext>(options =>
+{
+    options.UseSqlServer(configuration.GetConnectionString("WebLoanConnection"));
+    options.UseQueryTrackingBehavior(QueryTrackingBehavior.NoTracking); // read-only: skip change tracking
+    options.AddInterceptors(new WebLoanReadOnlyInterceptor());          // blocks any write/DDL SQL before it reaches the DB
 });
 
 // ─── Authentication ──────────────────────────────────────────────────────────
@@ -232,6 +241,9 @@ app.MapRoleEndpoints();
 
 // Loan endpoints
 app.MapLoanEndpoints();
+
+// WebLoan integration endpoints (read-only fetch from webloan DB)
+app.MapWebLoanEndpoints();
 
 // Dashboard endpoints
 app.MapDashboardEndpoints();
