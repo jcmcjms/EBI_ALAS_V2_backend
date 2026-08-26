@@ -3,12 +3,15 @@ using System.Security.Claims;
 using System.Text;
 using Microsoft.AspNetCore.RateLimiting;
 using EBI.ALAS.Api.Common.Authorization;
+using EBI.ALAS.Api.Common.Constants;
 using EBI.ALAS.Api.Common.Extensions;
 using EBI.ALAS.Api.Common.Middleware;
 using EBI.ALAS.Api.Common.Models;
 using EBI.ALAS.Api.Features.Auth;
 using EBI.ALAS.Api.Features.Dashboard;
 using EBI.ALAS.Api.Features.Loans;
+using EBI.ALAS.Api.Features.RoleManagement;
+using EBI.ALAS.Api.Features.Users;
 using EBI.ALAS.Api.Infrastructure.Data;
 using EBI.ALAS.Api.Infrastructure.Interceptors;
 using FluentValidation;
@@ -81,18 +84,33 @@ builder.Services.AddAuthentication(options =>
 // ─── Authorization ───────────────────────────────────────────────────────────
 builder.Services.AddAuthorization(options =>
 {
+    // Loan policies
     options.AddPolicy("CanCreateLoan", policy =>
-        policy.Requirements.Add(new PermissionRequirement("loans.create")));
+        policy.Requirements.Add(new PermissionRequirement(Permissions.LoansCreate)));
     options.AddPolicy("CanViewLoan", policy =>
-        policy.Requirements.Add(new PermissionRequirement("loans.view")));
+        policy.Requirements.Add(new PermissionRequirement(Permissions.LoansView)));
     options.AddPolicy("CanRecommendLoan", policy =>
-        policy.Requirements.Add(new PermissionRequirement("loans.recommend")));
+        policy.Requirements.Add(new PermissionRequirement(Permissions.LoansRecommend)));
     options.AddPolicy("CanEvaluateLoan", policy =>
-        policy.Requirements.Add(new PermissionRequirement("loans.evaluate")));
+        policy.Requirements.Add(new PermissionRequirement(Permissions.LoansEvaluate)));
     options.AddPolicy("CanApproveLoan", policy =>
-        policy.Requirements.Add(new PermissionRequirement("loans.approve")));
+        policy.Requirements.Add(new PermissionRequirement(Permissions.LoansApprove)));
     options.AddPolicy("CanRejectLoan", policy =>
-        policy.Requirements.Add(new PermissionRequirement("loans.reject")));
+        policy.Requirements.Add(new PermissionRequirement(Permissions.LoansReject)));
+
+    // User management policies
+    options.AddPolicy("CanViewUsers", policy =>
+        policy.Requirements.Add(new PermissionRequirement(Permissions.UserView)));
+    options.AddPolicy("CanCreateUsers", policy =>
+        policy.Requirements.Add(new PermissionRequirement(Permissions.UserCreate)));
+    options.AddPolicy("CanEditUsers", policy =>
+        policy.Requirements.Add(new PermissionRequirement(Permissions.UserEdit)));
+    options.AddPolicy("CanSuspendUsers", policy =>
+        policy.Requirements.Add(new PermissionRequirement(Permissions.UserSuspend)));
+
+    // Role policies
+    options.AddPolicy("CanViewRoles", policy =>
+        policy.Requirements.Add(new PermissionRequirement(Permissions.RoleView)));
 });
 
 // ─── CORS ────────────────────────────────────────────────────────────────────
@@ -205,6 +223,12 @@ app.MapHealthChecks("/health");
 
 // Auth endpoints
 app.MapAuthEndpoints();
+
+// User management endpoints
+app.MapUserEndpoints();
+
+// Role management endpoints
+app.MapRoleEndpoints();
 
 // Loan endpoints
 app.MapLoanEndpoints();

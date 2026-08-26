@@ -2,6 +2,7 @@ using EBI.ALAS.Api.Common.Authorization;
 using EBI.ALAS.Api.Features.Auth;
 using EBI.ALAS.Api.Features.Dashboard;
 using EBI.ALAS.Api.Features.Loans;
+using EBI.ALAS.Api.Features.Users;
 using EBI.ALAS.Api.Infrastructure.Data;
 using Microsoft.AspNetCore.Authorization;
 
@@ -34,6 +35,10 @@ public static class ServiceCollectionExtensions
 
         // ─── Dashboard Services ──────────────────────────────────────────
         services.AddScoped<IDashboardService, DashboardService>();
+
+        // ─── User Management Services ────────────────────────────────────
+        services.AddScoped<IUserRepository, UserRepository>();
+        services.AddScoped<IUserService, UserService>();
 
         // ─── Authorization ───────────────────────────────────────────────
         services.AddScoped<IAuthorizationHandler, PermissionAuthorizationHandler>();
