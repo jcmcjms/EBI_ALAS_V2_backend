@@ -480,3 +480,6 @@ $RECYCLE.BIN/
 
 # Vim temporary swap files
 *.swp
+
+# Local developer configuration (contains environment-specific credentials)
+EBI.ALAS.Api/appsettings.Development.json

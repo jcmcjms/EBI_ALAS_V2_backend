@@ -1,6 +1,0 @@
-<Solution>
-  <Project Path="Alas.Api/Alas.Api.csproj" />
-  <Project Path="Alas.Application/Alas.Application.csproj" />
-  <Project Path="Alas.Domain/Alas.Domain.csproj" />
-  <Project Path="Alas.Infrastructure/Alas.Infrastructure.csproj" />
-</Solution>

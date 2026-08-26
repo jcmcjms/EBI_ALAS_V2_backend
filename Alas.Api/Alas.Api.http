@@ -1,6 +1,0 @@
-@Alas.Api_HostAddress = http://localhost:5098
-
-GET {{Alas.Api_HostAddress}}/weatherforecast/
-Accept: application/json
-
-###
