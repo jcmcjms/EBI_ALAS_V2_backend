@@ -37,4 +37,11 @@ public class LoanData
 
     // Close/payoff detection
     [Column("close_date")] public DateTime? CloseDate { get; set; }
+
+    /// <summary>
+    /// Loan classification code: 0 New Loan, 1 Reloan, 2 Reconstructed,
+    /// 3 Continuation, 4 Extension, 5 Renewal, 6 Additional Loan.
+    /// Labels resolved via WebLoanCreationTypes.
+    /// </summary>
+    [Column("creation_type")] public byte? CreationType { get; set; }
 }

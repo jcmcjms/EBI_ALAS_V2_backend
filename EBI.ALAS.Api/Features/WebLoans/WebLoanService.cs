@@ -62,6 +62,12 @@ public class WebLoanService : IWebLoanService
             ? null
             : products.FirstOrDefault(p => p.IdCode == code)?.Description;
 
+        // Most recent non-closed PN drives both BranchAndType.Type and LoanInformation.
+        var latestActiveLoan = loans
+            .Where(l => l.CloseDate is null)
+            .OrderByDescending(l => l.DateGranted)
+            .FirstOrDefault();
+
         var response = new WebLoanBorrowerResponse
         {
             // ─── Branch & Type ────────────────────────────────────────
@@ -69,7 +75,8 @@ public class WebLoanService : IWebLoanService
             {
                 CisNo = cis.CisNo,
                 BranchCode = cis.BranchCode,
-                Type = accounts.FirstOrDefault()?.BorrowerType,
+                Type = WebLoanCreationTypes.GetLabel(latestActiveLoan?.CreationType),
+                TypeCode = latestActiveLoan?.CreationType,
                 Lai = accounts.Select(a => a.AccountNo).ToList()
             },
 
@@ -93,7 +100,7 @@ public class WebLoanService : IWebLoanService
             },
 
             // Loan Information — driven by the most recent non-closed PN
-            LoanInformation = BuildLoanInformation(loans, StatusDesc, ProductDesc),
+            LoanInformation = BuildLoanInformation(latestActiveLoan, ProductDesc),
 
             // Outstanding Loans — exclude closed & payoff/write-off accounts
             OutstandingLoans = loans
@@ -135,16 +142,9 @@ public class WebLoanService : IWebLoanService
     }
 
     private static LoanInformationSection BuildLoanInformation(
-        List<LoanData> loans,
-        Func<byte?, string?> statusDesc,
+        LoanData? latest,
         Func<string?, string?> productDesc)
     {
-        // Most recent active (non-closed) loan represents current loan parameters.
-        var latest = loans
-            .Where(l => l.CloseDate is null)
-            .OrderByDescending(l => l.DateGranted)
-            .FirstOrDefault();
-
         if (latest is null)
             return new LoanInformationSection();
 

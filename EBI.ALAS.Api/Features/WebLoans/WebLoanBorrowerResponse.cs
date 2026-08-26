@@ -22,8 +22,14 @@ public class WebLoanBorrowerResponse
 /// </summary>
 public class BranchAndTypeSection
 {
-    /// <summary>Borrower type from webloan (e.g. LAI classification).</summary>
+    /// <summary>
+    /// Loan type label from loan_data.creation_type of the borrower's most recent
+    /// active loan (e.g. "Reloan", "New Loan"). Display this in the frontend.
+    /// </summary>
     public string? Type { get; set; }
+
+    /// <summary>Raw creation_type code for frontend logic/filtering (0=New, 1=Reloan, ...).</summary>
+    public int? TypeCode { get; set; }
 
     /// <summary>Branch code (webloan bch) of the client's home branch.</summary>
     public string? BranchCode { get; set; }
