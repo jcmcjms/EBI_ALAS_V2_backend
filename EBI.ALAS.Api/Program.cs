@@ -8,6 +8,7 @@ using EBI.ALAS.Api.Common.Extensions;
 using EBI.ALAS.Api.Common.Middleware;
 using EBI.ALAS.Api.Common.Models;
 using EBI.ALAS.Api.Features.Auth;
+using EBI.ALAS.Api.Features.Branches;
 using EBI.ALAS.Api.Features.Dashboard;
 using EBI.ALAS.Api.Features.Loans;
 using EBI.ALAS.Api.Features.RoleManagement;
@@ -238,6 +239,9 @@ app.MapUserEndpoints();
 
 // Role management endpoints
 app.MapRoleEndpoints();
+
+// Branch endpoints
+app.MapBranchEndpoints();
 
 // Loan endpoints
 app.MapLoanEndpoints();

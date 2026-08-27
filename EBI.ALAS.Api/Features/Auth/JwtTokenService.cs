@@ -1,5 +1,6 @@
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
+using System.Security.Cryptography;
 using System.Text;
 using EBI.ALAS.Api.Common.Constants;
 using Microsoft.IdentityModel.Tokens;
@@ -65,6 +66,22 @@ public class JwtTokenService : IJwtTokenService
         return new JwtSecurityTokenHandler().WriteToken(token);
     }
 
+    public string GenerateRefreshToken()
+    {
+        // Generate 64 cryptographically secure random bytes → 128-char hex string
+        var randomBytes = new byte[64];
+        using var rng = RandomNumberGenerator.Create();
+        rng.GetBytes(randomBytes);
+        return Convert.ToHexString(randomBytes).ToLowerInvariant();
+    }
+
+    public string HashRefreshToken(string refreshToken)
+    {
+        var bytes = Encoding.UTF8.GetBytes(refreshToken);
+        var hash = SHA256.HashData(bytes);
+        return Convert.ToHexString(hash).ToLowerInvariant();
+    }
+
     public ClaimsPrincipal? ValidateToken(string token)
     {
         try
@@ -105,4 +122,14 @@ public class JwtSettings
     public string Issuer { get; set; } = string.Empty;
     public string Audience { get; set; } = string.Empty;
     public int ExpiryMinutes { get; set; } = 15;
+
+    /// <summary>
+    /// Refresh token sliding window expiry in days (default: 7 days).
+    /// </summary>
+    public int RefreshTokenExpiryDays { get; set; } = 7;
+
+    /// <summary>
+    /// Absolute session maximum in days — forces re-login (default: 14 days).
+    /// </summary>
+    public int AbsoluteSessionExpiryDays { get; set; } = 14;
 }

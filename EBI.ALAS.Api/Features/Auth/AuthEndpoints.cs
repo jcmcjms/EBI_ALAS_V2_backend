@@ -8,21 +8,32 @@ namespace EBI.ALAS.Api.Features.Auth;
 
 /// <summary>
 /// Authentication endpoint definitions using Minimal APIs.
+/// Access token: returned in JSON body, stored in-memory on frontend (Zustand).
+/// Refresh token: stored in HttpOnly cookie — invisible to JavaScript, XSS-proof.
 /// </summary>
 public static class AuthEndpoints
 {
+    private const string RefreshTokenCookieName = "refreshToken";
+
     public static void MapAuthEndpoints(this WebApplication app)
     {
         var group = app.MapGroup("/api/auth")
             .WithTags("Authentication");
 
+        // ─────────────────────────────────────────────────────────────────
         // POST /api/auth/login
+        // Authenticates the user, sets refresh token as HttpOnly cookie,
+        // returns access token in JSON body.
+        // ─────────────────────────────────────────────────────────────────
         group.MapPost("/login", async (
             [FromBody] LoginRequest request,
             IValidator<LoginRequest> validator,
             IAuthRepository authRepository,
             IPasswordHasher passwordHasher,
             IJwtTokenService jwtTokenService,
+            IRefreshTokenRepository refreshTokenRepository,
+            IConfiguration configuration,
+            HttpContext http,
             ILogger<Program> logger) =>
         {
             // Validate request
@@ -54,17 +65,48 @@ public static class AuthEndpoints
                 return Results.Unauthorized();
             }
 
-            // Generate JWT token
-            var token = jwtTokenService.GenerateToken(user);
-            var expiresAt = DateTime.UtcNow.AddMinutes(15); // Match JWT expiry
+            // ── Generate Access Token ──────────────────────────────────
+            var accessToken = jwtTokenService.GenerateToken(user);
+            var jwtSettings = configuration.GetSection("Jwt").Get<JwtSettings>()!;
+            var accessExpiresAt = DateTime.UtcNow.AddMinutes(jwtSettings.ExpiryMinutes);
+
+            // ── Generate Refresh Token ─────────────────────────────────
+            var rawRefreshToken = jwtTokenService.GenerateRefreshToken();
+            var refreshTokenHash = jwtTokenService.HashRefreshToken(rawRefreshToken);
+
+            var refreshExpiry = DateTime.UtcNow.AddDays(jwtSettings.RefreshTokenExpiryDays);
+            var absoluteExpiry = DateTime.UtcNow.AddDays(jwtSettings.AbsoluteSessionExpiryDays);
+
+            // Store hashed refresh token in database
+            await refreshTokenRepository.CreateRefreshTokenAsync(
+                user.Id, refreshTokenHash, refreshExpiry, absoluteExpiry);
+
+            // ── Set HttpOnly Cookie ────────────────────────────────────
+            var cookieOptions = new CookieOptions
+            {
+                HttpOnly = true,                                          // Invisible to JavaScript (XSS-proof)
+                Secure = true,                                            // HTTPS only in production
+                SameSite = SameSiteMode.Strict,                           // CSRF protection (same-origin only)
+                Expires = refreshExpiry,                                  // Browser auto-expires
+                Path = "/api/auth",                                       // Scoped to auth endpoints only
+                IsEssential = true                                        // GDPR: consent not required
+            };
+
+            // In Development over plain HTTP, Secure must be false
+            if (http.Request.Host.Host == "localhost" || http.Request.Host.Host == "127.0.0.1")
+            {
+                cookieOptions.Secure = false;
+            }
+
+            http.Response.Cookies.Append(RefreshTokenCookieName, rawRefreshToken, cookieOptions);
 
             logger.LogInformation("User {Username} logged in successfully", user.Username);
 
             return Results.Ok(ApiResponse<LoginResponse>.SuccessResponse(
                 new LoginResponse
                 {
-                    Token = token,
-                    ExpiresAt = expiresAt
+                    AccessToken = accessToken,
+                    ExpiresAt = accessExpiresAt
                 },
                 "Login successful"));
         })
@@ -74,33 +116,152 @@ public static class AuthEndpoints
         .Produces<ApiResponse>(400)
         .RequireRateLimiting("LoginLimiter");
 
-        // POST /api/auth/logout
-        group.MapPost("/logout", async (
-            ClaimsPrincipal user,
-            ITokenRevocationRepository tokenRevocationRepository,
+        // ─────────────────────────────────────────────────────────────────
+        // POST /api/auth/refresh
+        // Silent token refresh: reads refresh token from HttpOnly cookie,
+        // validates, rotates (revokes old + issues new), returns new access token.
+        // Called by frontend useAuthInit on mount and by Axios interceptor on 401.
+        // ─────────────────────────────────────────────────────────────────
+        group.MapPost("/refresh", async (
+            HttpContext http,
+            IAuthRepository authRepository,
             IJwtTokenService jwtTokenService,
+            IRefreshTokenRepository refreshTokenRepository,
+            ITokenRevocationRepository tokenRevocationRepository,
+            IConfiguration configuration,
             ILogger<Program> logger) =>
         {
-            // Extract the JTI from the current token
+            // ── Read refresh token from HttpOnly cookie ────────────────
+            if (!http.Request.Cookies.TryGetValue(RefreshTokenCookieName, out var rawRefreshToken)
+                || string.IsNullOrEmpty(rawRefreshToken))
+            {
+                logger.LogDebug("Refresh endpoint called without refresh token cookie");
+                return Results.Unauthorized();
+            }
+
+            // ── Validate against database ──────────────────────────────
+            var tokenHash = jwtTokenService.HashRefreshToken(rawRefreshToken);
+            var storedToken = await refreshTokenRepository.GetActiveTokenByHashAsync(tokenHash);
+
+            if (storedToken == null)
+            {
+                logger.LogWarning("Refresh token not found, revoked, or expired");
+                return Results.Unauthorized();
+            }
+
+            // ── Resolve user for new access token ─────────────────────
+            var user = await authRepository.GetUserByIdAsync(storedToken.UserId);
+
+            if (user == null || !user.IsActive)
+            {
+                logger.LogWarning("Refresh token belongs to inactive or missing user {UserId}", storedToken.UserId);
+                return Results.Unauthorized();
+            }
+
+            // ── Rotate: Revoke old, issue new ─────────────────────────
+            await refreshTokenRepository.RevokeTokenAsync(tokenHash);
+
+            // Also revoke the current access token JTI if present (optional extra security)
+            // This ensures the old access token can't be used after refresh
+            var currentJti = http.User?.FindFirstValue(JwtRegisteredClaimNames.Jti);
+            if (!string.IsNullOrEmpty(currentJti) && int.TryParse(http.User?.FindFirstValue("userId"), out var currentUserId))
+            {
+                var currentExpiry = DateTime.UtcNow.AddMinutes(
+                    configuration.GetSection("Jwt").Get<JwtSettings>()!.ExpiryMinutes);
+                await tokenRevocationRepository.RevokeTokenAsync(currentJti, currentUserId, currentExpiry);
+            }
+
+            // Issue new access token
+            var newAccessToken = jwtTokenService.GenerateToken(user);
+            var jwtSettings = configuration.GetSection("Jwt").Get<JwtSettings>()!;
+            var newAccessExpiresAt = DateTime.UtcNow.AddMinutes(jwtSettings.ExpiryMinutes);
+
+            // Issue new refresh token
+            var newRawRefreshToken = jwtTokenService.GenerateRefreshToken();
+            var newRefreshTokenHash = jwtTokenService.HashRefreshToken(newRawRefreshToken);
+
+            var newRefreshExpiry = DateTime.UtcNow.AddDays(jwtSettings.RefreshTokenExpiryDays);
+            var newAbsoluteExpiry = DateTime.UtcNow.AddDays(jwtSettings.AbsoluteSessionExpiryDays);
+
+            await refreshTokenRepository.CreateRefreshTokenAsync(
+                user.Id, newRefreshTokenHash, newRefreshExpiry, newAbsoluteExpiry);
+
+            // ── Set new HttpOnly cookie ────────────────────────────────
+            var cookieOptions = new CookieOptions
+            {
+                HttpOnly = true,
+                Secure = true,
+                SameSite = SameSiteMode.Strict,
+                Expires = newRefreshExpiry,
+                Path = "/api/auth",
+                IsEssential = true
+            };
+
+            if (http.Request.Host.Host == "localhost" || http.Request.Host.Host == "127.0.0.1")
+            {
+                cookieOptions.Secure = false;
+            }
+
+            http.Response.Cookies.Append(RefreshTokenCookieName, newRawRefreshToken, cookieOptions);
+
+            logger.LogInformation("Token refreshed for user {UserId}", user.Id);
+
+            return Results.Ok(ApiResponse<LoginResponse>.SuccessResponse(
+                new LoginResponse
+                {
+                    AccessToken = newAccessToken,
+                    ExpiresAt = newAccessExpiresAt
+                },
+                "Token refreshed successfully"));
+        })
+        .WithName("RefreshToken")
+        .Produces<ApiResponse<LoginResponse>>(200)
+        .Produces<ApiResponse>(401);
+
+        // ─────────────────────────────────────────────────────────────────
+        // POST /api/auth/logout
+        // Revokes both access token (blacklist) and refresh token (DB),
+        // then clears the HttpOnly cookie.
+        // ─────────────────────────────────────────────────────────────────
+        group.MapPost("/logout", async (
+            ClaimsPrincipal user,
+            HttpContext http,
+            ITokenRevocationRepository tokenRevocationRepository,
+            IRefreshTokenRepository refreshTokenRepository,
+            IJwtTokenService jwtTokenService,
+            IConfiguration configuration,
+            ILogger<Program> logger) =>
+        {
+            // ── Revoke access token (JTI blacklist) ───────────────────
             var tokenId = user.FindFirstValue(JwtRegisteredClaimNames.Jti);
             var userIdClaim = user.FindFirstValue("userId");
 
-            if (string.IsNullOrEmpty(tokenId) || string.IsNullOrEmpty(userIdClaim))
+            if (!string.IsNullOrEmpty(tokenId) && !string.IsNullOrEmpty(userIdClaim)
+                && int.TryParse(userIdClaim, out var userId))
             {
-                return Results.BadRequest(ApiResponse.ErrorResponse("Invalid token"));
+                var jwtSettings = configuration.GetSection("Jwt").Get<JwtSettings>()!;
+                var expiresAt = DateTime.UtcNow.AddMinutes(jwtSettings.ExpiryMinutes);
+                await tokenRevocationRepository.RevokeTokenAsync(tokenId, userId, expiresAt);
+                logger.LogInformation("Access token {TokenId} revoked for user {UserId}", tokenId, userId);
             }
 
-            if (!int.TryParse(userIdClaim, out var userId))
+            // ── Revoke refresh token (if present in cookie) ───────────
+            if (http.Request.Cookies.TryGetValue(RefreshTokenCookieName, out var rawRefreshToken)
+                && !string.IsNullOrEmpty(rawRefreshToken))
             {
-                return Results.BadRequest(ApiResponse.ErrorResponse("Invalid user ID in token"));
+                var tokenHash = jwtTokenService.HashRefreshToken(rawRefreshToken);
+                await refreshTokenRepository.RevokeTokenAsync(tokenHash);
+                logger.LogInformation("Refresh token revoked for user {UserId}", userIdClaim ?? "unknown");
             }
 
-            // Token expires in 15 minutes (or 60 in dev) — blacklist until then
-            var expiresAt = DateTime.UtcNow.AddMinutes(15);
-
-            await tokenRevocationRepository.RevokeTokenAsync(tokenId, userId, expiresAt);
-
-            logger.LogInformation("User {UserId} logged out, token {TokenId} revoked", userId, tokenId);
+            // ── Clear the HttpOnly cookie ──────────────────────────────
+            http.Response.Cookies.Delete(RefreshTokenCookieName, new CookieOptions
+            {
+                HttpOnly = true,
+                Secure = true,
+                SameSite = SameSiteMode.Strict,
+                Path = "/api/auth"
+            });
 
             return Results.Ok(ApiResponse.SuccessResponse("Logged out successfully"));
         })
@@ -121,11 +282,12 @@ public record LoginRequest
 }
 
 /// <summary>
-/// Login response DTO.
+/// Login response DTO — only the access token is returned.
+/// The refresh token lives in the HttpOnly cookie.
 /// </summary>
 public class LoginResponse
 {
-    public string Token { get; set; } = string.Empty;
+    public string AccessToken { get; set; } = string.Empty;
     public DateTime ExpiresAt { get; set; }
 }
 

@@ -21,6 +21,12 @@ public class AuthRepository : IAuthRepository
             .FirstOrDefaultAsync(u => u.Username == username && u.IsActive);
     }
 
+    public async Task<User?> GetUserByIdAsync(int userId)
+    {
+        return await _context.Users
+            .FirstOrDefaultAsync(u => u.Id == userId && u.IsActive);
+    }
+
     public async Task<bool> UserExistsAsync(string username)
     {
         return await _context.Users.AnyAsync(u => u.Username == username);

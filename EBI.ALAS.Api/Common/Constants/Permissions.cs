@@ -13,6 +13,10 @@ public static class Permissions
     public const string LoansApprove = "loans.approve";
     public const string LoansReject = "loans.reject";
 
+    // Loan product management permissions
+    public const string LoanProductManage = "loan_product.manage";
+    public const string LoanProductView = "loan_product.view";
+
     // User management permissions
     public const string UserCreate = "user.create";
     public const string UserView = "user.view";
@@ -34,6 +38,8 @@ public static class Permissions
         LoansEvaluate,
         LoansApprove,
         LoansReject,
+        LoanProductManage,
+        LoanProductView,
         UserCreate,
         UserView,
         UserEdit,

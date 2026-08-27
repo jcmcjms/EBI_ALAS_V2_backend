@@ -1,5 +1,6 @@
 using EBI.ALAS.Api.Common.Authorization;
 using EBI.ALAS.Api.Features.Auth;
+using EBI.ALAS.Api.Features.Branches;
 using EBI.ALAS.Api.Features.Dashboard;
 using EBI.ALAS.Api.Features.Loans;
 using EBI.ALAS.Api.Features.Users;
@@ -27,6 +28,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IPasswordHasher, PasswordHasher>();
         services.AddScoped<IAuthRepository, AuthRepository>();
         services.AddScoped<ITokenRevocationRepository, TokenRevocationRepository>();
+        services.AddScoped<IRefreshTokenRepository, RefreshTokenRepository>();
 
         // ─── Loan Services ───────────────────────────────────────────────
         services.AddScoped<ILoanRepository, LoanRepository>();
@@ -40,6 +42,10 @@ public static class ServiceCollectionExtensions
         // ─── User Management Services ────────────────────────────────────
         services.AddScoped<IUserRepository, UserRepository>();
         services.AddScoped<IUserService, UserService>();
+
+        // ─── Branch Services ──────────────────────────────────────────────
+        services.AddScoped<IBranchRepository, BranchRepository>();
+        services.AddScoped<IBranchService, BranchService>();
 
         // ─── WebLoan Integration (read-only) ─────────────────────────────
         services.AddScoped<IWebLoanService, WebLoanService>();

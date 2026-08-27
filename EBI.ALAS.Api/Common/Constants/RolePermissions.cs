@@ -37,6 +37,9 @@ public static class RolePermissions
             Permissions.LoansEvaluate,
             Permissions.LoansApprove,
             Permissions.LoansReject,
+            // Loan product management permissions
+            Permissions.LoanProductManage,
+            Permissions.LoanProductView,
             // User management permissions
             Permissions.UserCreate,
             Permissions.UserView,
