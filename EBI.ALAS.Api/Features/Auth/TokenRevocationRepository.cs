@@ -1,3 +1,4 @@
+using EBI.ALAS.Api.Common.Time;
 using EBI.ALAS.Api.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 
@@ -10,10 +11,12 @@ namespace EBI.ALAS.Api.Features.Auth;
 public class TokenRevocationRepository : ITokenRevocationRepository
 {
     private readonly AppDbContext _context;
+    private readonly ITimeProvider _timeProvider;
 
-    public TokenRevocationRepository(AppDbContext context)
+    public TokenRevocationRepository(AppDbContext context, ITimeProvider timeProvider)
     {
         _context = context;
+        _timeProvider = timeProvider;
     }
 
     public async Task RevokeTokenAsync(string tokenId, int userId, DateTime expiresAt)
@@ -23,7 +26,7 @@ public class TokenRevocationRepository : ITokenRevocationRepository
             TokenId = tokenId,
             UserId = userId,
             ExpiresAt = expiresAt,
-            RevokedAt = DateTime.UtcNow
+            RevokedAt = _timeProvider.UtcNow
         };
 
         _context.RevokedTokens.Add(revoked);
@@ -39,7 +42,7 @@ public class TokenRevocationRepository : ITokenRevocationRepository
     public async Task CleanupExpiredTokensAsync()
     {
         var expired = await _context.RevokedTokens
-            .Where(r => r.ExpiresAt < DateTime.UtcNow)
+            .Where(r => r.ExpiresAt < _timeProvider.UtcNow)
             .ToListAsync();
 
         if (expired.Count > 0)

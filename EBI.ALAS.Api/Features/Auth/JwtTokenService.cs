@@ -3,6 +3,7 @@ using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text;
 using EBI.ALAS.Api.Common.Constants;
+using EBI.ALAS.Api.Common.Time;
 using Microsoft.IdentityModel.Tokens;
 
 namespace EBI.ALAS.Api.Features.Auth;
@@ -14,11 +15,13 @@ public class JwtTokenService : IJwtTokenService
 {
     private readonly IConfiguration _configuration;
     private readonly ILogger<JwtTokenService> _logger;
+    private readonly ITimeProvider _timeProvider;
 
-    public JwtTokenService(IConfiguration configuration, ILogger<JwtTokenService> logger)
+    public JwtTokenService(IConfiguration configuration, ILogger<JwtTokenService> logger, ITimeProvider timeProvider)
     {
         _configuration = configuration;
         _logger = logger;
+        _timeProvider = timeProvider;
     }
 
     public string GenerateToken(User user)
@@ -34,7 +37,7 @@ public class JwtTokenService : IJwtTokenService
         {
             new Claim(JwtRegisteredClaimNames.Sub, user.Id.ToString()),
             new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()),
-            new Claim(JwtRegisteredClaimNames.Iat, DateTimeOffset.UtcNow.ToUnixTimeSeconds().ToString(), ClaimValueTypes.Integer64),
+            new Claim(JwtRegisteredClaimNames.Iat, _timeProvider.UtcNowOffset.ToUnixTimeSeconds().ToString(), ClaimValueTypes.Integer64),
             new Claim("userId", user.Id.ToString()),
             new Claim("username", user.Username),
             new Claim("firstName", user.FirstName),
@@ -60,7 +63,7 @@ public class JwtTokenService : IJwtTokenService
             issuer: jwtSettings.Issuer,
             audience: jwtSettings.Audience,
             claims: claims,
-            expires: DateTime.UtcNow.AddMinutes(jwtSettings.ExpiryMinutes),
+            expires: _timeProvider.UtcNow.AddMinutes(jwtSettings.ExpiryMinutes),
             signingCredentials: credentials
         );
 

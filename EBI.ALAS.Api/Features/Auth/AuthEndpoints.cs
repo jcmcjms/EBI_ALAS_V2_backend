@@ -1,6 +1,7 @@
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using EBI.ALAS.Api.Common.Models;
+using EBI.ALAS.Api.Common.Time;
 using FluentValidation;
 using Microsoft.AspNetCore.Mvc;
 
@@ -34,7 +35,8 @@ public static class AuthEndpoints
             IRefreshTokenRepository refreshTokenRepository,
             IConfiguration configuration,
             HttpContext http,
-            ILogger<Program> logger) =>
+            ILogger<Program> logger,
+            ITimeProvider timeProvider) =>
         {
             // Validate request
             var validationResult = await validator.ValidateAsync(request);
@@ -68,14 +70,14 @@ public static class AuthEndpoints
             // ── Generate Access Token ──────────────────────────────────
             var accessToken = jwtTokenService.GenerateToken(user);
             var jwtSettings = configuration.GetSection("Jwt").Get<JwtSettings>()!;
-            var accessExpiresAt = DateTime.UtcNow.AddMinutes(jwtSettings.ExpiryMinutes);
+            var accessExpiresAt = timeProvider.UtcNow.AddMinutes(jwtSettings.ExpiryMinutes);
 
             // ── Generate Refresh Token ─────────────────────────────────
             var rawRefreshToken = jwtTokenService.GenerateRefreshToken();
             var refreshTokenHash = jwtTokenService.HashRefreshToken(rawRefreshToken);
 
-            var refreshExpiry = DateTime.UtcNow.AddDays(jwtSettings.RefreshTokenExpiryDays);
-            var absoluteExpiry = DateTime.UtcNow.AddDays(jwtSettings.AbsoluteSessionExpiryDays);
+            var refreshExpiry = timeProvider.UtcNow.AddDays(jwtSettings.RefreshTokenExpiryDays);
+            var absoluteExpiry = timeProvider.UtcNow.AddDays(jwtSettings.AbsoluteSessionExpiryDays);
 
             // Store hashed refresh token in database
             await refreshTokenRepository.CreateRefreshTokenAsync(
@@ -129,7 +131,8 @@ public static class AuthEndpoints
             IRefreshTokenRepository refreshTokenRepository,
             ITokenRevocationRepository tokenRevocationRepository,
             IConfiguration configuration,
-            ILogger<Program> logger) =>
+            ILogger<Program> logger,
+            ITimeProvider timeProvider) =>
         {
             // ── Read refresh token from HttpOnly cookie ────────────────
             if (!http.Request.Cookies.TryGetValue(RefreshTokenCookieName, out var rawRefreshToken)
@@ -159,29 +162,26 @@ public static class AuthEndpoints
             }
 
             // ── Rotate: Revoke old, issue new ─────────────────────────
-            await refreshTokenRepository.RevokeTokenAsync(tokenHash);
-
             // Also revoke the current access token JTI if present (optional extra security)
             // This ensures the old access token can't be used after refresh
+            var jwtSettings = configuration.GetSection("Jwt").Get<JwtSettings>()!;
             var currentJti = http.User?.FindFirstValue(JwtRegisteredClaimNames.Jti);
             if (!string.IsNullOrEmpty(currentJti) && int.TryParse(http.User?.FindFirstValue("userId"), out var currentUserId))
             {
-                var currentExpiry = DateTime.UtcNow.AddMinutes(
-                    configuration.GetSection("Jwt").Get<JwtSettings>()!.ExpiryMinutes);
+                var currentExpiry = timeProvider.UtcNow.AddMinutes(jwtSettings.ExpiryMinutes);
                 await tokenRevocationRepository.RevokeTokenAsync(currentJti, currentUserId, currentExpiry);
             }
 
             // Issue new access token
             var newAccessToken = jwtTokenService.GenerateToken(user);
-            var jwtSettings = configuration.GetSection("Jwt").Get<JwtSettings>()!;
-            var newAccessExpiresAt = DateTime.UtcNow.AddMinutes(jwtSettings.ExpiryMinutes);
+            var newAccessExpiresAt = timeProvider.UtcNow.AddMinutes(jwtSettings.ExpiryMinutes);
 
             // Issue new refresh token
             var newRawRefreshToken = jwtTokenService.GenerateRefreshToken();
             var newRefreshTokenHash = jwtTokenService.HashRefreshToken(newRawRefreshToken);
 
-            var newRefreshExpiry = DateTime.UtcNow.AddDays(jwtSettings.RefreshTokenExpiryDays);
-            var newAbsoluteExpiry = DateTime.UtcNow.AddDays(jwtSettings.AbsoluteSessionExpiryDays);
+            var newRefreshExpiry = timeProvider.UtcNow.AddDays(jwtSettings.RefreshTokenExpiryDays);
+            var newAbsoluteExpiry = timeProvider.UtcNow.AddDays(jwtSettings.AbsoluteSessionExpiryDays);
 
             await refreshTokenRepository.CreateRefreshTokenAsync(
                 user.Id, newRefreshTokenHash, newRefreshExpiry, newAbsoluteExpiry);

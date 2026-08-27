@@ -1,3 +1,4 @@
+using EBI.ALAS.Api.Common.Time;
 using EBI.ALAS.Api.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 
@@ -10,10 +11,12 @@ namespace EBI.ALAS.Api.Features.Auth;
 public class RefreshTokenRepository : IRefreshTokenRepository
 {
     private readonly AppDbContext _context;
+    private readonly ITimeProvider _timeProvider;
 
-    public RefreshTokenRepository(AppDbContext context)
+    public RefreshTokenRepository(AppDbContext context, ITimeProvider timeProvider)
     {
         _context = context;
+        _timeProvider = timeProvider;
     }
 
     public async Task<RefreshToken> CreateRefreshTokenAsync(
@@ -26,7 +29,7 @@ public class RefreshTokenRepository : IRefreshTokenRepository
             ExpiresAt = expiresAt,
             AbsoluteExpiry = absoluteExpiry,
             DeviceInfo = deviceInfo,
-            CreatedAt = DateTime.UtcNow,
+            CreatedAt = _timeProvider.UtcNow,
             IsRevoked = false
         };
 
@@ -41,8 +44,8 @@ public class RefreshTokenRepository : IRefreshTokenRepository
             .FirstOrDefaultAsync(t =>
                 t.TokenHash == tokenHash &&
                 !t.IsRevoked &&
-                t.ExpiresAt > DateTime.UtcNow &&
-                t.AbsoluteExpiry > DateTime.UtcNow);
+                t.ExpiresAt > _timeProvider.UtcNow &&
+                t.AbsoluteExpiry > _timeProvider.UtcNow);
     }
 
     public async Task RevokeTokenAsync(string tokenHash)
@@ -53,7 +56,7 @@ public class RefreshTokenRepository : IRefreshTokenRepository
         if (token != null)
         {
             token.IsRevoked = true;
-            token.RevokedAt = DateTime.UtcNow;
+            token.RevokedAt = _timeProvider.UtcNow;
             await _context.SaveChangesAsync();
         }
     }
@@ -67,7 +70,7 @@ public class RefreshTokenRepository : IRefreshTokenRepository
         foreach (var token in activeTokens)
         {
             token.IsRevoked = true;
-            token.RevokedAt = DateTime.UtcNow;
+            token.RevokedAt = _timeProvider.UtcNow;
         }
 
         if (activeTokens.Count > 0)
@@ -79,7 +82,7 @@ public class RefreshTokenRepository : IRefreshTokenRepository
     public async Task CleanupExpiredTokensAsync()
     {
         var expired = await _context.RefreshTokens
-            .Where(t => t.ExpiresAt < DateTime.UtcNow || t.AbsoluteExpiry < DateTime.UtcNow)
+            .Where(t => t.ExpiresAt < _timeProvider.UtcNow || t.AbsoluteExpiry < _timeProvider.UtcNow)
             .ToListAsync();
 
         if (expired.Count > 0)
