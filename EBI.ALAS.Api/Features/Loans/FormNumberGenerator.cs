@@ -1,3 +1,4 @@
+using EBI.ALAS.Api.Common.Time;
 using EBI.ALAS.Api.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 
@@ -5,20 +6,23 @@ namespace EBI.ALAS.Api.Features.Loans;
 
 /// <summary>
 /// Form number generator that creates unique form numbers in format LAM-yyyyMMdd-XXXXXX.
+/// Uses Philippines Time for the date portion to match business day boundaries.
 /// </summary>
 public class FormNumberGenerator : IFormNumberGenerator
 {
     private readonly AppDbContext _context;
+    private readonly ITimeProvider _timeProvider;
     private static readonly SemaphoreSlim _semaphore = new(1, 1);
 
-    public FormNumberGenerator(AppDbContext context)
+    public FormNumberGenerator(AppDbContext context, ITimeProvider timeProvider)
     {
         _context = context;
+        _timeProvider = timeProvider;
     }
 
     public async Task<string> GenerateFormNumberAsync()
     {
-        var today = DateTime.UtcNow;
+        var today = _timeProvider.PhilippinesNow;
         var datePart = today.ToString("yyyyMMdd");
         var prefix = $"LAM-{datePart}-";
 

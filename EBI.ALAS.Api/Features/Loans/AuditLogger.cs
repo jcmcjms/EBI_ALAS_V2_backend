@@ -1,3 +1,4 @@
+using EBI.ALAS.Api.Common.Time;
 using EBI.ALAS.Api.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 
@@ -9,10 +10,12 @@ namespace EBI.ALAS.Api.Features.Loans;
 public class AuditLogger : IAuditLogger
 {
     private readonly AppDbContext _context;
+    private readonly ITimeProvider _timeProvider;
 
-    public AuditLogger(AppDbContext context)
+    public AuditLogger(AppDbContext context, ITimeProvider timeProvider)
     {
         _context = context;
+        _timeProvider = timeProvider;
     }
 
     public async Task LogActionAsync(
@@ -31,7 +34,7 @@ public class AuditLogger : IAuditLogger
             FromStatus = fromStatus,
             ToStatus = toStatus,
             Comments = comments,
-            ActionDate = DateTime.UtcNow
+            ActionDate = _timeProvider.UtcNow
         };
 
         _context.LoanActions.Add(loanAction);

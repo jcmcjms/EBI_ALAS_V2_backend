@@ -1,4 +1,5 @@
 using EBI.ALAS.Api.Features.Auth;
+using System.Text.Json.Serialization;
 
 namespace EBI.ALAS.Api.Features.Loans;
 
@@ -39,6 +40,13 @@ public class LoanApplication
     // Audit
     public int CreatedById { get; set; }
     public User CreatedBy { get; set; } = null!;
+
+    // WebLoan Traceability (read-only legacy system references)
+    public string? WebLoanCisNo { get; set; }
+    public string? WebLoanBranchCode { get; set; }
+    public List<string> WebLoanAccountNumbers { get; set; } = new();
+    public List<string> WebLoanPnNumbers { get; set; } = new();
+    public DateTime? WebLoanLastSyncedAt { get; set; }
 
     // Navigation Properties
     public ICollection<LoanAction> Actions { get; set; } = new List<LoanAction>();

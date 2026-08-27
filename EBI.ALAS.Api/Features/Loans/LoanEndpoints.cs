@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using EBI.ALAS.Api.Common.Extensions;
 using EBI.ALAS.Api.Common.Models;
+using EBI.ALAS.Api.Common.Time;
 using FluentValidation;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -10,6 +11,7 @@ namespace EBI.ALAS.Api.Features.Loans;
 /// <summary>
 /// Loan endpoint definitions using Minimal APIs.
 /// </summary>
+
 public static class LoanEndpoints
 {
     public static void MapLoanEndpoints(this WebApplication app)
@@ -88,7 +90,14 @@ public static class LoanEndpoints
                     Comments = a.Comments,
                     ActionDate = a.ActionDate,
                     ActionByUserName = $"{a.ActionByUser.FirstName} {a.ActionByUser.LastName}"
-                }).ToList()
+                }).ToList(),
+
+                // WebLoan Traceability
+                WebLoanCisNo = loan.WebLoanCisNo,
+                WebLoanBranchCode = loan.WebLoanBranchCode,
+                WebLoanAccountNumbers = loan.WebLoanAccountNumbers,
+                WebLoanPnNumbers = loan.WebLoanPnNumbers,
+                WebLoanLastSyncedAt = loan.WebLoanLastSyncedAt
             };
 
             return Results.Ok(ApiResponse<LoanResponse>.SuccessResponse(loanResponse));
@@ -105,6 +114,7 @@ public static class LoanEndpoints
             ILoanRepository loanRepository,
             IFormNumberGenerator formNumberGenerator,
             IAuditLogger auditLogger,
+            ITimeProvider timeProvider,
             ClaimsPrincipal user) =>
         {
             // Validate request
@@ -146,8 +156,8 @@ public static class LoanEndpoints
                 DateOfFirstRelease = request.DateOfFirstRelease,
                 CoMaker = request.CoMaker,
                 Status = "Draft",
-                ApplicationDate = DateTime.UtcNow,
-                LastActionDate = DateTime.UtcNow,
+                ApplicationDate = timeProvider.UtcNow,
+                LastActionDate = timeProvider.UtcNow,
                 CreatedById = userId
             };
 
@@ -206,7 +216,8 @@ public static class LoanEndpoints
             ILoanRepository loanRepository,
             ILoanWorkflowService workflowService,
             IAuditLogger auditLogger,
-            ClaimsPrincipal user) =>
+            ClaimsPrincipal user,
+            ITimeProvider timeProvider) =>
         {
             // Validate request
             var validationResult = await validator.ValidateAsync(request);
@@ -241,7 +252,7 @@ public static class LoanEndpoints
 
             var fromStatus = loan.Status;
             loan.Status = request.Status;
-            loan.LastActionDate = DateTime.UtcNow;
+            loan.LastActionDate = timeProvider.UtcNow;
 
             await loanRepository.UpdateAsync(loan);
 
@@ -321,6 +332,13 @@ public class LoanResponse
     public int CreatedById { get; set; }
     public string CreatedByName { get; set; } = string.Empty;
     public List<LoanActionResponse> Actions { get; set; } = new();
+
+    // WebLoan Traceability
+    public string? WebLoanCisNo { get; set; }
+    public string? WebLoanBranchCode { get; set; }
+    public List<string> WebLoanAccountNumbers { get; set; } = new();
+    public List<string> WebLoanPnNumbers { get; set; } = new();
+    public DateTime? WebLoanLastSyncedAt { get; set; }
 }
 
 /// <summary>
