@@ -23,6 +23,116 @@ public class WebLoanService : IWebLoanService
         _logger = logger;
     }
 
+    // ─── Step 1: CIS Search ────────────────────────────────────────────────
+
+    public async Task<CisSearchResult?> SearchCisAsync(string cisNo, CancellationToken ct = default)
+    {
+        var cis = await _db.CisInfos
+            .AsNoTracking()
+            .FirstOrDefaultAsync(c => c.CisNo == cisNo, ct);
+
+        if (cis is null)
+            return null;
+
+        var accounts = await _db.LoanAcctInfos
+            .AsNoTracking()
+            .Where(a => a.CisNo == cisNo)
+            .ToListAsync(ct);
+
+        var accountNos = accounts.Select(a => a.AccountNo).ToList();
+
+        // Get PN counts per account
+        var pnCounts = accountNos.Count == 0
+            ? new Dictionary<string, int>()
+            : await _db.LoanDatas
+                .AsNoTracking()
+                .Where(l => accountNos.Contains(l.AccountNo) && l.LoanNo != null)
+                .GroupBy(l => l.AccountNo)
+                .Select(g => new { AccountNo = g.Key, Count = g.Count() })
+                .ToDictionaryAsync(x => x.AccountNo, x => x.Count, ct);
+
+        return new CisSearchResult
+        {
+            CisNo = cis.CisNo,
+            FullName = $"{cis.FirstName} {cis.MiddleName} {cis.LastName} {cis.Appelation}".Trim(),
+            BranchCode = cis.BranchCode ?? string.Empty,
+            Accounts = accounts.Select(a => new CisAccountSummary
+            {
+                AccountNo = a.AccountNo,
+                AccountName = a.Name,
+                AccountAddress = null, // loan_acct_info doesn't have address column
+                MisGroup = a.MisGroup,
+                PnCount = pnCounts.GetValueOrDefault(a.AccountNo, 0)
+            }).ToList()
+        };
+    }
+
+    // ─── Step 2: Account Detail with PNs ──────────────────────────────────
+
+    public async Task<AccountWithPnsResponse?> GetAccountWithPnsAsync(string cisNo, string accountNo, CancellationToken ct = default)
+    {
+        // Verify account belongs to this CIS
+        var account = await _db.LoanAcctInfos
+            .AsNoTracking()
+            .FirstOrDefaultAsync(a => a.CisNo == cisNo && a.AccountNo == accountNo, ct);
+
+        if (account is null)
+            return null;
+
+        // Get all PN records for this account (including closed ones for complete history)
+        var loans = await _db.LoanDatas
+            .AsNoTracking()
+            .Where(l => l.AccountNo == accountNo && l.LoanNo != null)
+            .OrderByDescending(l => l.DateGranted)
+            .ToListAsync(ct);
+
+        // Lookups
+        var statuses = await _db.LoanStatuses.AsNoTracking().ToListAsync(ct);
+        var products = await _db.LoanProducts.AsNoTracking().ToListAsync(ct);
+
+        string? StatusDesc(byte? code) => code is null
+            ? null
+            : statuses.FirstOrDefault(s =>
+                int.TryParse(s.IdCode, out var id) && id == code.Value)?.Description;
+
+        string? ProductDesc(string? code) => code is null
+            ? null
+            : products.FirstOrDefault(p => p.IdCode == code)?.Description;
+
+        return new AccountWithPnsResponse
+        {
+            AccountNo = account.AccountNo,
+            AccountName = account.Name,
+            AccountAddress = null, // loan_acct_info doesn't have address column
+            MisGroup = account.MisGroup,
+            PnRecords = loans.Select(l => new PnRecord
+            {
+                PnNumber = l.LoanNo!,
+                ProductCode = l.ProductCode,
+                ProductDescription = ProductDesc(l.ProductCode),
+                CreationType = l.CreationType,
+                CreationTypeLabel = WebLoanCreationTypes.GetLabel(l.CreationType),
+                Principal = l.Principal,
+                AppliedPrincipal = l.AppliedPrincipal,
+                PrincipalBalance = l.PrincipalBalance,
+                AmortizationAmount = l.AmortizationAmount,
+                OutstandingBalance = l.OutstandingBalance,
+                DateGranted = l.DateGranted,
+                DateMaturity = l.DateMaturity,
+                StatusCode = l.StatusCode,
+                StatusDescription = StatusDesc(l.StatusCode),
+                CloseDate = l.CloseDate,
+                GrantedRate = l.GrantedRate,
+                EffectiveRate = l.EffectiveRate,
+                Purpose = l.Purpose,
+                PaymentInterval = l.PaymentInterval,
+                TotalAmortization = l.TotalAmortization
+            }).ToList()
+        };
+    }
+
+    // ─── Original full profile (kept for backward compatibility) ────────────
+
     public async Task<WebLoanBorrowerResponse?> GetBorrowerByCisAsync(string cisNo, CancellationToken ct = default)
     {
         // ─── Client master ───────────────────────────────────────────────
