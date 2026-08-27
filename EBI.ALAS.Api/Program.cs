@@ -7,6 +7,7 @@ using EBI.ALAS.Api.Common.Constants;
 using EBI.ALAS.Api.Common.Extensions;
 using EBI.ALAS.Api.Common.Middleware;
 using EBI.ALAS.Api.Common.Models;
+using EBI.ALAS.Api.Common.Time;
 using EBI.ALAS.Api.Features.Auth;
 using EBI.ALAS.Api.Features.Branches;
 using EBI.ALAS.Api.Features.Dashboard;
@@ -31,10 +32,12 @@ var jwtSettings = configuration.GetSection("Jwt").Get<JwtSettings>()!;
 var corsOrigins = configuration.GetSection("Cors:AllowedOrigins").Get<string[]>()!;
 
 // ─── Database ────────────────────────────────────────────────────────────────
-builder.Services.AddDbContext<AppDbContext>(options =>
+builder.Services.AddScoped<AuditSaveChangesInterceptor>();
+
+builder.Services.AddDbContext<AppDbContext>((sp, options) =>
 {
     options.UseSqlServer(configuration.GetConnectionString("DefaultConnection"));
-    options.AddInterceptors(new AuditSaveChangesInterceptor());
+    options.AddInterceptors(sp.GetRequiredService<AuditSaveChangesInterceptor>());
 });
 
 // WebLoan system database (same server, read-only access)
@@ -146,6 +149,22 @@ builder.Services.AddRateLimiter(options =>
         limiterOptions.Window = TimeSpan.FromSeconds(configuration.GetValue<int>("RateLimiting:Login:WindowSeconds", 60));
         limiterOptions.QueueLimit = 0;
     });
+});
+
+// ─── JSON Serialization ────────────────────────────────────────────────────────
+builder.Services.ConfigureHttpJsonOptions(options =>
+{
+    options.SerializerOptions.DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull;
+    options.SerializerOptions.Converters.Add(new System.Text.Json.Serialization.JsonStringEnumConverter());
+    // Use UTC format with 'Z' suffix for DateTime to avoid timezone ambiguity
+    options.SerializerOptions.Converters.Add(new UtcDateTimeConverter());
+});
+
+builder.Services.Configure<Microsoft.AspNetCore.Mvc.JsonOptions>(options =>
+{
+    options.JsonSerializerOptions.DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull;
+    options.JsonSerializerOptions.Converters.Add(new System.Text.Json.Serialization.JsonStringEnumConverter());
+    options.JsonSerializerOptions.Converters.Add(new UtcDateTimeConverter());
 });
 
 // ─── Application Services ────────────────────────────────────────────────────

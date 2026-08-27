@@ -2,6 +2,8 @@ using EBI.ALAS.Api.Features.Auth;
 using EBI.ALAS.Api.Features.Branches;
 using EBI.ALAS.Api.Features.Loans;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.ChangeTracking;
+using System.Text.Json;
 
 namespace EBI.ALAS.Api.Infrastructure.Data;
 
@@ -183,6 +185,34 @@ public class AppDbContext : DbContext
 
             entity.Property(e => e.CreatedById)
                 .IsRequired();
+
+            // WebLoan Traceability
+            entity.Property(e => e.WebLoanCisNo)
+                .HasMaxLength(50);
+
+            entity.Property(e => e.WebLoanBranchCode)
+                .HasMaxLength(20);
+
+            var listComparer = new ValueComparer<List<string>>(
+                (c1, c2) => c1.SequenceEqual(c2),
+                c => c.Aggregate(0, (a, v) => HashCode.Combine(a, v.GetHashCode())),
+                c => c.ToList());
+
+            entity.Property(e => e.WebLoanAccountNumbers)
+                .HasConversion(
+                    v => JsonSerializer.Serialize(v, (JsonSerializerOptions?)null),
+                    v => JsonSerializer.Deserialize<List<string>>(v, (JsonSerializerOptions?)null) ?? new List<string>())
+                .HasColumnType("jsonb")
+                .Metadata.SetValueComparer(listComparer);
+
+            entity.Property(e => e.WebLoanPnNumbers)
+                .HasConversion(
+                    v => JsonSerializer.Serialize(v, (JsonSerializerOptions?)null),
+                    v => JsonSerializer.Deserialize<List<string>>(v, (JsonSerializerOptions?)null) ?? new List<string>())
+                .HasColumnType("jsonb")
+                .Metadata.SetValueComparer(listComparer);
+
+            entity.Property(e => e.WebLoanLastSyncedAt);
 
             // Foreign Key to User
             entity.HasOne(e => e.CreatedBy)
