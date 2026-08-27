@@ -39,6 +39,7 @@ public class UserService : IUserService
             BranchId = request.BranchId,
             Role = request.Role,
             IsActive = true,
+            MustChangePassword = true,
             CreatedAt = DateTime.UtcNow
         };
 

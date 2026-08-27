@@ -31,4 +31,10 @@ public class AuthRepository : IAuthRepository
     {
         return await _context.Users.AnyAsync(u => u.Username == username);
     }
+
+    public async Task UpdateUserAsync(User user)
+    {
+        _context.Users.Update(user);
+        await _context.SaveChangesAsync();
+    }
 }

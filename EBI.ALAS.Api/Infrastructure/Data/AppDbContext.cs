@@ -92,6 +92,10 @@ public class AppDbContext : DbContext
                 .IsRequired()
                 .HasDefaultValue(true);
 
+            entity.Property(e => e.MustChangePassword)
+                .IsRequired()
+                .HasDefaultValue(false);
+
             entity.Property(e => e.CreatedAt)
                 .IsRequired();
         });

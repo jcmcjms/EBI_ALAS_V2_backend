@@ -40,7 +40,8 @@ public class JwtTokenService : IJwtTokenService
             new Claim("firstName", user.FirstName),
             new Claim("lastName", user.LastName),
             new Claim("branchId", user.BranchId),
-            new Claim("role", user.Role)
+            new Claim("role", user.Role),
+            new Claim("mustChangePassword", user.MustChangePassword.ToString().ToLower())
         };
 
         // Add middle name if present

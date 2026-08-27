@@ -269,6 +269,69 @@ public static class AuthEndpoints
         .Produces<ApiResponse>(200)
         .Produces<ApiResponse>(400)
         .RequireAuthorization();
+
+        // ─────────────────────────────────────────────────────────────────
+        // POST /api/auth/change-password
+        // Requires current password, updates hash, clears MustChangePassword flag,
+        // and revokes all active sessions globally (logout everywhere).
+        // ─────────────────────────────────────────────────────────────────
+        group.MapPost("/change-password", async (
+            ClaimsPrincipal principal,
+            [FromBody] ChangePasswordRequest request,
+            IValidator<ChangePasswordRequest> validator,
+            IAuthRepository authRepository,
+            IPasswordHasher passwordHasher,
+            IRefreshTokenRepository refreshTokenRepository,
+            ITokenRevocationRepository tokenRevocationRepository,
+            IConfiguration configuration,
+            HttpContext http,
+            ILogger<Program> logger) =>
+        {
+            var validationResult = await validator.ValidateAsync(request);
+            if (!validationResult.IsValid)
+            {
+                var errors = validationResult.Errors
+                    .GroupBy(e => e.PropertyName)
+                    .ToDictionary(g => g.Key, g => g.Select(e => e.ErrorMessage).ToArray());
+                return Results.BadRequest(ApiResponse.ErrorResponse("Validation failed", errors.SelectMany(e => e.Value).ToList()));
+            }
+
+            var userIdClaim = principal.FindFirstValue("userId");
+            if (!int.TryParse(userIdClaim, out var userId)) return Results.Unauthorized();
+
+            var user = await authRepository.GetUserByIdAsync(userId);
+            if (user == null || !user.IsActive) return Results.Unauthorized();
+
+            if (!passwordHasher.VerifyPassword(request.CurrentPassword, user.PasswordHash))
+                return Results.BadRequest(ApiResponse.ErrorResponse("Current password is incorrect"));
+
+            if (request.CurrentPassword == request.NewPassword)
+                return Results.BadRequest(ApiResponse.ErrorResponse("New password must be different from current password"));
+
+            user.PasswordHash = passwordHasher.HashPassword(request.NewPassword);
+            user.MustChangePassword = false;
+            await authRepository.UpdateUserAsync(user);
+
+            // Revoke all active sessions globally
+            await refreshTokenRepository.RevokeAllUserTokensAsync(userId);
+            var tokenId = principal.FindFirstValue(JwtRegisteredClaimNames.Jti);
+            var jwtSettings = configuration.GetSection("Jwt").Get<JwtSettings>()!;
+            var expiresAt = DateTime.UtcNow.AddMinutes(jwtSettings.ExpiryMinutes);
+            await tokenRevocationRepository.RevokeTokenAsync(tokenId, userId, expiresAt);
+
+            http.Response.Cookies.Delete(RefreshTokenCookieName, new CookieOptions
+            {
+                HttpOnly = true, Secure = true, SameSite = SameSiteMode.Strict, Path = "/api/auth"
+            });
+
+            logger.LogInformation("User {UserId} changed password successfully", userId);
+            return Results.Ok(ApiResponse.SuccessResponse("Password changed successfully. Please log in again."));
+        })
+        .WithName("ChangePassword")
+        .Produces<ApiResponse>(200)
+        .Produces<ApiResponse>(400)
+        .Produces<ApiResponse>(401)
+        .RequireAuthorization();
     }
 }
 
@@ -309,5 +372,40 @@ public class LoginValidator : AbstractValidator<LoginRequest>
             .WithMessage("Password is required")
             .MaximumLength(100)
             .WithMessage("Password must not exceed 100 characters");
+    }
+}
+
+/// <summary>
+/// Change password request DTO.
+/// </summary>
+public record ChangePasswordRequest(string CurrentPassword, string NewPassword);
+
+/// <summary>
+/// FluentValidation validator for ChangePasswordRequest.
+/// Enforces banking-grade password policy.
+/// </summary>
+public class ChangePasswordValidator : AbstractValidator<ChangePasswordRequest>
+{
+    public ChangePasswordValidator()
+    {
+        RuleFor(x => x.CurrentPassword)
+            .NotEmpty()
+            .WithMessage("Current password is required")
+            .MaximumLength(100);
+
+        RuleFor(x => x.NewPassword)
+            .NotEmpty()
+            .WithMessage("New password is required")
+            .MinimumLength(8)
+            .WithMessage("Password must be at least 8 characters long")
+            .MaximumLength(100)
+            .Matches("[A-Z]")
+            .WithMessage("Must contain an uppercase letter")
+            .Matches("[a-z]")
+            .WithMessage("Must contain a lowercase letter")
+            .Matches("[0-9]")
+            .WithMessage("Must contain a digit")
+            .Matches(@"[\!\?\*\.]")
+            .WithMessage("Must contain one of !? *.");
     }
 }
