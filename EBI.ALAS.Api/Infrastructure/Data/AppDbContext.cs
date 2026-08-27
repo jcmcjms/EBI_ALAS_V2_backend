@@ -1,4 +1,5 @@
 using EBI.ALAS.Api.Features.Auth;
+using EBI.ALAS.Api.Features.Branches;
 using EBI.ALAS.Api.Features.Loans;
 using Microsoft.EntityFrameworkCore;
 
@@ -14,15 +15,42 @@ public class AppDbContext : DbContext
 
     // ─── DbSets ──────────────────────────────────────────────────────────────
     public DbSet<User> Users => Set<User>();
+    public DbSet<Branch> Branches => Set<Branch>();
     public DbSet<LoanApplication> LoanApplications => Set<LoanApplication>();
     public DbSet<LoanAction> LoanActions => Set<LoanAction>();
     public DbSet<OutstandingLoan> OutstandingLoans => Set<OutstandingLoan>();
     public DbSet<BuyOut> BuyOuts => Set<BuyOut>();
     public DbSet<RevokedToken> RevokedTokens => Set<RevokedToken>();
+    public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
+
+        // ─── Branch Entity ─────────────────────────────────────────────────
+        modelBuilder.Entity<Branch>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).ValueGeneratedOnAdd();
+
+            entity.Property(e => e.Code)
+                .IsRequired()
+                .HasMaxLength(20);
+
+            entity.HasIndex(e => e.Code)
+                .IsUnique();
+
+            entity.Property(e => e.Name)
+                .IsRequired()
+                .HasMaxLength(100);
+
+            entity.Property(e => e.IsActive)
+                .IsRequired()
+                .HasDefaultValue(true);
+
+            entity.Property(e => e.CreatedAt)
+                .IsRequired();
+        });
 
         // ─── User Entity ─────────────────────────────────────────────────
         modelBuilder.Entity<User>(entity =>
@@ -254,6 +282,45 @@ public class AppDbContext : DbContext
 
             entity.Property(e => e.ExpiresAt)
                 .IsRequired();
+        });
+
+        // ─── RefreshToken Entity ────────────────────────────────────────
+        modelBuilder.Entity<RefreshToken>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).ValueGeneratedOnAdd();
+
+            entity.Property(e => e.TokenHash)
+                .IsRequired()
+                .HasMaxLength(128); // SHA-256 hex = 64 chars, generous limit
+
+            entity.HasIndex(e => e.TokenHash)
+                .IsUnique();
+
+            entity.Property(e => e.UserId)
+                .IsRequired();
+
+            entity.Property(e => e.DeviceInfo)
+                .HasMaxLength(500);
+
+            entity.Property(e => e.CreatedAt)
+                .IsRequired();
+
+            entity.Property(e => e.ExpiresAt)
+                .IsRequired();
+
+            entity.Property(e => e.AbsoluteExpiry)
+                .IsRequired();
+
+            entity.Property(e => e.IsRevoked)
+                .IsRequired()
+                .HasDefaultValue(false);
+
+            // Cascade: deleting a user deletes their refresh tokens
+            entity.HasOne(e => e.User)
+                .WithMany()
+                .HasForeignKey(e => e.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
         });
     }
 }

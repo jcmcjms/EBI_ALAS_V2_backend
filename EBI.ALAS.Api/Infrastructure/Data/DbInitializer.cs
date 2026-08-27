@@ -1,4 +1,5 @@
 using EBI.ALAS.Api.Features.Auth;
+using EBI.ALAS.Api.Features.Branches;
 using Microsoft.EntityFrameworkCore;
 
 namespace EBI.ALAS.Api.Infrastructure.Data;
@@ -23,11 +24,58 @@ public static class DbInitializer
             return; // Database already seeded
         }
 
+        // Seed branches first (if not already seeded by migration)
+        await SeedBranchesAsync(context);
+
         // Seed admin user
         await SeedAdminUserAsync(context);
 
         // Seed test users for each role
         await SeedTestUsersAsync(context);
+    }
+
+    private static async Task SeedBranchesAsync(AppDbContext context)
+    {
+        if (await context.Branches.AnyAsync())
+            return;
+
+        var branches = new List<Branch>
+        {
+            new() { Code = "000", Name = "Lianga Branch", IsActive = true, CreatedAt = DateTime.UtcNow },
+            new() { Code = "002", Name = "Barobo Branch", IsActive = true, CreatedAt = DateTime.UtcNow },
+            new() { Code = "003", Name = "San Francisco Branch", IsActive = true, CreatedAt = DateTime.UtcNow },
+            new() { Code = "004", Name = "Arasasan Branch", IsActive = true, CreatedAt = DateTime.UtcNow },
+            new() { Code = "005", Name = "Hinatuan Branch", IsActive = true, CreatedAt = DateTime.UtcNow },
+            new() { Code = "006", Name = "Tagum Branch", IsActive = true, CreatedAt = DateTime.UtcNow },
+            new() { Code = "007", Name = "Tandag Branch", IsActive = true, CreatedAt = DateTime.UtcNow },
+            new() { Code = "008", Name = "Butuan Branch", IsActive = true, CreatedAt = DateTime.UtcNow },
+            new() { Code = "009", Name = "Bislig Branch", IsActive = true, CreatedAt = DateTime.UtcNow },
+            new() { Code = "011", Name = "Head Office Branch", IsActive = true, CreatedAt = DateTime.UtcNow },
+            new() { Code = "012", Name = "Cagayan Branch", IsActive = true, CreatedAt = DateTime.UtcNow },
+            new() { Code = "013", Name = "Talisay Branch", IsActive = true, CreatedAt = DateTime.UtcNow },
+            new() { Code = "014", Name = "General Santos Branch", IsActive = true, CreatedAt = DateTime.UtcNow },
+            new() { Code = "015", Name = "Panabo Branch", IsActive = true, CreatedAt = DateTime.UtcNow },
+            new() { Code = "016", Name = "Valencia Branch", IsActive = true, CreatedAt = DateTime.UtcNow },
+            new() { Code = "017", Name = "Cateel Branch", IsActive = true, CreatedAt = DateTime.UtcNow },
+            new() { Code = "018", Name = "Davao-Buhangin Branch", IsActive = true, CreatedAt = DateTime.UtcNow },
+            new() { Code = "019", Name = "Tacloban Branch", IsActive = true, CreatedAt = DateTime.UtcNow },
+            new() { Code = "020", Name = "Bacolod Branch", IsActive = true, CreatedAt = DateTime.UtcNow },
+            new() { Code = "021", Name = "Iloilo Branch", IsActive = true, CreatedAt = DateTime.UtcNow },
+            new() { Code = "022", Name = "Davao-Matina Branch", IsActive = true, CreatedAt = DateTime.UtcNow },
+            new() { Code = "023", Name = "Trento Branch", IsActive = true, CreatedAt = DateTime.UtcNow },
+            new() { Code = "024", Name = "Mati Branch", IsActive = true, CreatedAt = DateTime.UtcNow },
+            new() { Code = "025", Name = "Bayugan Branch", IsActive = true, CreatedAt = DateTime.UtcNow },
+            new() { Code = "026", Name = "Nabunturan Branch", IsActive = true, CreatedAt = DateTime.UtcNow },
+            new() { Code = "027", Name = "Madrid Branch", IsActive = true, CreatedAt = DateTime.UtcNow },
+            new() { Code = "028", Name = "Surigao Branch", IsActive = true, CreatedAt = DateTime.UtcNow },
+            new() { Code = "029", Name = "Gingoog Branch", IsActive = true, CreatedAt = DateTime.UtcNow },
+            new() { Code = "030", Name = "CTS (Mandaue) Branch", IsActive = true, CreatedAt = DateTime.UtcNow },
+            new() { Code = "031", Name = "Ronda Branch", IsActive = true, CreatedAt = DateTime.UtcNow },
+            new() { Code = "991", Name = "Corporate Center", IsActive = true, CreatedAt = DateTime.UtcNow },
+        };
+
+        context.Branches.AddRange(branches);
+        await context.SaveChangesAsync();
     }
 
     private static async Task SeedAdminUserAsync(AppDbContext context)
@@ -39,7 +87,7 @@ public static class DbInitializer
             FirstName = "System",
             MiddleName = null,
             LastName = "Administrator",
-            BranchId = "HO",
+            BranchId = "011", // Head Office Branch
             Role = "Admin",
             IsActive = true,
             CreatedAt = DateTime.UtcNow
@@ -60,7 +108,7 @@ public static class DbInitializer
                 FirstName = "Juan",
                 MiddleName = "D.",
                 LastName = "Cruz",
-                BranchId = "BR001",
+                BranchId = "007", // Tandag Branch
                 Role = "Encoder",
                 IsActive = true,
                 CreatedAt = DateTime.UtcNow
@@ -72,7 +120,7 @@ public static class DbInitializer
                 FirstName = "Maria",
                 MiddleName = "S.",
                 LastName = "Santos",
-                BranchId = "BR001",
+                BranchId = "007", // Tandag Branch
                 Role = "Recommender",
                 IsActive = true,
                 CreatedAt = DateTime.UtcNow
@@ -84,7 +132,7 @@ public static class DbInitializer
                 FirstName = "Pedro",
                 MiddleName = "M.",
                 LastName = "Garcia",
-                BranchId = "BR001",
+                BranchId = "007", // Tandag Branch
                 Role = "Evaluator",
                 IsActive = true,
                 CreatedAt = DateTime.UtcNow
@@ -96,7 +144,7 @@ public static class DbInitializer
                 FirstName = "Ana",
                 MiddleName = "L.",
                 LastName = "Reyes",
-                BranchId = "BR001",
+                BranchId = "007", // Tandag Branch
                 Role = "Approver",
                 IsActive = true,
                 CreatedAt = DateTime.UtcNow
