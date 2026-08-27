@@ -1,4 +1,5 @@
 using EBI.ALAS.Api.Common.Models;
+using EBI.ALAS.Api.Common.Time;
 using EBI.ALAS.Api.Features.Auth;
 
 namespace EBI.ALAS.Api.Features.Users;
@@ -7,11 +8,13 @@ public class UserService : IUserService
 {
     private readonly IUserRepository _userRepository;
     private readonly IPasswordHasher _passwordHasher;
+    private readonly ITimeProvider _timeProvider;
 
-    public UserService(IUserRepository userRepository, IPasswordHasher passwordHasher)
+    public UserService(IUserRepository userRepository, IPasswordHasher passwordHasher, ITimeProvider timeProvider)
     {
         _userRepository = userRepository;
         _passwordHasher = passwordHasher;
+        _timeProvider = timeProvider;
     }
 
     public async Task<PagedResult<UserResponse>> GetUsersAsync(UserQueryParameters parameters) =>
@@ -40,7 +43,7 @@ public class UserService : IUserService
             Role = request.Role,
             IsActive = true,
             MustChangePassword = true,
-            CreatedAt = DateTime.UtcNow
+            CreatedAt = _timeProvider.UtcNow
         };
 
         await _userRepository.AddUserAsync(user);

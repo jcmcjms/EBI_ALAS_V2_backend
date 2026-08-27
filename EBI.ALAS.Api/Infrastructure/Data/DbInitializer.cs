@@ -1,3 +1,4 @@
+using EBI.ALAS.Api.Common.Time;
 using EBI.ALAS.Api.Features.Auth;
 using EBI.ALAS.Api.Features.Branches;
 using Microsoft.EntityFrameworkCore;
@@ -15,6 +16,9 @@ public static class DbInitializer
     /// </summary>
     public static async Task InitializeAsync(AppDbContext context, IServiceProvider serviceProvider)
     {
+        // Get time provider for consistent timestamp generation
+        var timeProvider = serviceProvider.GetRequiredService<ITimeProvider>();
+
         // Ensure database is created
         await context.Database.EnsureCreatedAsync();
 
@@ -25,60 +29,61 @@ public static class DbInitializer
         }
 
         // Seed branches first (if not already seeded by migration)
-        await SeedBranchesAsync(context);
+        await SeedBranchesAsync(context, timeProvider);
 
         // Seed admin user
-        await SeedAdminUserAsync(context);
+        await SeedAdminUserAsync(context, timeProvider);
 
         // Seed test users for each role
-        await SeedTestUsersAsync(context);
+        await SeedTestUsersAsync(context, timeProvider);
     }
 
-    private static async Task SeedBranchesAsync(AppDbContext context)
+    private static async Task SeedBranchesAsync(AppDbContext context, ITimeProvider timeProvider)
     {
         if (await context.Branches.AnyAsync())
             return;
 
+        var now = timeProvider.UtcNow;
         var branches = new List<Branch>
         {
-            new() { Code = "000", Name = "Lianga Branch", IsActive = true, CreatedAt = DateTime.UtcNow },
-            new() { Code = "002", Name = "Barobo Branch", IsActive = true, CreatedAt = DateTime.UtcNow },
-            new() { Code = "003", Name = "San Francisco Branch", IsActive = true, CreatedAt = DateTime.UtcNow },
-            new() { Code = "004", Name = "Arasasan Branch", IsActive = true, CreatedAt = DateTime.UtcNow },
-            new() { Code = "005", Name = "Hinatuan Branch", IsActive = true, CreatedAt = DateTime.UtcNow },
-            new() { Code = "006", Name = "Tagum Branch", IsActive = true, CreatedAt = DateTime.UtcNow },
-            new() { Code = "007", Name = "Tandag Branch", IsActive = true, CreatedAt = DateTime.UtcNow },
-            new() { Code = "008", Name = "Butuan Branch", IsActive = true, CreatedAt = DateTime.UtcNow },
-            new() { Code = "009", Name = "Bislig Branch", IsActive = true, CreatedAt = DateTime.UtcNow },
-            new() { Code = "011", Name = "Head Office Branch", IsActive = true, CreatedAt = DateTime.UtcNow },
-            new() { Code = "012", Name = "Cagayan Branch", IsActive = true, CreatedAt = DateTime.UtcNow },
-            new() { Code = "013", Name = "Talisay Branch", IsActive = true, CreatedAt = DateTime.UtcNow },
-            new() { Code = "014", Name = "General Santos Branch", IsActive = true, CreatedAt = DateTime.UtcNow },
-            new() { Code = "015", Name = "Panabo Branch", IsActive = true, CreatedAt = DateTime.UtcNow },
-            new() { Code = "016", Name = "Valencia Branch", IsActive = true, CreatedAt = DateTime.UtcNow },
-            new() { Code = "017", Name = "Cateel Branch", IsActive = true, CreatedAt = DateTime.UtcNow },
-            new() { Code = "018", Name = "Davao-Buhangin Branch", IsActive = true, CreatedAt = DateTime.UtcNow },
-            new() { Code = "019", Name = "Tacloban Branch", IsActive = true, CreatedAt = DateTime.UtcNow },
-            new() { Code = "020", Name = "Bacolod Branch", IsActive = true, CreatedAt = DateTime.UtcNow },
-            new() { Code = "021", Name = "Iloilo Branch", IsActive = true, CreatedAt = DateTime.UtcNow },
-            new() { Code = "022", Name = "Davao-Matina Branch", IsActive = true, CreatedAt = DateTime.UtcNow },
-            new() { Code = "023", Name = "Trento Branch", IsActive = true, CreatedAt = DateTime.UtcNow },
-            new() { Code = "024", Name = "Mati Branch", IsActive = true, CreatedAt = DateTime.UtcNow },
-            new() { Code = "025", Name = "Bayugan Branch", IsActive = true, CreatedAt = DateTime.UtcNow },
-            new() { Code = "026", Name = "Nabunturan Branch", IsActive = true, CreatedAt = DateTime.UtcNow },
-            new() { Code = "027", Name = "Madrid Branch", IsActive = true, CreatedAt = DateTime.UtcNow },
-            new() { Code = "028", Name = "Surigao Branch", IsActive = true, CreatedAt = DateTime.UtcNow },
-            new() { Code = "029", Name = "Gingoog Branch", IsActive = true, CreatedAt = DateTime.UtcNow },
-            new() { Code = "030", Name = "CTS (Mandaue) Branch", IsActive = true, CreatedAt = DateTime.UtcNow },
-            new() { Code = "031", Name = "Ronda Branch", IsActive = true, CreatedAt = DateTime.UtcNow },
-            new() { Code = "991", Name = "Corporate Center", IsActive = true, CreatedAt = DateTime.UtcNow },
+            new() { Code = "000", Name = "Lianga Branch", IsActive = true, CreatedAt = now },
+            new() { Code = "002", Name = "Barobo Branch", IsActive = true, CreatedAt = now },
+            new() { Code = "003", Name = "San Francisco Branch", IsActive = true, CreatedAt = now },
+            new() { Code = "004", Name = "Arasasan Branch", IsActive = true, CreatedAt = now },
+            new() { Code = "005", Name = "Hinatuan Branch", IsActive = true, CreatedAt = now },
+            new() { Code = "006", Name = "Tagum Branch", IsActive = true, CreatedAt = now },
+            new() { Code = "007", Name = "Tandag Branch", IsActive = true, CreatedAt = now },
+            new() { Code = "008", Name = "Butuan Branch", IsActive = true, CreatedAt = now },
+            new() { Code = "009", Name = "Bislig Branch", IsActive = true, CreatedAt = now },
+            new() { Code = "011", Name = "Head Office Branch", IsActive = true, CreatedAt = now },
+            new() { Code = "012", Name = "Cagayan Branch", IsActive = true, CreatedAt = now },
+            new() { Code = "013", Name = "Talisay Branch", IsActive = true, CreatedAt = now },
+            new() { Code = "014", Name = "General Santos Branch", IsActive = true, CreatedAt = now },
+            new() { Code = "015", Name = "Panabo Branch", IsActive = true, CreatedAt = now },
+            new() { Code = "016", Name = "Valencia Branch", IsActive = true, CreatedAt = now },
+            new() { Code = "017", Name = "Cateel Branch", IsActive = true, CreatedAt = now },
+            new() { Code = "018", Name = "Davao-Buhangin Branch", IsActive = true, CreatedAt = now },
+            new() { Code = "019", Name = "Tacloban Branch", IsActive = true, CreatedAt = now },
+            new() { Code = "020", Name = "Bacolod Branch", IsActive = true, CreatedAt = now },
+            new() { Code = "021", Name = "Iloilo Branch", IsActive = true, CreatedAt = now },
+            new() { Code = "022", Name = "Davao-Matina Branch", IsActive = true, CreatedAt = now },
+            new() { Code = "023", Name = "Trento Branch", IsActive = true, CreatedAt = now },
+            new() { Code = "024", Name = "Mati Branch", IsActive = true, CreatedAt = now },
+            new() { Code = "025", Name = "Bayugan Branch", IsActive = true, CreatedAt = now },
+            new() { Code = "026", Name = "Nabunturan Branch", IsActive = true, CreatedAt = now },
+            new() { Code = "027", Name = "Madrid Branch", IsActive = true, CreatedAt = now },
+            new() { Code = "028", Name = "Surigao Branch", IsActive = true, CreatedAt = now },
+            new() { Code = "029", Name = "Gingoog Branch", IsActive = true, CreatedAt = now },
+            new() { Code = "030", Name = "CTS (Mandaue) Branch", IsActive = true, CreatedAt = now },
+            new() { Code = "031", Name = "Ronda Branch", IsActive = true, CreatedAt = now },
+            new() { Code = "991", Name = "Corporate Center", IsActive = true, CreatedAt = now },
         };
 
         context.Branches.AddRange(branches);
         await context.SaveChangesAsync();
     }
 
-    private static async Task SeedAdminUserAsync(AppDbContext context)
+    private static async Task SeedAdminUserAsync(AppDbContext context, ITimeProvider timeProvider)
     {
         var adminUser = new User
         {
@@ -90,15 +95,16 @@ public static class DbInitializer
             BranchId = "011", // Head Office Branch
             Role = "Admin",
             IsActive = true,
-            CreatedAt = DateTime.UtcNow
+            CreatedAt = timeProvider.UtcNow
         };
 
         context.Users.Add(adminUser);
         await context.SaveChangesAsync();
     }
 
-    private static async Task SeedTestUsersAsync(AppDbContext context)
+    private static async Task SeedTestUsersAsync(AppDbContext context, ITimeProvider timeProvider)
     {
+        var now = timeProvider.UtcNow;
         var testUsers = new List<User>
         {
             new User
@@ -111,7 +117,7 @@ public static class DbInitializer
                 BranchId = "007", // Tandag Branch
                 Role = "Encoder",
                 IsActive = true,
-                CreatedAt = DateTime.UtcNow
+                CreatedAt = now
             },
             new User
             {
@@ -123,7 +129,7 @@ public static class DbInitializer
                 BranchId = "007", // Tandag Branch
                 Role = "Recommender",
                 IsActive = true,
-                CreatedAt = DateTime.UtcNow
+                CreatedAt = now
             },
             new User
             {
@@ -135,7 +141,7 @@ public static class DbInitializer
                 BranchId = "007", // Tandag Branch
                 Role = "Evaluator",
                 IsActive = true,
-                CreatedAt = DateTime.UtcNow
+                CreatedAt = now
             },
             new User
             {
@@ -147,7 +153,7 @@ public static class DbInitializer
                 BranchId = "007", // Tandag Branch
                 Role = "Approver",
                 IsActive = true,
-                CreatedAt = DateTime.UtcNow
+                CreatedAt = now
             }
         };
 

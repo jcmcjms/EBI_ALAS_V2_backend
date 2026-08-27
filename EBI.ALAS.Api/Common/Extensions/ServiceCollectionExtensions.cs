@@ -1,4 +1,5 @@
 using EBI.ALAS.Api.Common.Authorization;
+using EBI.ALAS.Api.Common.Time;
 using EBI.ALAS.Api.Features.Auth;
 using EBI.ALAS.Api.Features.Branches;
 using EBI.ALAS.Api.Features.Dashboard;
@@ -20,6 +21,9 @@ public static class ServiceCollectionExtensions
     /// </summary>
     public static IServiceCollection AddApplicationServices(this IServiceCollection services)
     {
+        // ─── Common Services ──────────────────────────────────────────────
+        services.AddSingleton<ITimeProvider, PhilippinesTimeProvider>();
+
         // ─── Data Access ─────────────────────────────────────────────────
         services.AddScoped<AppDbContext>();
 

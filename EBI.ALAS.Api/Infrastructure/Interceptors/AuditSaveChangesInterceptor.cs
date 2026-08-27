@@ -1,4 +1,5 @@
 using EBI.ALAS.Api.Common.Models;
+using EBI.ALAS.Api.Common.Time;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 
@@ -7,9 +8,17 @@ namespace EBI.ALAS.Api.Infrastructure.Interceptors;
 /// <summary>
 /// EF Core interceptor that automatically sets CreatedAt and UpdatedAt timestamps
 /// on entities that implement the IAuditable interface.
+/// Uses ITimeProvider for consistent UTC timestamp generation.
 /// </summary>
 public class AuditSaveChangesInterceptor : SaveChangesInterceptor
 {
+    private readonly ITimeProvider _timeProvider;
+
+    public AuditSaveChangesInterceptor(ITimeProvider timeProvider)
+    {
+        _timeProvider = timeProvider;
+    }
+
     public override InterceptionResult<int> SavingChanges(
         DbContextEventData eventData,
         InterceptionResult<int> result)
@@ -27,11 +36,11 @@ public class AuditSaveChangesInterceptor : SaveChangesInterceptor
         return base.SavingChangesAsync(eventData, result, cancellationToken);
     }
 
-    private static void ApplyAuditInfo(DbContext? context)
+    private void ApplyAuditInfo(DbContext? context)
     {
         if (context == null) return;
 
-        var utcNow = DateTime.UtcNow;
+        var utcNow = _timeProvider.UtcNow;
 
         foreach (var entry in context.ChangeTracker.Entries())
         {

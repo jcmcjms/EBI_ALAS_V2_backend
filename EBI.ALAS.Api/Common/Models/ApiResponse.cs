@@ -1,3 +1,5 @@
+using EBI.ALAS.Api.Common.Time;
+
 namespace EBI.ALAS.Api.Common.Models;
 
 /// <summary>
