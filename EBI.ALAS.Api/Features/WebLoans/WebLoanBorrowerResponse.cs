@@ -178,3 +178,133 @@ public class IncomingLoanItem
     public decimal? Deductions { get; set; }
     public string? Remarks { get; set; }
 }
+
+// ============================================================================
+// STEP-BY-STEP SEARCH DTOs
+// ============================================================================
+
+/// <summary>
+/// Step 1: CIS Search Result — basic borrower info + list of accounts for selection.
+/// </summary>
+public class CisSearchResult
+{
+    /// <summary>Client Information System number.</summary>
+    public string CisNo { get; set; } = string.Empty;
+
+    /// <summary>Full name for display.</summary>
+    public string FullName { get; set; } = string.Empty;
+
+    /// <summary>Branch code (home branch).</summary>
+    public string BranchCode { get; set; } = string.Empty;
+
+    /// <summary>Loan accounts owned by this borrower (from loan_acct_info).</summary>
+    public List<CisAccountSummary> Accounts { get; set; } = new();
+}
+
+/// <summary>
+/// Account summary for CIS search results — minimal info for account selection UI.
+/// </summary>
+public class CisAccountSummary
+{
+    /// <summary>Account number (acct_no).</summary>
+    public string AccountNo { get; set; } = string.Empty;
+
+    /// <summary>Account name (acct_name).</summary>
+    public string? AccountName { get; set; }
+
+    /// <summary>Account address (acct_address).</summary>
+    public string? AccountAddress { get; set; }
+
+    /// <summary>MIS Group (cat_mis_group).</summary>
+    public string? MisGroup { get; set; }
+
+    /// <summary>Number of PN records associated with this account.</summary>
+    public int PnCount { get; set; }
+}
+
+/// <summary>
+/// Step 2: Account Detail with PN records — detailed view after account selection.
+/// </summary>
+public class AccountWithPnsResponse
+{
+    /// <summary>Account number (acct_no).</summary>
+    public string AccountNo { get; set; } = string.Empty;
+
+    /// <summary>Account name (acct_name).</summary>
+    public string? AccountName { get; set; }
+
+    /// <summary>Account address (acct_address).</summary>
+    public string? AccountAddress { get; set; }
+
+    /// <summary>MIS Group (cat_mis_group).</summary>
+    public string? MisGroup { get; set; }
+
+    /// <summary>All PN records for this account from loan_data.</summary>
+    public List<PnRecord> PnRecords { get; set; } = new();
+}
+
+/// <summary>
+/// PN (Promissory Note) record from loan_data table.
+/// </summary>
+public class PnRecord
+{
+    /// <summary>Promissory Note number (loan_no).</summary>
+    public string PnNumber { get; set; } = string.Empty;
+
+    /// <summary>Loan product code.</summary>
+    public string? ProductCode { get; set; }
+
+    /// <summary>Loan product description (from loan_product lookup).</summary>
+    public string? ProductDescription { get; set; }
+
+    /// <summary>Creation type code (0=New, 1=Reloan, 2=Reconstructed, 3=Continuation, 4=Extension, 5=Renewal, 6=Additional Loan).</summary>
+    public byte? CreationType { get; set; }
+
+    /// <summary>Creation type label.</summary>
+    public string? CreationTypeLabel { get; set; }
+
+    /// <summary>Principal amount.</summary>
+    public decimal? Principal { get; set; }
+
+    /// <summary>Applied principal (proposed amount).</summary>
+    public decimal? AppliedPrincipal { get; set; }
+
+    /// <summary>Current principal balance.</summary>
+    public decimal? PrincipalBalance { get; set; }
+
+    /// <summary>Amortization amount.</summary>
+    public decimal? AmortizationAmount { get; set; }
+
+    /// <summary>Outstanding balance (principal + interest).</summary>
+    public decimal? OutstandingBalance { get; set; }
+
+    /// <summary>Date granted.</summary>
+    public DateTime? DateGranted { get; set; }
+
+    /// <summary>Date maturity.</summary>
+    public DateTime? DateMaturity { get; set; }
+
+    /// <summary>Loan status code.</summary>
+    public byte? StatusCode { get; set; }
+
+    /// <summary>Loan status description (from loan_status lookup).</summary>
+    public string? StatusDescription { get; set; }
+
+    /// <summary>Close date (if paid off).</summary>
+    public DateTime? CloseDate { get; set; }
+
+    /// <summary>Granted interest rate.</summary>
+    public decimal? GrantedRate { get; set; }
+
+    /// <summary>Effective interest rate.</summary>
+    public decimal? EffectiveRate { get; set; }
+
+    /// <summary>Loan purpose.</summary>
+    public string? Purpose { get; set; }
+
+    /// <summary>Payment interval in months.</summary>
+    public int? PaymentInterval { get; set; }
+
+    /// <summary>Total amortization count (term).</summary>
+    public int? TotalAmortization { get; set; }
+}
