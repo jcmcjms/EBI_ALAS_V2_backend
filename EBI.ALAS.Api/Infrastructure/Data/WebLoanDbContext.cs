@@ -18,10 +18,12 @@ public class WebLoanDbContext : DbContext
 
     // ─── DbSets ──────────────────────────────────────────────────────────────
     public DbSet<CisInfo> CisInfos => Set<CisInfo>();
+    public DbSet<CisInfoMiscData> CisInfoMiscDatas => Set<CisInfoMiscData>();
     public DbSet<LoanAcctInfo> LoanAcctInfos => Set<LoanAcctInfo>();
     public DbSet<LoanData> LoanDatas => Set<LoanData>();
     public DbSet<LoanStatusLookup> LoanStatuses => Set<LoanStatusLookup>();
     public DbSet<LoanProductLookup> LoanProducts => Set<LoanProductLookup>();
+    public DbSet<MisGroup> MisGroups => Set<MisGroup>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -31,6 +33,15 @@ public class WebLoanDbContext : DbContext
         modelBuilder.Entity<CisInfo>(entity =>
         {
             entity.HasKey(e => e.CisNo);
+            entity.Property(e => e.CisNo).HasColumnName("cis_no").HasMaxLength(10);
+        });
+
+        // ─── cis_info_misc_data ──────────────────────────────────────────
+        // Composite key (cis_no, id_code) — one row per attribute per client.
+        modelBuilder.Entity<CisInfoMiscData>(entity =>
+        {
+            entity.HasKey(e => new { e.CisNo, e.IdCode });
+            entity.HasIndex(e => e.CisNo);
             entity.Property(e => e.CisNo).HasColumnName("cis_no").HasMaxLength(10);
         });
 
@@ -59,6 +70,17 @@ public class WebLoanDbContext : DbContext
         modelBuilder.Entity<LoanProductLookup>(entity =>
         {
             entity.HasKey(e => e.IdCode);
+        });
+
+        // ─── mis_group ───────────────────────────────────────────────────
+        // Single-table multi-group lookup. frp_id is the synthetic PK in webloan.
+        // Indexed on (group_no, path) — every ALAS lookup filters by group_no and
+        // joins on path (or id_code for cis_info_misc_data).
+        modelBuilder.Entity<MisGroup>(entity =>
+        {
+            entity.HasKey(e => e.FrpId);
+            entity.HasIndex(e => new { e.GroupNo, e.Path });
+            entity.HasIndex(e => new { e.GroupNo, e.IdCode });
         });
     }
 

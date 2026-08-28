@@ -5,8 +5,10 @@ namespace EBI.ALAS.Api.Features.WebLoans;
 
 /// <summary>
 /// Assembles ALAS loan-application sections from the read-only WebLoan database.
-/// Source tables: cis_info (client master), loan_acct_info (client→account),
-/// loan_data (PN records), loan_status / loan_product (lookups).
+/// Source tables: cis_info (client master), cis_info_misc_data (per-client attributes),
+/// loan_acct_info (client→account), loan_data (PN records), loan_status / loan_product
+/// (lookups), mis_group (multi-purpose hierarchy — group_no=2 holds requesting
+/// officers, group_no=14 holds agency types).
 /// </summary>
 public class WebLoanService : IWebLoanService
 {
@@ -16,6 +18,16 @@ public class WebLoanService : IWebLoanService
     // loan_status codes considered CLOSED/PAYOFF — excluded from Outstanding Loans
     // per requirement "do not include accounts for payoff".
     private static readonly byte[] PayoffStatuses = [5, 6, 7, 8]; // TPL total, Write-Off, Total, Transfer Asset
+
+    // mis_group.group_no that holds the requesting officer hierarchy.
+    // loan_acct_info.solicitor is a path; the description of the matching row
+    // (e.g. "ALDREX JOEY L. CEZAR") is what we display as the requesting officer.
+    private const int RequestingOfficerGroupNo = 2;
+
+    // mis_group.group_no that holds the agency type hierarchy. Reached via
+    // cis_info_misc_data.value_str when cis_info_misc_data.id_code = 14
+    // (see CisInfoMiscData.AgencyTypeIdCode).
+    private const int AgencyTypeGroupNo = 14;
 
     public WebLoanService(WebLoanDbContext db, ILogger<WebLoanService> logger)
     {
@@ -60,7 +72,7 @@ public class WebLoanService : IWebLoanService
             {
                 AccountNo = a.AccountNo,
                 AccountName = a.Name,
-                AccountAddress = null, // loan_acct_info doesn't have address column
+                AccountAddress = BuildAccountAddress(a),
                 MisGroup = a.MisGroup,
                 PnCount = pnCounts.GetValueOrDefault(a.AccountNo, 0)
             }).ToList()
@@ -79,11 +91,18 @@ public class WebLoanService : IWebLoanService
         if (account is null)
             return null;
 
-        // Get all PN records for this account (including closed ones for complete history)
+        // Get active PN records for this account using is_loan(loan_no) = 1 and loan_status != 10
+        // Matches the sample query: WHERE webloan.dbo.is_loan(ld.loan_no) = 1 AND loan_status != 10
         var loans = await _db.LoanDatas
+            .FromSqlRaw<LoanData>(@"
+                SELECT *
+                FROM dbo.loan_data
+                WHERE acct_no = {0}
+                  AND loan_no IS NOT NULL
+                  AND webloan.dbo.is_loan(loan_no) = 1
+                  AND loan_status != 10
+                ORDER BY date_granted DESC", accountNo)
             .AsNoTracking()
-            .Where(l => l.AccountNo == accountNo && l.LoanNo != null)
-            .OrderByDescending(l => l.DateGranted)
             .ToListAsync(ct);
 
         // Lookups
@@ -103,7 +122,7 @@ public class WebLoanService : IWebLoanService
         {
             AccountNo = account.AccountNo,
             AccountName = account.Name,
-            AccountAddress = null, // loan_acct_info doesn't have address column
+            AccountAddress = BuildAccountAddress(account),
             MisGroup = account.MisGroup,
             PnRecords = loans.Select(l => new PnRecord
             {
@@ -178,6 +197,99 @@ public class WebLoanService : IWebLoanService
             .OrderByDescending(l => l.DateGranted)
             .FirstOrDefault();
 
+        // ─── Mis-group lookups (requesting officer + MIS agency) ─────────
+        // Pull the union of every distinct (solicitor path, mis_group2 path)
+        // we need to resolve, in one round-trip.
+        var solicitorPaths = accounts
+            .Where(a => !string.IsNullOrWhiteSpace(a.Solicitor))
+            .Select(a => a.Solicitor!)
+            .Distinct()
+            .ToList();
+
+        var misGroup2Paths = accounts
+            .Where(a => !string.IsNullOrWhiteSpace(a.MisGroup2))
+            .Select(a => a.MisGroup2!)
+            .Distinct()
+            .ToList();
+
+        var allPaths = solicitorPaths.Union(misGroup2Paths).Distinct().ToList();
+
+        var misGroupByPath = allPaths.Count == 0
+            ? new Dictionary<string, MisGroup>(StringComparer.OrdinalIgnoreCase)
+            : await _db.MisGroups
+                .AsNoTracking()
+                .Where(m => m.GroupNo == RequestingOfficerGroupNo && m.Path != null && allPaths.Contains(m.Path))
+                .ToDictionaryAsync(m => m.Path!, m => m, ct);
+
+        // Pull the row for each loan_acct_info.solicitor individually — group_no=2 is
+        // the officer hierarchy, and within that the same path can appear at different
+        // levels. We want the one with the highest grp_level (the most specific node).
+        // Done client-side over the small result set.
+        var officerByPath = new Dictionary<string, MisGroup>(StringComparer.OrdinalIgnoreCase);
+        foreach (var path in solicitorPaths)
+        {
+            var candidates = await _db.MisGroups
+                .AsNoTracking()
+                .Where(m => m.GroupNo == RequestingOfficerGroupNo && m.Path == path)
+                .ToListAsync(ct);
+            // If the exact path is missing, fall back to the longest prefix that exists.
+            // (Some accounts store a parent path rather than a leaf — rare but observed.)
+            if (candidates.Count == 0)
+            {
+                MisGroup? best = null;
+                foreach (var m in await _db.MisGroups
+                    .AsNoTracking()
+                    .Where(m => m.GroupNo == RequestingOfficerGroupNo && m.Path != null && path.StartsWith(m.Path))
+                    .ToListAsync(ct))
+                {
+                    if (best is null || (m.Path!.Length > best.Path!.Length))
+                        best = m;
+                }
+                if (best is not null) officerByPath[path] = best;
+            }
+            else
+            {
+                officerByPath[path] = candidates
+                    .OrderByDescending(m => m.GrpLevel ?? 0)
+                    .First();
+            }
+        }
+
+        // ─── Agency type via cis_info_misc_data (id_code=14) ─────────────
+        // cis_info_misc_data.value_str is a mis_group.id_code within the
+        // agency-type group_no. We fetch the row directly and then resolve it.
+        var agencyTypeRow = await _db.CisInfoMiscDatas
+            .AsNoTracking()
+            .Where(m => m.CisNo == cisNo && m.IdCode == CisInfoMiscData.AgencyTypeIdCode)
+            .FirstOrDefaultAsync(ct);
+
+        string? agencyTypeDescription = null;
+        if (agencyTypeRow is { ValueStr: { Length: > 0 } idCode })
+        {
+            agencyTypeDescription = await _db.MisGroups
+                .AsNoTracking()
+                .Where(m => m.GroupNo == AgencyTypeGroupNo && m.IdCode == idCode)
+                .Select(m => m.Description)
+                .FirstOrDefaultAsync(ct);
+        }
+
+        // ─── Pick the primary account: the one whose most-recent PN is the
+        //    "latest active loan". The requesting officer comes from that account.
+        var primaryAccount = latestActiveLoan is null
+            ? accounts.FirstOrDefault()
+            : accounts.FirstOrDefault(a => a.AccountNo == latestActiveLoan.AccountNo) ?? accounts.FirstOrDefault();
+
+        var primarySolicitor = primaryAccount?.Solicitor;
+        var primarySolicitorDescription =
+            primarySolicitor is not null && officerByPath.TryGetValue(primarySolicitor, out var mg)
+                ? mg.Description
+                : null;
+
+        var primaryMisGroup2Description =
+            primaryAccount?.MisGroup2 is { } mg2Path
+                ? misGroupByPath.GetValueOrDefault(mg2Path)?.Description
+                : null;
+
         var response = new WebLoanBorrowerResponse
         {
             // ─── Branch & Type ────────────────────────────────────────
@@ -187,6 +299,9 @@ public class WebLoanService : IWebLoanService
                 BranchCode = cis.BranchCode,
                 Type = WebLoanCreationTypes.GetLabel(latestActiveLoan?.CreationType),
                 TypeCode = latestActiveLoan?.CreationType,
+                // Pulled from loan_acct_info.solicitor on the primary account,
+                // resolved through dbo.mis_group (group_no=2) for the human name.
+                RequestingOfficer = primarySolicitorDescription,
                 Lai = accounts.Select(a => a.AccountNo).ToList()
             },
 
@@ -201,12 +316,20 @@ public class WebLoanService : IWebLoanService
                 Address = BuildAddress(cis),
                 AgencyName = cis.Company,
                 AgencyTypeCode = cis.CompanyTypeCode,
+                // Decoded from cis_info_misc_data (id_code=14) → mis_group
+                // (group_no=14) description. Falls back to null if the
+                // borrower has no misc row or the id_code is unknown.
+                AgencyType = agencyTypeDescription,
                 PositionTitle = cis.JobTitle,
                 RegionCode = cis.RegionCode,
                 DivisionCode = cis.DivisionCode,
                 StationCode = cis.StationCode,
                 EmployeeNo = cis.EmployeeNo,
-                MisAgency = accounts.FirstOrDefault()?.MisGroup
+                // Raw primary MIS path (e.g. "INDIV/SAL").
+                MisAgency = accounts.FirstOrDefault()?.MisGroup,
+                // Resolved secondary MIS path (e.g. "DEPED LIANGA") from
+                // loan_acct_info.cat_mis_group2 → mis_group.path.
+                MisAgencyName = primaryMisGroup2Description
             },
 
             // Loan Information — driven by the most recent non-closed PN
@@ -290,6 +413,14 @@ public class WebLoanService : IWebLoanService
         var parts = new[] { c.HouseStreet, c.Village, c.Barangay, c.City, c.StateProvince, c.Zip }
             .Where(p => !string.IsNullOrWhiteSpace(p));
 
+        var joined = string.Join(", ", parts);
+        return joined.Length == 0 ? null : joined;
+    }
+
+    private static string? BuildAccountAddress(LoanAcctInfo a)
+    {
+        var parts = new[] { a.Add1, a.Add2 }
+            .Where(p => !string.IsNullOrWhiteSpace(p));
         var joined = string.Join(", ", parts);
         return joined.Length == 0 ? null : joined;
     }

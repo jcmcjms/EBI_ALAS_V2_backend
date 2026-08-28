@@ -35,10 +35,13 @@ public class BranchAndTypeSection
     public string? BranchCode { get; set; }
 
     /// <summary>
-    /// Requesting officer. NOT stored per-application in webloan — this is the
-    /// ALAS user initiating the application, so it is populated client-side.
+    /// Requesting officer. Sourced from <c>loan_acct_info.solicitor</c> resolved
+    /// against <c>dbo.mis_group.path</c> where <c>group_no = 2</c> — the
+    /// description of the resolved row is the officer's full name
+    /// (e.g. "ALDREX JOEY L. CEZAR"). Populated by <see cref="WebLoanService"/>
+    /// from the most recent account owned by the borrower.
     /// </summary>
-    public string? RequestingOfficer => null;
+    public string? RequestingOfficer { get; set; }
 
     /// <summary>Client Information System number.</summary>
     public string? CisNo { get; set; }
@@ -61,8 +64,19 @@ public class PersonalInformationSection
     /// <summary>Company / agency name (cis_info.b_comp).</summary>
     public string? AgencyName { get; set; }
 
-    /// <summary>Agency type raw code (cis_info.company_type tinyint) — decode map pending from webloan team.</summary>
+    /// <summary>
+    /// Agency type raw code (cis_info.company_type tinyint) — kept for backward
+    /// compatibility with callers that consume the raw byte.
+    /// </summary>
     public byte? AgencyTypeCode { get; set; }
+
+    /// <summary>
+    /// Agency type description resolved from <c>cis_info_misc_data</c> (id_code=14)
+    /// joined to <c>mis_group.id_code</c> in the appropriate group (e.g. "RPSU",
+    /// "GOVERNMENT"). This is the human-readable agency classification the form
+    /// actually displays next to the agency name.
+    /// </summary>
+    public string? AgencyType { get; set; }
 
     /// <summary>Position / title (cis_info.b_jtitle).</summary>
     public string? PositionTitle { get; set; }
@@ -78,8 +92,19 @@ public class PersonalInformationSection
     public string? StationCode { get; set; }
     public string? EmployeeNo { get; set; }
 
-    /// <summary>MIS Agency grouping (loan_acct_info.cat_mis_group).</summary>
+    /// <summary>
+    /// Primary MIS Agency path from <c>loan_acct_info.cat_mis_group</c>
+    /// (e.g. "INDIV/SAL"). This is the path itself; the human-readable
+    /// agency name is <see cref="MisAgencyName"/>.
+    /// </summary>
     public string? MisAgency { get; set; }
+
+    /// <summary>
+    /// Resolved secondary MIS Agency description from <c>loan_acct_info.cat_mis_group2</c>
+    /// joined to <c>mis_group.path</c> (e.g. "DEPED LIANGA"). The agency
+    /// the borrower is associated with for reporting/segmentation purposes.
+    /// </summary>
+    public string? MisAgencyName { get; set; }
 }
 
 /// <summary>Optional Information section — referrer/school are not stored in the identified webloan tables.</summary>
@@ -248,7 +273,7 @@ public class AccountWithPnsResponse
 /// </summary>
 public class PnRecord
 {
-    /// <summary>Promissory Note number (loan_no).</summary>
+    /// <summary>Promissory Note number (loan_data.loan_no).</summary>
     public string PnNumber { get; set; } = string.Empty;
 
     /// <summary>Loan product code.</summary>
