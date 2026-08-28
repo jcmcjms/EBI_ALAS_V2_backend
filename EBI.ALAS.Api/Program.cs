@@ -8,6 +8,7 @@ using EBI.ALAS.Api.Common.Extensions;
 using EBI.ALAS.Api.Common.Middleware;
 using EBI.ALAS.Api.Common.Models;
 using EBI.ALAS.Api.Common.Time;
+using EBI.ALAS.Api.Features.Account;
 using EBI.ALAS.Api.Features.Auth;
 using EBI.ALAS.Api.Features.Branches;
 using EBI.ALAS.Api.Features.Dashboard;
@@ -270,6 +271,9 @@ app.MapWebLoanEndpoints();
 
 // Dashboard endpoints
 app.MapDashboardEndpoints();
+
+// Account endpoints (My Account page)
+app.MapAccountEndpoints();
 
 // ─── Database Initialization ─────────────────────────────────────────────────
 using (var scope = app.Services.CreateScope())

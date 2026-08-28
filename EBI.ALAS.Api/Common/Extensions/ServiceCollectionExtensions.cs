@@ -1,5 +1,6 @@
 using EBI.ALAS.Api.Common.Authorization;
 using EBI.ALAS.Api.Common.Time;
+using EBI.ALAS.Api.Features.Account;
 using EBI.ALAS.Api.Features.Auth;
 using EBI.ALAS.Api.Features.Branches;
 using EBI.ALAS.Api.Features.Dashboard;
@@ -53,6 +54,10 @@ public static class ServiceCollectionExtensions
 
         // ─── WebLoan Integration (read-only) ─────────────────────────────
         services.AddScoped<IWebLoanService, WebLoanService>();
+
+        // ─── Account Services (My Account page) ──────────────────────────
+        services.AddScoped<IAccountRepository, AccountRepository>();
+        services.AddScoped<IAccountService, AccountService>();
 
         // ─── Authorization ───────────────────────────────────────────────
         services.AddScoped<IAuthorizationHandler, PermissionAuthorizationHandler>();

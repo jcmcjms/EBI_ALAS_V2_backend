@@ -16,4 +16,11 @@ public class User
     public bool IsActive { get; set; } = true;
     public bool MustChangePassword { get; set; } = false;
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+    
+    // New profile fields for My Account page
+    public string? Email { get; set; }
+    public string? Phone { get; set; }
+    public string? EmergencyContact { get; set; }
+    public string? ProfilePhotoUrl { get; set; }
+    public DateTime? PasswordChangedAt { get; set; }
 }

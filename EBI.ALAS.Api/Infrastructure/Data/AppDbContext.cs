@@ -100,6 +100,20 @@ public class AppDbContext : DbContext
 
             entity.Property(e => e.CreatedAt)
                 .IsRequired();
+
+            entity.Property(e => e.Email)
+                .HasMaxLength(100);
+
+            entity.Property(e => e.Phone)
+                .HasMaxLength(20);
+
+            entity.Property(e => e.EmergencyContact)
+                .HasMaxLength(200);
+
+            entity.Property(e => e.ProfilePhotoUrl)
+                .HasMaxLength(500);
+
+            entity.Property(e => e.PasswordChangedAt);
         });
 
         // ─── LoanApplication Entity ──────────────────────────────────────
@@ -202,14 +216,14 @@ public class AppDbContext : DbContext
                 .HasConversion(
                     v => JsonSerializer.Serialize(v, (JsonSerializerOptions?)null),
                     v => JsonSerializer.Deserialize<List<string>>(v, (JsonSerializerOptions?)null) ?? new List<string>())
-                .HasColumnType("jsonb")
+                .HasColumnType("nvarchar(max)")
                 .Metadata.SetValueComparer(listComparer);
 
             entity.Property(e => e.WebLoanPnNumbers)
                 .HasConversion(
                     v => JsonSerializer.Serialize(v, (JsonSerializerOptions?)null),
                     v => JsonSerializer.Deserialize<List<string>>(v, (JsonSerializerOptions?)null) ?? new List<string>())
-                .HasColumnType("jsonb")
+                .HasColumnType("nvarchar(max)")
                 .Metadata.SetValueComparer(listComparer);
 
             entity.Property(e => e.WebLoanLastSyncedAt);
