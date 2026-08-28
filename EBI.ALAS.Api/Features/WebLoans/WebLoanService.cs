@@ -167,6 +167,101 @@ public class WebLoanService : IWebLoanService
         };
     }
 
+    // ─── Active Loans by Account (CIS + acct_no) ────────────────────────────
+    //
+    // Mirrors the reference "Active Loans by existing borrower" SQL exactly:
+    //   WHERE acct_no = @acct AND bch = '000'
+    //     AND webloan.dbo.is_loan(loan_no) = 1
+    //     AND loan_status != 10
+    //   ORDER BY date_granted DESC
+    //   TOP 10
+    //
+    // The bch = '000' filter matches the legacy query and is the bank-default
+    // branch code. is_loan() is a UDF that returns 1 for true PN rows (excludes
+    // ledger/non-PN rows). loan_status != 10 excludes the terminal "cancelled"
+    // status — see dbo.loan_status for the full code list.
+    public async Task<ActiveLoansResponse?> GetActiveLoansByAccountAsync(
+        string cisNo, string accountNo, CancellationToken ct = default)
+    {
+        // First confirm the account actually belongs to this CIS. Without this
+        // check, anyone with a valid JWT could enumerate active loans for any
+        // account number (since acct_no is the only filter in the raw SQL).
+        var accountExists = await _db.LoanAcctInfos
+            .AsNoTracking()
+            .AnyAsync(a => a.CisNo == cisNo && a.AccountNo == accountNo, ct);
+
+        if (!accountExists)
+            return null;
+
+        // The reference query uses TOP 10 + an ORDER BY. To use FromSqlRaw with
+        // EF Core we must declare the top inline. We also pass the constant
+        // '000' branch code as a parameter to keep the prepared SQL cached.
+        var loans = await _db.LoanDatas
+            .FromSqlRaw<LoanData>(@"
+                SELECT TOP 10 *
+                FROM dbo.loan_data
+                WHERE acct_no = {0}
+                  AND bch = {1}
+                  AND loan_no IS NOT NULL
+                  AND webloan.dbo.is_loan(loan_no) = 1
+                  AND loan_status != 10
+                ORDER BY date_granted DESC", accountNo, "000")
+            .AsNoTracking()
+            .ToListAsync(ct);
+
+        // Loan product lookup (code → description) — small table, fetch once.
+        var products = await _db.LoanProducts.AsNoTracking().ToListAsync(ct);
+        var productByCode = products
+            .Where(p => !string.IsNullOrEmpty(p.IdCode))
+            .ToDictionary(p => p.IdCode!, p => p.Description, StringComparer.OrdinalIgnoreCase);
+
+        return new ActiveLoansResponse
+        {
+            AccountNo = accountNo,
+            CisNo = cisNo,
+            Loans = loans.Select(l => new ActiveLoanItem
+            {
+                LoanNo = l.LoanNo ?? string.Empty,
+                Principal = l.Principal,
+                PrincipalBalance = l.PrincipalBalance,
+                DateGranted = l.DateGranted,
+                DateMaturity = l.DateMaturity,
+                LoanProduct = l.ProductCode,
+                LoanProductDescription = l.ProductCode is null
+                    ? null
+                    : productByCode.GetValueOrDefault(l.ProductCode),
+                StatusCode = l.StatusCode,
+                StatusDescription = StatusCodeLabel(l.StatusCode),
+                // Combined display string: "<product> - <status label>", mirroring
+                // the reference query's product_status column. Falls back to just
+                // the product or just the status if the other side is empty.
+                ProductStatus = string.Join(" - ", new[]
+                {
+                    l.ProductCode,
+                    StatusCodeLabel(l.StatusCode)
+                }.Where(s => !string.IsNullOrWhiteSpace(s)))
+            }).ToList()
+        };
+    }
+
+    /// <summary>
+    /// Human-readable label for a loan_status code. The webloan DB has a
+    /// dbo.loan_status lookup table, but a small inline mapping covers the
+    /// codes the reference query renders (Current / Pastdue / Litigation /
+    /// etc.) without an extra round-trip. Falls back to the raw code as a
+    /// string for any code not in the table.
+    /// </summary>
+    private static string? StatusCodeLabel(byte? code) => code switch
+    {
+        0 => "Current",
+        1 => "Pastdue Performing",
+        2 => "Pastdue Non-Performing",
+        3 => "Litigation / ITL",
+        4 => "Transfer of Asset",
+        5 => "Write-off",
+        _ => code?.ToString()
+    };
+
     // ─── Original full profile (kept for backward compatibility) ────────────
 
     public async Task<WebLoanBorrowerResponse?> GetBorrowerByCisAsync(string cisNo, CancellationToken ct = default)

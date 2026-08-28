@@ -333,3 +333,69 @@ public class PnRecord
     /// <summary>Total amortization count (term).</summary>
     public int? TotalAmortization { get; set; }
 }
+
+// ============================================================================
+// ACTIVE LOANS BY ACCOUNT — Mirrors the "Active Loans by existing borrower"
+// reference query: webloan.dbo.loan_data where acct_no + bch='000' + is_loan=1
+// + loan_status != 10, top 10 by date_granted desc.
+// ============================================================================
+
+/// <summary>
+/// Response for GET /api/webloans/cis/{cisNo}/accounts/{accountNo}/active-loans.
+/// Returns up to 10 active (non-status-10) PN rows for the given account,
+/// ordered by date granted (most recent first).
+/// </summary>
+public class ActiveLoansResponse
+{
+    /// <summary>Account number the active loans belong to.</summary>
+    public string AccountNo { get; set; } = string.Empty;
+
+    /// <summary>CIS number that owns the account (echoed for caller convenience).</summary>
+    public string CisNo { get; set; } = string.Empty;
+
+    /// <summary>Up to 10 active PN records (loan_data rows) for this account.</summary>
+    public List<ActiveLoanItem> Loans { get; set; } = new();
+}
+
+/// <summary>
+/// One active (non-closed) loan row, shaped to match the reference "Active Loans
+/// by existing borrower" query exactly. The frontend renders these directly.
+/// </summary>
+public class ActiveLoanItem
+{
+    /// <summary>Promissory Note number (loan_data.loan_no).</summary>
+    public string LoanNo { get; set; } = string.Empty;
+
+    /// <summary>Original principal amount (loan_data.principal).</summary>
+    public decimal? Principal { get; set; }
+
+    /// <summary>Current principal balance (loan_data.principal_bal).</summary>
+    public decimal? PrincipalBalance { get; set; }
+
+    /// <summary>Date the loan was granted (loan_data.date_granted, date only).</summary>
+    public DateTime? DateGranted { get; set; }
+
+    /// <summary>Maturity date (loan_data.date_maturity, date only).</summary>
+    public DateTime? DateMaturity { get; set; }
+
+    /// <summary>Loan product code (loan_data.loan_product, e.g. "PL", "MPL").</summary>
+    public string? LoanProduct { get; set; }
+
+    /// <summary>Loan product description resolved from dbo.loan_product.</summary>
+    public string? LoanProductDescription { get; set; }
+
+    /// <summary>Raw loan status code (loan_data.loan_status).</summary>
+    public byte? StatusCode { get; set; }
+
+    /// <summary>
+    /// Loan status label resolved from dbo.loan_status. Falls back to the raw
+    /// code as a string if the lookup table has no matching row.
+    /// </summary>
+    public string? StatusDescription { get; set; }
+
+    /// <summary>
+    /// Combined "product - status" string for display (e.g. "PL - Current").
+    /// Matches the reference query's product_status column verbatim.
+    /// </summary>
+    public string? ProductStatus { get; set; }
+}
