@@ -10,8 +10,9 @@ namespace EBI.ALAS.Api.Features.WebLoans;
 ///   <item><c>group_no = 2</c> — Account officers / requesting officers. <c>path</c>
 ///     is referenced by <c>loan_acct_info.solicitor</c>; the resolved <c>description</c>
 ///     is the requesting officer's name (e.g. "ALDREX JOEY L. CEZAR").</item>
-///   <item><c>group_no = 14</c> — Agency type. <c>id_code</c> is referenced by
-///     <c>cis_info_misc_data.value_str</c> when <c>id_code = 14</c>.</item>
+///   <item><c>group_no = 26</c> — Agency type. <c>id_code</c> is referenced by
+///     <c>cis_info_misc_data.value_str</c> when <c>cis_info_misc_data.id_code = 14</c>
+///     (e.g. "AT002" → "RPSU").</item>
 ///   <item>Other <c>group_no</c> values cover other categorizations (industry,
 ///     economic activity, debt instrument, etc.).</item>
 /// </list>

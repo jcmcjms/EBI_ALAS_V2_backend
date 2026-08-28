@@ -369,7 +369,7 @@ namespace EBI.ALAS.Api.Migrations
 
                     b.Property<string>("WebLoanAccountNumbers")
                         .IsRequired()
-                        .HasColumnType("jsonb");
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<string>("WebLoanBranchCode")
                         .HasMaxLength(20)
@@ -384,7 +384,7 @@ namespace EBI.ALAS.Api.Migrations
 
                     b.Property<string>("WebLoanPnNumbers")
                         .IsRequired()
-                        .HasColumnType("jsonb");
+                        .HasColumnType("nvarchar(max)");
 
                     b.HasKey("Id");
 

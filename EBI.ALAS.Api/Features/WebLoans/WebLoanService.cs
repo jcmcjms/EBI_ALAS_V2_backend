@@ -7,8 +7,8 @@ namespace EBI.ALAS.Api.Features.WebLoans;
 /// Assembles ALAS loan-application sections from the read-only WebLoan database.
 /// Source tables: cis_info (client master), cis_info_misc_data (per-client attributes),
 /// loan_acct_info (client→account), loan_data (PN records), loan_status / loan_product
-/// (lookups), mis_group (multi-purpose hierarchy — group_no=2 holds requesting
-/// officers, group_no=14 holds agency types).
+/// (lookups), mis_group (multi-purpose hierarchy — group_no=1 holds MIS region/agency
+/// paths, group_no=2 holds requesting officers, group_no=26 holds agency types).
 /// </summary>
 public class WebLoanService : IWebLoanService
 {
@@ -22,12 +22,29 @@ public class WebLoanService : IWebLoanService
     // mis_group.group_no that holds the requesting officer hierarchy.
     // loan_acct_info.solicitor is a path; the description of the matching row
     // (e.g. "ALDREX JOEY L. CEZAR") is what we display as the requesting officer.
+    // The user's legacy webloan customer-info query joins with
+    // "AND mg3.group_no = 2" on this exact path — keep that contract.
     private const int RequestingOfficerGroupNo = 2;
+
+    // mis_group.group_no that holds the MIS grouping hierarchy (regions/areas
+    // and the secondary MIS agency classification). cat_mis_group2 is a path
+    // in this group (e.g. "CLD/C00/C0001/C000101/C000101007" → "DEPED LIANGA").
+    // Verified against live data on CIS 0880944451 (Aug 2026) — the path
+    // resolves in group_no=1 and is absent from group_no=2.
+    private const int MisGroupingGroupNo = 1;
 
     // mis_group.group_no that holds the agency type hierarchy. Reached via
     // cis_info_misc_data.value_str when cis_info_misc_data.id_code = 14
     // (see CisInfoMiscData.AgencyTypeIdCode).
-    private const int AgencyTypeGroupNo = 14;
+    //
+    // Verified against live data on CIS 0880944451 (Aug 2026): id_code='AT002'
+    // (RPSU) lives in group_no=26. The original assumption of group_no=14 was
+    // incorrect — no `AT*` agency-type rows exist in group_no=14. Matches the
+    // production legacy customer-info query, which joins without a group_no
+    // filter; the agency-type rows in group_no=26 are unique on id_code for
+    // all `AT*` values seen in cis_info_misc_data (id_code=14) except AT000
+    // (which collides with group_no=1 — not used by any current borrower).
+    private const int AgencyTypeGroupNo = 26;
 
     public WebLoanService(WebLoanDbContext db, ILogger<WebLoanService> logger)
     {
@@ -198,8 +215,14 @@ public class WebLoanService : IWebLoanService
             .FirstOrDefault();
 
         // ─── Mis-group lookups (requesting officer + MIS agency) ─────────
-        // Pull the union of every distinct (solicitor path, mis_group2 path)
-        // we need to resolve, in one round-trip.
+        // Two distinct group_no values hold the data we need:
+        //   - group_no=2: requesting officer hierarchy. Resolved from
+        //     loan_acct_info.solicitor (path → description).
+        //   - group_no=1: MIS grouping hierarchy. Resolved from
+        //     loan_acct_info.cat_mis_group2 (path → description, e.g. "DEPED LIANGA").
+        // The same path can exist in both groups with different descriptions,
+        // so the join MUST scope by group_no. Verified against live data on
+        // CIS 0880944451 (Aug 2026): cat_mis_group2 only exists in group_no=1.
         var solicitorPaths = accounts
             .Where(a => !string.IsNullOrWhiteSpace(a.Solicitor))
             .Select(a => a.Solicitor!)
@@ -212,19 +235,9 @@ public class WebLoanService : IWebLoanService
             .Distinct()
             .ToList();
 
-        var allPaths = solicitorPaths.Union(misGroup2Paths).Distinct().ToList();
-
-        var misGroupByPath = allPaths.Count == 0
-            ? new Dictionary<string, MisGroup>(StringComparer.OrdinalIgnoreCase)
-            : await _db.MisGroups
-                .AsNoTracking()
-                .Where(m => m.GroupNo == RequestingOfficerGroupNo && m.Path != null && allPaths.Contains(m.Path))
-                .ToDictionaryAsync(m => m.Path!, m => m, ct);
-
-        // Pull the row for each loan_acct_info.solicitor individually — group_no=2 is
-        // the officer hierarchy, and within that the same path can appear at different
-        // levels. We want the one with the highest grp_level (the most specific node).
-        // Done client-side over the small result set.
+        // Requesting officer lookup: group_no=2, per-iterator because the same
+        // path can have multiple rows at different grp_level. We want the most
+        // specific (highest grp_level) match, with prefix-fallback for missing rows.
         var officerByPath = new Dictionary<string, MisGroup>(StringComparer.OrdinalIgnoreCase);
         foreach (var path in solicitorPaths)
         {
@@ -232,15 +245,18 @@ public class WebLoanService : IWebLoanService
                 .AsNoTracking()
                 .Where(m => m.GroupNo == RequestingOfficerGroupNo && m.Path == path)
                 .ToListAsync(ct);
-            // If the exact path is missing, fall back to the longest prefix that exists.
-            // (Some accounts store a parent path rather than a leaf — rare but observed.)
+
             if (candidates.Count == 0)
             {
+                // Fall back to the longest matching prefix.
                 MisGroup? best = null;
-                foreach (var m in await _db.MisGroups
+                var prefixes = await _db.MisGroups
                     .AsNoTracking()
-                    .Where(m => m.GroupNo == RequestingOfficerGroupNo && m.Path != null && path.StartsWith(m.Path))
-                    .ToListAsync(ct))
+                    .Where(m => m.GroupNo == RequestingOfficerGroupNo
+                                && m.Path != null
+                                && path.StartsWith(m.Path))
+                    .ToListAsync(ct);
+                foreach (var m in prefixes)
                 {
                     if (best is null || (m.Path!.Length > best.Path!.Length))
                         best = m;
@@ -254,6 +270,17 @@ public class WebLoanService : IWebLoanService
                     .First();
             }
         }
+
+        // MIS agency lookup: group_no=1, single round-trip keyed by path. Within
+        // the group the same path is unique, so the dictionary is unambiguous.
+        var misAgencyByPath = misGroup2Paths.Count == 0
+            ? new Dictionary<string, MisGroup>(StringComparer.OrdinalIgnoreCase)
+            : await _db.MisGroups
+                .AsNoTracking()
+                .Where(m => m.GroupNo == MisGroupingGroupNo
+                            && m.Path != null
+                            && misGroup2Paths.Contains(m.Path))
+                .ToDictionaryAsync(m => m.Path!, m => m, ct);
 
         // ─── Agency type via cis_info_misc_data (id_code=14) ─────────────
         // cis_info_misc_data.value_str is a mis_group.id_code within the
@@ -287,7 +314,7 @@ public class WebLoanService : IWebLoanService
 
         var primaryMisGroup2Description =
             primaryAccount?.MisGroup2 is { } mg2Path
-                ? misGroupByPath.GetValueOrDefault(mg2Path)?.Description
+                ? misAgencyByPath.GetValueOrDefault(mg2Path)?.Description
                 : null;
 
         var response = new WebLoanBorrowerResponse
@@ -317,7 +344,7 @@ public class WebLoanService : IWebLoanService
                 AgencyName = cis.Company,
                 AgencyTypeCode = cis.CompanyTypeCode,
                 // Decoded from cis_info_misc_data (id_code=14) → mis_group
-                // (group_no=14) description. Falls back to null if the
+                // (group_no=26) description. Falls back to null if the
                 // borrower has no misc row or the id_code is unknown.
                 AgencyType = agencyTypeDescription,
                 PositionTitle = cis.JobTitle,

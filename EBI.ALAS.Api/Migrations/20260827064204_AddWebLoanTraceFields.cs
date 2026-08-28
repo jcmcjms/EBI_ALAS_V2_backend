@@ -14,9 +14,9 @@ namespace EBI.ALAS.Api.Migrations
             migrationBuilder.AddColumn<string>(
                 name: "WebLoanAccountNumbers",
                 table: "LoanApplications",
-                type: "jsonb",
+                type: "nvarchar(max)",
                 nullable: false,
-                defaultValue: "");
+                defaultValue: "[]");
 
             migrationBuilder.AddColumn<string>(
                 name: "WebLoanBranchCode",
@@ -41,9 +41,9 @@ namespace EBI.ALAS.Api.Migrations
             migrationBuilder.AddColumn<string>(
                 name: "WebLoanPnNumbers",
                 table: "LoanApplications",
-                type: "jsonb",
+                type: "nvarchar(max)",
                 nullable: false,
-                defaultValue: "");
+                defaultValue: "[]");
         }
 
         /// <inheritdoc />

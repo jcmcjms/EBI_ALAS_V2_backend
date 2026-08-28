@@ -8,7 +8,7 @@ namespace EBI.ALAS.Api.Features.WebLoans;
 /// one per attribute. Different <c>id_code</c> values carry different value shapes:
 /// <list type="bullet">
 ///   <item><c>id_code = 14</c> — Agency type code. <c>value_str</c> matches
-///     <c>mis_group.id_code</c> (in group_no=14) and resolves to the agency
+///     <c>mis_group.id_code</c> in <c>group_no = 26</c> and resolves to the agency
 ///     type description (e.g. "RPSU", "GOVERNMENT", etc.).</item>
 /// </list>
 /// Other <c>id_code</c> values exist in the source table; only those needed by

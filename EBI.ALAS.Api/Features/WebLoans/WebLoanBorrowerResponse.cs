@@ -72,7 +72,7 @@ public class PersonalInformationSection
 
     /// <summary>
     /// Agency type description resolved from <c>cis_info_misc_data</c> (id_code=14)
-    /// joined to <c>mis_group.id_code</c> in the appropriate group (e.g. "RPSU",
+    /// joined to <c>mis_group.id_code</c> in <c>group_no = 26</c> (e.g. "RPSU",
     /// "GOVERNMENT"). This is the human-readable agency classification the form
     /// actually displays next to the agency name.
     /// </summary>
