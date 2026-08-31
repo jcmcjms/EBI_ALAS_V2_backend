@@ -1,4 +1,5 @@
 using EBI.ALAS.Api.Common.Models;
+using FluentValidation;
 using Microsoft.AspNetCore.Authorization;
 
 namespace EBI.ALAS.Api.Features.WebLoans;
@@ -55,6 +56,47 @@ public static class WebLoanEndpoints
         .Produces<ApiResponse<AccountWithPnsResponse>>(404)
         .WithSummary("Step 2: Get account detail with all PN records for selected account");
 
+        // ─── Paginated PN history per account ──────────────────────────────
+        // GET /api/webloans/cis/{cisNo}/accounts/{accountNo}/promissory-notes?page=&pageSize=
+        // Returns a single page of PN records for the (CIS, account) pair.
+        // page >= 1, 1 <= pageSize <= 100. IDOR protected — 404 when the
+        // account does not belong to the given CIS.
+        group.MapGet("/cis/{cisNo}/accounts/{accountNo}/promissory-notes", async (
+            string cisNo,
+            string accountNo,
+            IWebLoanService webLoanService,
+            IValidator<PaginationRequest> paginationValidator,
+            int page = 1,
+            int pageSize = PaginationRequest.DefaultPageSize) =>
+        {
+            var pagination = new PaginationRequest(page, pageSize);
+
+            // FluentValidation auto-validation already runs on [AsParameters]
+            // model binding, but for query-string primitives we run it
+            // explicitly so the 400 contract is honoured.
+            var validation = await paginationValidator.ValidateAsync(pagination);
+            if (!validation.IsValid)
+            {
+                var errors = validation.Errors.Select(e => e.ErrorMessage).ToList();
+                return Results.BadRequest(ApiResponse.ErrorResponse(
+                    "Invalid pagination parameters.", errors));
+            }
+
+            var result = await webLoanService.GetAccountPromissoryNotesPagedAsync(
+                cisNo, accountNo, pagination);
+
+            return result is null
+                ? Results.NotFound(ApiResponse<PagedResponse<PnRecord>>.ErrorResponse(
+                    $"Account '{accountNo}' not found for CIS '{cisNo}'."))
+                : Results.Ok(ApiResponse<PagedResponse<PnRecord>>.SuccessResponse(
+                    result, "Account promissory notes retrieved successfully."));
+        })
+        .WithName("GetAccountPromissoryNotesPaged")
+        .Produces<ApiResponse<PagedResponse<PnRecord>>>(200)
+        .Produces<ApiResponse<PagedResponse<PnRecord>>>(400)
+        .Produces<ApiResponse<PagedResponse<PnRecord>>>(404)
+        .WithSummary("Get a paginated slice of PN records for an account (full history)");
+
         // ─── Active Loans by Account ───────────────────────────────────────
         // GET /api/webloans/cis/{cisNo}/accounts/{accountNo}/active-loans
         // Mirrors the reference "Active Loans by existing borrower" SQL:
@@ -83,6 +125,10 @@ public static class WebLoanEndpoints
         // GET /api/webloans/cis/{cisNo}
         // Returns all webloan data for a borrower, structured per ALAS
         // application sections (personal info, loan info, outstanding loans, reloans).
+        // Existing endpoint — preserved as-is for callers that have not opted
+        // into the new paginated shape. Note: this response is unbounded and
+        // can be very large for corporate borrowers; prefer the paginated
+        // variant below for any new integration.
         group.MapGet("/cis/{cisNo}", async (
             string cisNo,
             IWebLoanService webLoanService) =>
@@ -99,5 +145,44 @@ public static class WebLoanEndpoints
         .Produces<ApiResponse<WebLoanBorrowerResponse>>(200)
         .Produces<ApiResponse<WebLoanBorrowerResponse>>(404)
         .WithSummary("Full borrower profile (backward compatible)");
+
+        // ─── Paginated borrower profile (Task 3) ───────────────────────────
+        // GET /api/webloans/cis/{cisNo}/paginated?page=&pageSize=
+        // Bounded JSON payload — corporate borrowers with many accounts no
+        // longer return multi-megabyte responses. The outer envelope is a
+        // PagedResponse<AccountWithPnsPagedItem>; each account carries at
+        // most Constants.RecentPnPerAccount recent PNs. Use the dedicated
+        // /promissory-notes endpoint for arbitrary per-account PN history.
+        //   page >= 1, 1 <= pageSize <= 100 (defaults: page=1, pageSize=20).
+        group.MapGet("/cis/{cisNo}/paginated", async (
+            string cisNo,
+            IWebLoanService webLoanService,
+            IValidator<PaginationRequest> paginationValidator,
+            int page = 1,
+            int pageSize = PaginationRequest.DefaultPageSize) =>
+        {
+            var pagination = new PaginationRequest(page, pageSize);
+
+            var validation = await paginationValidator.ValidateAsync(pagination);
+            if (!validation.IsValid)
+            {
+                var errors = validation.Errors.Select(e => e.ErrorMessage).ToList();
+                return Results.BadRequest(ApiResponse.ErrorResponse(
+                    "Invalid pagination parameters.", errors));
+            }
+
+            var result = await webLoanService.GetBorrowerByCisPagedAsync(cisNo, pagination);
+
+            return result is null
+                ? Results.NotFound(ApiResponse<PagedResponse<AccountWithPnsPagedItem>>.ErrorResponse(
+                    $"No webloan records found for CIS number '{cisNo}'."))
+                : Results.Ok(ApiResponse<PagedResponse<AccountWithPnsPagedItem>>.SuccessResponse(
+                    result, "Paginated borrower profile retrieved successfully."));
+        })
+        .WithName("GetWebLoanByCisPaged")
+        .Produces<ApiResponse<PagedResponse<AccountWithPnsPagedItem>>>(200)
+        .Produces<ApiResponse>(400)
+        .Produces<ApiResponse<PagedResponse<AccountWithPnsPagedItem>>>(404)
+        .WithSummary("Bounded paginated borrower profile — accounts list + per-account recent PNs");
     }
 }

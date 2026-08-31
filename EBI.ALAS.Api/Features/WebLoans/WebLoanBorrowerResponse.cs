@@ -1,3 +1,5 @@
+using EBI.ALAS.Api.Common.Models;
+
 namespace EBI.ALAS.Api.Features.WebLoans;
 
 /// <summary>
@@ -276,6 +278,12 @@ public class PnRecord
     /// <summary>Promissory Note number (loan_data.loan_no).</summary>
     public string PnNumber { get; set; } = string.Empty;
 
+    /// <summary>
+    /// Account number this PN belongs to (loan_data.acct_no). Useful when a
+    /// single PN list is returned across multiple accounts.
+    /// </summary>
+    public string? AccountNo { get; set; }
+
     /// <summary>Loan product code.</summary>
     public string? ProductCode { get; set; }
 
@@ -398,4 +406,42 @@ public class ActiveLoanItem
     /// Matches the reference query's product_status column verbatim.
     /// </summary>
     public string? ProductStatus { get; set; }
+}
+
+// ============================================================================
+// PAGINATED WEBLOAN RESPONSE SHAPES
+// ============================================================================
+
+/// <summary>
+/// Account detail whose PN list is paginated. Returned by the paged variant of
+/// the borrower profile endpoint (<c>GET /api/webloans/cis/{cisNo}?page=&amp;pageSize=</c>).
+/// </summary>
+/// <remarks>
+/// Reuses the same scalar account metadata as <see cref="AccountWithPnsResponse"/>
+/// but replaces the unbounded <c>PnRecords</c> list with <see cref="PnPage"/> so
+/// the JSON payload stays bounded for corporate borrowers with hundreds of PNs.
+/// Use the dedicated <c>GET /api/webloans/cis/{cisNo}/accounts/{accountNo}/promissory-notes</c>
+/// endpoint to walk the full PN history per account.
+/// </remarks>
+public class AccountWithPnsPagedItem
+{
+    /// <summary>Account number (acct_no).</summary>
+    public string AccountNo { get; set; } = string.Empty;
+
+    /// <summary>Account name (acct_name).</summary>
+    public string? AccountName { get; set; }
+
+    /// <summary>Account address (acct_address).</summary>
+    public string? AccountAddress { get; set; }
+
+    /// <summary>MIS Group (cat_mis_group).</summary>
+    public string? MisGroup { get; set; }
+
+    /// <summary>
+    /// Paginated slice of PN records for this account. <see cref="PagedResponse{T}.TotalCount"/>
+    /// reflects the total number of PNs the account has, so the caller can drive
+    /// "Load more" controls without a second round-trip.
+    /// </summary>
+    public PagedResponse<PnRecord> PnPage { get; set; } =
+        new(Array.Empty<PnRecord>(), TotalCount: 0, Page: 1, PageSize: PaginationRequest.DefaultPageSize);
 }

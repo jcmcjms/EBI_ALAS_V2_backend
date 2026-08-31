@@ -16,6 +16,18 @@ public static class AuthEndpoints
 {
     private const string RefreshTokenCookieName = "refreshToken";
 
+    /// <summary>
+    /// Name of the non-HttpOnly cookie that mirrors the per-session CSRF token
+    /// (double-submit cookie pattern). JavaScript must read this cookie and
+    /// echo it in the <c>X-XSRF-TOKEN</c> header on state-changing requests.
+    /// </summary>
+    private const string XsrfCookieName = "XSRF-TOKEN";
+
+    /// <summary>
+    /// Name of the HTTP header the frontend uses to echo the CSRF token.
+    /// </summary>
+    private const string XsrfHeaderName = "X-XSRF-TOKEN";
+
     public static void MapAuthEndpoints(this WebApplication app)
     {
         var group = app.MapGroup("/api/auth")
@@ -67,8 +79,8 @@ public static class AuthEndpoints
                 return Results.Unauthorized();
             }
 
-            // ── Generate Access Token ──────────────────────────────────
-            var accessToken = jwtTokenService.GenerateToken(user);
+            // ── Generate Access Token (with XSRF token claim) ─────────
+            var (accessToken, xsrfToken) = jwtTokenService.GenerateTokenWithXsrf(user);
             var jwtSettings = configuration.GetSection("Jwt").Get<JwtSettings>()!;
             var accessExpiresAt = timeProvider.UtcNow.AddMinutes(jwtSettings.ExpiryMinutes);
 
@@ -101,6 +113,21 @@ public static class AuthEndpoints
             }
 
             http.Response.Cookies.Append(RefreshTokenCookieName, rawRefreshToken, cookieOptions);
+
+            // ── Set XSRF Cookie (double-submit pattern) ────────────────
+            // Non-HttpOnly so the SPA can read it; Secure in production.
+            // The value mirrors the XsrfToken claim embedded in the JWT so
+            // the CSRF middleware can compare header ↔ claim.
+            var xsrfCookieOptions = new CookieOptions
+            {
+                HttpOnly = false,                                          // Must be readable by JS
+                Secure = cookieOptions.Secure,                             // Match parent cookie's Secure flag
+                SameSite = SameSiteMode.Strict,
+                Expires = accessExpiresAt,                                 // Bound to access-token lifetime
+                Path = "/",                                                // Available to all endpoints
+                IsEssential = true
+            };
+            http.Response.Cookies.Append(XsrfCookieName, xsrfToken, xsrfCookieOptions);
 
             logger.LogInformation("User {Username} logged in successfully", user.Username);
 
@@ -172,8 +199,8 @@ public static class AuthEndpoints
                 await tokenRevocationRepository.RevokeTokenAsync(currentJti, currentUserId, currentExpiry);
             }
 
-            // Issue new access token
-            var newAccessToken = jwtTokenService.GenerateToken(user);
+            // Issue new access token (with rotated XSRF token)
+            var (newAccessToken, newXsrfToken) = jwtTokenService.GenerateTokenWithXsrf(user);
             var newAccessExpiresAt = timeProvider.UtcNow.AddMinutes(jwtSettings.ExpiryMinutes);
 
             // Issue new refresh token
@@ -203,6 +230,18 @@ public static class AuthEndpoints
             }
 
             http.Response.Cookies.Append(RefreshTokenCookieName, newRawRefreshToken, cookieOptions);
+
+            // ── Set rotated XSRF cookie ──────────────────────────────────
+            var newXsrfCookieOptions = new CookieOptions
+            {
+                HttpOnly = false,
+                Secure = cookieOptions.Secure,
+                SameSite = SameSiteMode.Strict,
+                Expires = newAccessExpiresAt,
+                Path = "/",
+                IsEssential = true
+            };
+            http.Response.Cookies.Append(XsrfCookieName, newXsrfToken, newXsrfCookieOptions);
 
             logger.LogInformation("Token refreshed for user {UserId}", user.Id);
 

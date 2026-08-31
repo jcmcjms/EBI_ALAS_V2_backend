@@ -13,6 +13,9 @@ namespace EBI.ALAS.Api.Features.Auth;
 /// </summary>
 public class JwtTokenService : IJwtTokenService
 {
+    /// <summary>Claim name carrying the per-session CSRF token (double-submit).</summary>
+    public const string XsrfTokenClaim = "XsrfToken";
+
     private readonly IConfiguration _configuration;
     private readonly ILogger<JwtTokenService> _logger;
     private readonly ITimeProvider _timeProvider;
@@ -24,7 +27,15 @@ public class JwtTokenService : IJwtTokenService
         _timeProvider = timeProvider;
     }
 
+    /// <inheritdoc />
     public string GenerateToken(User user)
+    {
+        var (accessToken, _) = GenerateTokenWithXsrf(user);
+        return accessToken;
+    }
+
+    /// <inheritdoc />
+    public (string AccessToken, string XsrfToken) GenerateTokenWithXsrf(User user)
     {
         var jwtSettings = _configuration.GetSection("Jwt").Get<JwtSettings>()!;
         var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtSettings.SecretKey));
@@ -32,6 +43,12 @@ public class JwtTokenService : IJwtTokenService
 
         // Get permissions for the user's role
         var permissions = RolePermissions.GetPermissionsForRole(user.Role);
+
+        // Generate a per-session CSRF token. The raw value is mirrored in
+        // an XSRF-TOKEN cookie at the login endpoint; this claim lets the
+        // CSRF middleware compare the inbound header against the value bound
+        // to the user's session.
+        var xsrfToken = GenerateXsrfToken();
 
         var claims = new List<Claim>
         {
@@ -44,7 +61,8 @@ public class JwtTokenService : IJwtTokenService
             new Claim("lastName", user.LastName),
             new Claim("branchId", user.BranchId),
             new Claim("role", user.Role),
-            new Claim("mustChangePassword", user.MustChangePassword.ToString().ToLower())
+            new Claim("mustChangePassword", user.MustChangePassword.ToString().ToLower()),
+            new Claim(XsrfTokenClaim, xsrfToken)
         };
 
         // Add middle name if present
@@ -67,7 +85,21 @@ public class JwtTokenService : IJwtTokenService
             signingCredentials: credentials
         );
 
-        return new JwtSecurityTokenHandler().WriteToken(token);
+        var accessToken = new JwtSecurityTokenHandler().WriteToken(token);
+        return (accessToken, xsrfToken);
+    }
+
+    /// <summary>
+    /// Generates a cryptographically random CSRF token (URL-safe base64 of 32 bytes).
+    /// </summary>
+    private static string GenerateXsrfToken()
+    {
+        var bytes = new byte[32];
+        RandomNumberGenerator.Fill(bytes);
+        return Convert.ToBase64String(bytes)
+            .TrimEnd('=')
+            .Replace('+', '-')
+            .Replace('/', '_');
     }
 
     public string GenerateRefreshToken()

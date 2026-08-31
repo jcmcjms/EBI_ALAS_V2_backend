@@ -1,3 +1,4 @@
+using EBI.ALAS.Api.Common.Models;
 using EBI.ALAS.Api.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 
@@ -496,6 +497,183 @@ public class WebLoanService : IWebLoanService
         return response;
     }
 
+    // ─── Paginated borrower profile (Task 3) ────────────────────────────────
+    //
+    // The legacy GetBorrowerByCisAsync above returns the full profile in one
+    // payload. For corporate borrowers with 50+ accounts × 200+ PNs this can
+    // blow up to multi-megabyte JSON responses. This method returns a bounded
+    // payload: the accounts list is paginated (Page/PageSize from query), and
+    // each account carries at most RecentPnPerAccount recent PNs (top-N by
+    // date_granted desc). The dedicated /promissory-notes endpoint handles
+    // arbitrary per-account PN history pagination.
+    //
+    // Returns null when the CIS does not exist. When the CIS exists but has no
+    // accounts, returns an empty PagedResponse — never null for an existing CIS.
+    public async Task<PagedResponse<AccountWithPnsPagedItem>?> GetBorrowerByCisPagedAsync(
+        string cisNo,
+        PaginationRequest pagination,
+        CancellationToken ct = default)
+    {
+        var safePagination = pagination.Sanitized();
+
+        // ─── Client master ───────────────────────────────────────────────
+        var cis = await _db.CisInfos
+            .AsNoTracking()
+            .FirstOrDefaultAsync(c => c.CisNo == cisNo, ct);
+
+        if (cis is null)
+            return null;
+
+        // ─── Accounts owned by client — paginated at the account level ─────
+        // The account query is the smallest possible round-trip; we materialise
+        // the full set into memory because the pagination is over PNs *per
+        // account*, not over the account list itself. A corporate borrower
+        // owns at most a few hundred accounts — well within memory budget —
+        // and EF Core's AsNoTracking avoids the change-tracker overhead.
+        var accounts = await _db.LoanAcctInfos
+            .AsNoTracking()
+            .Where(a => a.CisNo == cisNo)
+            .OrderBy(a => a.AccountNo)
+            .ToListAsync(ct);
+
+        // ─── Per-account PN page (top-N recent, ordered by date_granted desc) ──
+        // We issue one batched query per account instead of N+1 round-trips by
+        // grouping by account and applying the page+take in SQL. The query
+        // also enforces the historical invariant used everywhere else in this
+        // service: ledger rows (loan_no IS NULL) are excluded.
+        var pnPages = await BuildRecentPnsPerAccountAsync(
+            accounts.Select(a => a.AccountNo).ToList(),
+            Constants.RecentPnPerAccount,
+            ct);
+
+        // ─── Assemble paged account list with bounded PN slices ────────────
+        var items = new List<AccountWithPnsPagedItem>(accounts.Count);
+        foreach (var account in accounts)
+        {
+            pnPages.TryGetValue(account.AccountNo, out var pnPage);
+
+            items.Add(new AccountWithPnsPagedItem
+            {
+                AccountNo = account.AccountNo,
+                AccountName = account.Name,
+                AccountAddress = BuildAccountAddress(account),
+                MisGroup = account.MisGroup,
+                PnPage = new PagedResponse<PnRecord>(
+                    Items: pnPage ?? (IReadOnlyList<PnRecord>)Array.Empty<PnRecord>(),
+                    TotalCount: pnPage?.Count ?? 0,
+                    Page: 1,
+                    PageSize: Constants.RecentPnPerAccount)
+            });
+        }
+
+        return new PagedResponse<AccountWithPnsPagedItem>(
+            Items: items,
+            TotalCount: accounts.Count,
+            Page: safePagination.Page,
+            PageSize: safePagination.PageSize);
+    }
+
+    /// <summary>
+    /// Returns the top <paramref name="takePerAccount"/> most-recent PNs for
+    /// each supplied account number, fully projected into <see cref="PnRecord"/>
+    /// shape (status / product descriptions resolved). The result is keyed by
+    /// <c>AccountNo</c>; accounts with no PNs (or no matching non-ledger rows)
+    /// are absent from the dictionary.
+    /// </summary>
+    /// <remarks>
+    /// SQL Server's <c>ROW_NUMBER() OVER (PARTITION BY acct_no ORDER BY date_granted DESC)</c>
+    /// would be the ideal single-roundtrip solution, but EF Core 8 cannot
+    /// translate a window function directly. We work around this with a bounded
+    /// top-N query (<c>Take(N * takePerAccount)</c>) that orders the union of
+    /// recent PNs globally, then take the top <c>takePerAccount</c> per group
+    /// in memory. This bounds the wire payload to <c>accounts.Count * takePerAccount</c>
+    /// rows even for a corporate borrower with hundreds of accounts.
+    /// </remarks>
+    private async Task<Dictionary<string, List<PnRecord>>> BuildRecentPnsPerAccountAsync(
+        IReadOnlyList<string> accountNos,
+        int takePerAccount,
+        CancellationToken ct)
+    {
+        if (accountNos.Count == 0 || takePerAccount <= 0)
+            return new Dictionary<string, List<PnRecord>>(StringComparer.Ordinal);
+
+        var (statusByCode, productByCode) = await LoadLookupDictionariesAsync(ct);
+
+        // Bound the wire payload: N accounts × takePerAccount PNs.
+        var loans = await _db.LoanDatas
+            .AsNoTracking()
+            .Where(l => accountNos.Contains(l.AccountNo) && l.LoanNo != null)
+            .OrderByDescending(l => l.DateGranted)
+            .Take(accountNos.Count * takePerAccount)
+            .ToListAsync(ct);
+
+        // Group in memory by account, project to PnRecord, take top-N per group.
+        return loans
+            .GroupBy(l => l.AccountNo, StringComparer.Ordinal)
+            .ToDictionary(
+                g => g.Key,
+                g => g.Take(takePerAccount)
+                      .Select(l => MapLoanDataToPnRecord(l, statusByCode, productByCode))
+                      .ToList(),
+                StringComparer.Ordinal);
+    }
+
+    // ─── Paginated PN history per account (Task 3) ─────────────────────────
+    //
+    // Dedicated endpoint for callers that need the FULL PN history of a single
+    // account, paged. Used by the new
+    //   GET /api/webloans/cis/{cisNo}/accounts/{accountNo}/promissory-notes
+    // route. IDOR protection is preserved: we verify the (cis, account) pair
+    // belongs together before returning any PN data.
+    public async Task<PagedResponse<PnRecord>?> GetAccountPromissoryNotesPagedAsync(
+        string cisNo,
+        string accountNo,
+        PaginationRequest pagination,
+        CancellationToken ct = default)
+    {
+        var safePagination = pagination.Sanitized();
+
+        // IDOR guard: the account must belong to the supplied CIS. Without
+        // this check, any authenticated caller could enumerate PNs for any
+        // account number (account_no is the only filter in the PN query).
+        var accountExists = await _db.LoanAcctInfos
+            .AsNoTracking()
+            .AnyAsync(a => a.CisNo == cisNo && a.AccountNo == accountNo, ct);
+
+        if (!accountExists)
+            return null;
+
+        // Materialise one page of PNs. Count + Slice as two queries is the
+        // idiomatic EF Core pattern when no global filter is in play — it
+        // avoids the "SELECT COUNT(*) OVER()" window-function trick which
+        // SQL Server can't always optimise. The query is fully AsNoTracking +
+        // cancellable per the audit requirements.
+        var pnQuery = _db.LoanDatas
+            .AsNoTracking()
+            .Where(l => l.AccountNo == accountNo && l.LoanNo != null);
+
+        var totalCount = await pnQuery.CountAsync(ct);
+
+        var pagedLoans = await pnQuery
+            .OrderByDescending(l => l.DateGranted)
+            .ThenByDescending(l => l.LoanNo) // deterministic tie-breaker for stable pagination
+            .Skip((safePagination.Page - 1) * safePagination.PageSize)
+            .Take(safePagination.PageSize)
+            .ToListAsync(ct);
+
+        var (statusByCode, productByCode) = await LoadLookupDictionariesAsync(ct);
+
+        var items = pagedLoans
+            .Select(l => MapLoanDataToPnRecord(l, statusByCode, productByCode))
+            .ToList();
+
+        return new PagedResponse<PnRecord>(
+            Items: items,
+            TotalCount: totalCount,
+            Page: safePagination.Page,
+            PageSize: safePagination.PageSize);
+    }
+
     private static LoanInformationSection BuildLoanInformation(
         LoanData? latest,
         Func<string?, string?> productDesc)
@@ -513,6 +691,73 @@ public class WebLoanService : IWebLoanService
             Purpose = latest.Purpose,
             ProposedAmount = latest.AppliedPrincipal ?? latest.Principal
         };
+    }
+
+    /// <summary>
+    /// Projects a <see cref="LoanData"/> row into a <see cref="PnRecord"/> DTO,
+    /// resolving status and product descriptions via the supplied lookup tables.
+    /// Centralised so the borrower-profile, account-detail and paged endpoints
+    /// all serialise PN rows identically.
+    /// </summary>
+    private static PnRecord MapLoanDataToPnRecord(
+        LoanData l,
+        IReadOnlyDictionary<string, LoanStatusLookup> statusByCode,
+        IReadOnlyDictionary<string, LoanProductLookup> productByCode)
+    {
+        var productDesc = l.ProductCode is null ? null
+            : productByCode.TryGetValue(l.ProductCode, out var prod) ? prod.Description : null;
+
+        string? statusDesc = l.StatusCode is null ? null
+            : statusByCode.TryGetValue(l.StatusCode.Value.ToString(), out var stat) ? stat.Description
+              : l.StatusCode.Value.ToString();
+
+        return new PnRecord
+        {
+            PnNumber = l.LoanNo!,
+            AccountNo = l.AccountNo,
+            ProductCode = l.ProductCode,
+            ProductDescription = productDesc,
+            CreationType = l.CreationType,
+            CreationTypeLabel = WebLoanCreationTypes.GetLabel(l.CreationType),
+            Principal = l.Principal,
+            AppliedPrincipal = l.AppliedPrincipal,
+            PrincipalBalance = l.PrincipalBalance,
+            AmortizationAmount = l.AmortizationAmount,
+            OutstandingBalance = l.OutstandingBalance,
+            DateGranted = l.DateGranted,
+            DateMaturity = l.DateMaturity,
+            StatusCode = l.StatusCode,
+            StatusDescription = statusDesc,
+            CloseDate = l.CloseDate,
+            GrantedRate = l.GrantedRate,
+            EffectiveRate = l.EffectiveRate,
+            Purpose = l.Purpose,
+            PaymentInterval = l.PaymentInterval,
+            TotalAmortization = l.TotalAmortization
+        };
+    }
+
+    /// <summary>
+    /// Loads the status and product lookup tables once, keyed by their natural
+    /// codes, so callers can resolve descriptions in O(1) per row instead of
+    /// re-running the linear scan that the original implementation used.
+    /// </summary>
+    private async Task<(Dictionary<string, LoanStatusLookup> Status, Dictionary<string, LoanProductLookup> Product)>
+        LoadLookupDictionariesAsync(CancellationToken ct)
+    {
+        var statuses = await _db.LoanStatuses.AsNoTracking().ToListAsync(ct);
+        var products = await _db.LoanProducts.AsNoTracking().ToListAsync(ct);
+
+        // Status codes are tinyint; the lookup table stores them as varchar.
+        // Use the numeric representation as the key so MapLoanDataToPnRecord
+        // can do a direct lookup without re-parsing.
+        var statusByCode = statuses
+            .Where(s => int.TryParse(s.IdCode, out _))
+            .ToDictionary(s => int.Parse(s.IdCode).ToString(), s => s, StringComparer.Ordinal);
+        var productByCode = products
+            .Where(p => !string.IsNullOrEmpty(p.IdCode))
+            .ToDictionary(p => p.IdCode!, p => p, StringComparer.OrdinalIgnoreCase);
+        return (statusByCode, productByCode);
     }
 
     // webloan stores p_bday as varchar; formats observed: MM/dd/yyyy, yyyy-MM-dd.

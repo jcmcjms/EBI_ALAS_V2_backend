@@ -8,7 +8,9 @@ using EBI.ALAS.Api.Features.Loans;
 using EBI.ALAS.Api.Features.Users;
 using EBI.ALAS.Api.Features.WebLoans;
 using EBI.ALAS.Api.Infrastructure.Data;
+using EBI.ALAS.Api.Infrastructure.Security;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.Extensions.Caching.Memory;
 
 namespace EBI.ALAS.Api.Common.Extensions;
 
@@ -20,10 +22,22 @@ public static class ServiceCollectionExtensions
     /// <summary>
     /// Registers all application services, repositories, and infrastructure components.
     /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <see cref="IMemoryCache"/> is registered here so it is available to the
+    /// token-revocation cache decorator regardless of whether callers go through
+    /// <c>AddApplicationServices</c> alone or in combination with other helpers.
+    /// </para>
+    /// </remarks>
     public static IServiceCollection AddApplicationServices(this IServiceCollection services)
     {
         // ─── Common Services ──────────────────────────────────────────────
         services.AddSingleton<ITimeProvider, PhilippinesTimeProvider>();
+
+        // ─── In-process cache ────────────────────────────────────────────
+        // IMemoryCache backs the JTI blacklist hot path. Must be registered
+        // before any auth pipeline that resolves ITokenRevocationRepository.
+        services.AddMemoryCache();
 
         // ─── Data Access ─────────────────────────────────────────────────
         services.AddScoped<AppDbContext>();
@@ -32,7 +46,16 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IJwtTokenService, JwtTokenService>();
         services.AddScoped<IPasswordHasher, PasswordHasher>();
         services.AddScoped<IAuthRepository, AuthRepository>();
-        services.AddScoped<ITokenRevocationRepository, TokenRevocationRepository>();
+        // Durable inner implementation. Registered by concrete type so the
+        // decorator (below) can resolve it without an infinite-recursion guard.
+        services.AddScoped<TokenRevocationRepository>();
+        // Hot-path: every authenticated request resolves the caching decorator.
+        services.AddScoped<ITokenRevocationRepository>(sp =>
+            new CachingTokenRevocationRepository(
+                sp.GetRequiredService<TokenRevocationRepository>(),
+                sp.GetRequiredService<Microsoft.Extensions.Caching.Memory.IMemoryCache>(),
+                sp.GetRequiredService<ITimeProvider>(),
+                sp.GetRequiredService<ILogger<CachingTokenRevocationRepository>>()));
         services.AddScoped<IRefreshTokenRepository, RefreshTokenRepository>();
 
         // ─── Loan Services ───────────────────────────────────────────────

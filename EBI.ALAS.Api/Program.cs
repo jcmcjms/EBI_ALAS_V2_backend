@@ -1,6 +1,7 @@
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Text;
+using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.RateLimiting;
 using EBI.ALAS.Api.Common.Authorization;
 using EBI.ALAS.Api.Common.Constants;
@@ -18,6 +19,7 @@ using EBI.ALAS.Api.Features.Users;
 using EBI.ALAS.Api.Features.WebLoans;
 using EBI.ALAS.Api.Infrastructure.Data;
 using EBI.ALAS.Api.Infrastructure.Interceptors;
+using EBI.ALAS.Api.Infrastructure.Security;
 using FluentValidation;
 using FluentValidation.AspNetCore;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -144,11 +146,82 @@ builder.Services.AddRateLimiter(options =>
 {
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
 
+    // On rejection, populate Retry-After header (clients can back off intelligently).
+    options.OnRejected = async (context, cancellationToken) =>
+    {
+        if (context.Lease.TryGetMetadata(MetadataName.RetryAfter, out var retryAfter))
+        {
+            context.HttpContext.Response.Headers.RetryAfter =
+                ((int)Math.Ceiling(retryAfter.TotalSeconds)).ToString();
+        }
+
+        context.HttpContext.Response.ContentType = "application/json; charset=utf-8";
+
+        var payload = EBI.ALAS.Api.Common.Models.ApiResponse.ErrorResponse(
+            "Too many requests. Please slow down and retry after the period indicated by the Retry-After header.");
+
+        await context.HttpContext.Response.WriteAsJsonAsync(payload, cancellationToken);
+    };
+
     options.AddFixedWindowLimiter("LoginLimiter", limiterOptions =>
     {
         limiterOptions.PermitLimit = configuration.GetValue<int>("RateLimiting:Login:PermitLimit", 5);
         limiterOptions.Window = TimeSpan.FromSeconds(configuration.GetValue<int>("RateLimiting:Login:WindowSeconds", 60));
         limiterOptions.QueueLimit = 0;
+    });
+
+    // Global per-user limiter for all authenticated data endpoints. Without this,
+    // a leaked token could be used to scrape the entire API.
+    options.AddPolicy("DataLimiter", context =>
+    {
+        // Partition by user when authenticated, by IP otherwise.
+        // Identity.Name is populated from the Name claim; we fall back to the
+        // standard `sub` claim when Name is empty (common for JWT bearer tokens).
+        var partitionKey = context.User?.Identity?.IsAuthenticated == true
+            ? (context.User.Identity.Name
+               ?? context.User.FindFirst(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Sub)?.Value
+               ?? "anonymous")
+            : (context.Connection.RemoteIpAddress?.ToString() ?? "unknown-ip");
+
+        return RateLimitPartition.GetFixedWindowLimiter(partitionKey, _ => new FixedWindowRateLimiterOptions
+        {
+            PermitLimit = configuration.GetValue<int>("RateLimiting:Data:PermitLimit", 120),
+            Window = TimeSpan.FromSeconds(configuration.GetValue<int>("RateLimiting:Data:WindowSeconds", 60)),
+            QueueLimit = 0,
+            QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
+            AutoReplenishment = true
+        });
+    });
+
+    // Apply DataLimiter as the global fallback so every endpoint gets protection
+    // without each endpoint needing to opt-in. Endpoints that have their own
+    // named policy (login, refresh) still win because RequireRateLimiting
+    // takes precedence over the fallback policy.
+    options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(context =>
+    {
+        // Don't double-limit the auth endpoints — they have LoginLimiter/refresh
+        // exemptions built in via their own policies.
+        var path = context.Request.Path.Value ?? string.Empty;
+        if (path.StartsWith("/api/auth", StringComparison.OrdinalIgnoreCase)
+            || path.StartsWith("/health", StringComparison.OrdinalIgnoreCase))
+        {
+            return RateLimitPartition.GetNoLimiter("no-limit");
+        }
+
+        var partitionKey = context.User?.Identity?.IsAuthenticated == true
+            ? (context.User.Identity.Name
+               ?? context.User.FindFirst(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Sub)?.Value
+               ?? "anonymous")
+            : (context.Connection.RemoteIpAddress?.ToString() ?? "unknown-ip");
+
+        return RateLimitPartition.GetFixedWindowLimiter(partitionKey, _ => new FixedWindowRateLimiterOptions
+        {
+            PermitLimit = configuration.GetValue<int>("RateLimiting:Data:PermitLimit", 120),
+            Window = TimeSpan.FromSeconds(configuration.GetValue<int>("RateLimiting:Data:WindowSeconds", 60)),
+            QueueLimit = 0,
+            QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
+            AutoReplenishment = true
+        });
     });
 });
 
@@ -216,6 +289,11 @@ builder.Services.AddSwaggerGen(options =>
 // ─── Health Checks ───────────────────────────────────────────────────────────
 builder.Services.AddHealthChecks();
 
+// ─── Banking Security Hardening ─────────────────────────────────────────────
+// Fail-fast on weak/missing JWT secret in Production. Runs before
+// builder.Build() so a misconfigured deploy never silently boots.
+builder.Services.AddBankingSecurityHardening(builder.Configuration, builder.Environment);
+
 var app = builder.Build();
 
 // ─── Middleware Pipeline ─────────────────────────────────────────────────────
@@ -245,6 +323,10 @@ app.UseRateLimiter();
 // Authentication & Authorization
 app.UseAuthentication();
 app.UseAuthorization();
+
+// CSRF validation — MUST come after UseAuthentication so the bearer token
+// (and therefore the XsrfToken claim) is already on HttpContext.User.
+app.UseCsrfValidation();
 
 // ─── Minimal API Endpoints ───────────────────────────────────────────────────
 
