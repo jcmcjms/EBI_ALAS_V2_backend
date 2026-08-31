@@ -1,31 +1,21 @@
 namespace EBI.ALAS.Api.Common.Models;
 
 /// <summary>
-/// Pagination request parameters expressed as an immutable record. Used by
-/// WebLoan (and other read-only) endpoints that need page + page size binding
-/// from query string parameters with strict defaults and an enforced ceiling.
+/// Query-string pagination parameters for read-only endpoints. Prefer this over
+/// the older <see cref="PaginationParams"/> class on new endpoints.
 /// </summary>
-/// <remarks>
-/// Use this type when the endpoint should expose <c>?page=&amp;pageSize=</c>
-/// query parameters directly bound by ASP.NET Minimal APIs. Existing endpoints
-/// already using the mutable <see cref="PaginationParams"/> class are kept
-/// intact for backward compatibility.
-/// </remarks>
-/// <param name="Page">1-based page number. Must be greater than or equal to 1.</param>
-/// <param name="PageSize">Number of items per page. Capped at <see cref="MaxPageSize"/>.</param>
+/// <param name="Page">1-based page number; must be &gt;= 1.</param>
+/// <param name="PageSize">Items per page; capped at <see cref="MaxPageSize"/>.</param>
 public record PaginationRequest(int Page = 1, int PageSize = 20)
 {
-    /// <summary>Default page size used when the caller does not specify one.</summary>
     public const int DefaultPageSize = 20;
 
-    /// <summary>Hard ceiling on page size to prevent runaway payloads.</summary>
     public const int MaxPageSize = 100;
 
     /// <summary>
-    /// Returns a sanitized copy: page is clamped to at least 1 and pageSize is
-    /// clamped to the inclusive range [1, <see cref="MaxPageSize"/>]. Used by
-    /// the service layer as a defence-in-depth measure even when FluentValidation
-    /// has already accepted the request.
+    /// Returns a copy with <c>Page</c> clamped to &gt;= 1 and <c>PageSize</c>
+    /// clamped to [1, <see cref="MaxPageSize"/>]. Defence-in-depth even when
+    /// FluentValidation has already accepted the request.
     /// </summary>
     public PaginationRequest Sanitized() => this with
     {
@@ -40,15 +30,10 @@ public record PaginationRequest(int Page = 1, int PageSize = 20)
 }
 
 /// <summary>
-/// Paged payload envelope for list endpoints that follow the API contract
-/// described in the audit (page / pageSize / totalCount / items).
+/// Canonical paged payload envelope. Existing list endpoints still use the
+/// older <see cref="PagedResult{T}"/> class to preserve their JSON contract;
+/// do not switch them without coordinating with the frontend.
 /// </summary>
-/// <remarks>
-/// This is the canonical shape used by the new WebLoan paginated endpoints.
-/// Existing list endpoints use the older <see cref="PagedResult{T}"/> class
-/// to preserve their JSON contract; do not switch them without coordinating
-/// with the frontend.
-/// </remarks>
 /// <typeparam name="T">Item type returned on the current page.</typeparam>
 /// <param name="Items">Items on the current page. Never null.</param>
 /// <param name="TotalCount">Total items across all pages.</param>
@@ -60,12 +45,9 @@ public record PagedResponse<T>(
     int Page,
     int PageSize)
 {
-    /// <summary>Total pages computed from <paramref name="TotalCount"/> and <paramref name="PageSize"/>.</summary>
     public int TotalPages => PageSize <= 0 ? 0 : (int)Math.Ceiling(TotalCount / (double)PageSize);
 
-    /// <summary>True when there is at least one page before this one.</summary>
     public bool HasPreviousPage => Page > 1;
 
-    /// <summary>True when there is at least one page after this one.</summary>
     public bool HasNextPage => Page < TotalPages;
 }

@@ -15,8 +15,6 @@ public static class WebLoanEndpoints
             .WithTags("WebLoans")
             .RequireAuthorization();
 
-        // ─── Step 1: Search CIS ────────────────────────────────────────────
-        // GET /api/webloans/cis/{cisNo}/search
         // Lightweight search: returns basic borrower info + account list for selection.
         group.MapGet("/cis/{cisNo}/search", async (
             string cisNo,
@@ -35,8 +33,6 @@ public static class WebLoanEndpoints
         .Produces<ApiResponse<CisSearchResult>>(404)
         .WithSummary("Step 1: Search CIS - returns borrower info + account list for selection");
 
-        // ─── Step 2: Get Account with PNs ──────────────────────────────────
-        // GET /api/webloans/cis/{cisNo}/accounts/{accountNo}
         // Returns all PN records for the selected account.
         group.MapGet("/cis/{cisNo}/accounts/{accountNo}", async (
             string cisNo,
@@ -146,14 +142,10 @@ public static class WebLoanEndpoints
         .Produces<ApiResponse<WebLoanBorrowerResponse>>(404)
         .WithSummary("Full borrower profile (backward compatible)");
 
-        // ─── Paginated borrower profile (Task 3) ───────────────────────────
-        // GET /api/webloans/cis/{cisNo}/paginated?page=&pageSize=
-        // Bounded JSON payload — corporate borrowers with many accounts no
-        // longer return multi-megabyte responses. The outer envelope is a
-        // PagedResponse<AccountWithPnsPagedItem>; each account carries at
-        // most Constants.RecentPnPerAccount recent PNs. Use the dedicated
+        // Bounded JSON payload — corporate borrowers with many accounts no longer
+        // return multi-megabyte responses. Each account carries at most
+        // Constants.RecentPnPerAccount recent PNs; use the dedicated
         // /promissory-notes endpoint for arbitrary per-account PN history.
-        //   page >= 1, 1 <= pageSize <= 100 (defaults: page=1, pageSize=20).
         group.MapGet("/cis/{cisNo}/paginated", async (
             string cisNo,
             IWebLoanService webLoanService,

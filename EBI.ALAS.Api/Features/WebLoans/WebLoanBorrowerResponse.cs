@@ -206,13 +206,6 @@ public class IncomingLoanItem
     public string? Remarks { get; set; }
 }
 
-// ============================================================================
-// STEP-BY-STEP SEARCH DTOs
-// ============================================================================
-
-/// <summary>
-/// Step 1: CIS Search Result — basic borrower info + list of accounts for selection.
-/// </summary>
 public class CisSearchResult
 {
     /// <summary>Client Information System number.</summary>
@@ -249,9 +242,6 @@ public class CisAccountSummary
     public int PnCount { get; set; }
 }
 
-/// <summary>
-/// Step 2: Account Detail with PN records — detailed view after account selection.
-/// </summary>
 public class AccountWithPnsResponse
 {
     /// <summary>Account number (acct_no).</summary>

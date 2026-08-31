@@ -53,8 +53,6 @@ public class WebLoanService : IWebLoanService
         _logger = logger;
     }
 
-    // ─── Step 1: CIS Search ────────────────────────────────────────────────
-
     public async Task<CisSearchResult?> SearchCisAsync(string cisNo, CancellationToken ct = default)
     {
         var cis = await _db.CisInfos
@@ -96,8 +94,6 @@ public class WebLoanService : IWebLoanService
             }).ToList()
         };
     }
-
-    // ─── Step 2: Account Detail with PNs ──────────────────────────────────
 
     public async Task<AccountWithPnsResponse?> GetAccountWithPnsAsync(string cisNo, string accountNo, CancellationToken ct = default)
     {
@@ -497,12 +493,9 @@ public class WebLoanService : IWebLoanService
         return response;
     }
 
-    // ─── Paginated borrower profile (Task 3) ────────────────────────────────
-    //
-    // The legacy GetBorrowerByCisAsync above returns the full profile in one
-    // payload. For corporate borrowers with 50+ accounts × 200+ PNs this can
-    // blow up to multi-megabyte JSON responses. This method returns a bounded
-    // payload: the accounts list is paginated (Page/PageSize from query), and
+    // Legacy GetBorrowerByCisAsync returns the full profile in one payload. For
+    // corporate borrowers with 50+ accounts × 200+ PNs this can blow up to
+    // multi-megabyte JSON responses, so this method returns a bounded payload:
     // each account carries at most RecentPnPerAccount recent PNs (top-N by
     // date_granted desc). The dedicated /promissory-notes endpoint handles
     // arbitrary per-account PN history pagination.
@@ -618,13 +611,9 @@ public class WebLoanService : IWebLoanService
                 StringComparer.Ordinal);
     }
 
-    // ─── Paginated PN history per account (Task 3) ─────────────────────────
-    //
     // Dedicated endpoint for callers that need the FULL PN history of a single
-    // account, paged. Used by the new
-    //   GET /api/webloans/cis/{cisNo}/accounts/{accountNo}/promissory-notes
-    // route. IDOR protection is preserved: we verify the (cis, account) pair
-    // belongs together before returning any PN data.
+    // account, paged. IDOR protection is preserved: we verify the
+    // (cis, account) pair belongs together before returning any PN data.
     public async Task<PagedResponse<PnRecord>?> GetAccountPromissoryNotesPagedAsync(
         string cisNo,
         string accountNo,
