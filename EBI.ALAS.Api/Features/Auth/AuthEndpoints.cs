@@ -91,9 +91,14 @@ public static class AuthEndpoints
             var refreshExpiry = timeProvider.UtcNow.AddDays(jwtSettings.RefreshTokenExpiryDays);
             var absoluteExpiry = timeProvider.UtcNow.AddDays(jwtSettings.AbsoluteSessionExpiryDays);
 
+            // Capture client device info from User-Agent header so the account
+            // "Active Sessions" view can show which device owns each refresh token.
+            // Falls back to "Unknown Device" if the header is missing (e.g. CLI tools).
+            var deviceInfo = GetDeviceInfo(http);
+
             // Store hashed refresh token in database
             await refreshTokenRepository.CreateRefreshTokenAsync(
-                user.Id, refreshTokenHash, refreshExpiry, absoluteExpiry);
+                user.Id, refreshTokenHash, refreshExpiry, absoluteExpiry, deviceInfo);
 
             // ── Set HttpOnly Cookie ────────────────────────────────────
             var cookieOptions = new CookieOptions
@@ -210,8 +215,12 @@ public static class AuthEndpoints
             var newRefreshExpiry = timeProvider.UtcNow.AddDays(jwtSettings.RefreshTokenExpiryDays);
             var newAbsoluteExpiry = timeProvider.UtcNow.AddDays(jwtSettings.AbsoluteSessionExpiryDays);
 
+            // Capture client device info on rotation too, so a refreshed session
+            // is attributed to the actual device that called /refresh.
+            var newDeviceInfo = GetDeviceInfo(http);
+
             await refreshTokenRepository.CreateRefreshTokenAsync(
-                user.Id, newRefreshTokenHash, newRefreshExpiry, newAbsoluteExpiry);
+                user.Id, newRefreshTokenHash, newRefreshExpiry, newAbsoluteExpiry, newDeviceInfo);
 
             // ── Set new HttpOnly cookie ────────────────────────────────
             var cookieOptions = new CookieOptions
@@ -371,6 +380,20 @@ public static class AuthEndpoints
         .Produces<ApiResponse>(400)
         .Produces<ApiResponse>(401)
         .RequireAuthorization();
+    }
+
+    /// <summary>
+    /// Extract a short, human-readable device descriptor from the request's
+    /// User-Agent header for storage on the refresh token row. We trim to
+    /// 500 chars to match the column length and fall back to
+    /// "Unknown Device" when the header is missing (e.g. CLI tooling or
+    /// privacy-stripped browsers).
+    /// </summary>
+    private static string GetDeviceInfo(HttpContext http)
+    {
+        var userAgent = http.Request.Headers.UserAgent.ToString();
+        if (string.IsNullOrWhiteSpace(userAgent)) return "Unknown Device";
+        return userAgent.Length > 500 ? userAgent[..500] : userAgent;
     }
 }
 

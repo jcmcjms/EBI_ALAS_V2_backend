@@ -69,7 +69,11 @@ public class AccountRepository : IAccountRepository
             .Take(pageSize)
             .Select(t => new SessionResponse(
                 t.Id,
-                t.DeviceInfo ?? "Unknown Device",
+                // Translate the raw User-Agent into a short "Browser on OS"
+                // label for the UI. We keep the raw UA in the DB for forensics,
+                // but display the parsed form. Falls back to "Unknown Device"
+                // for null UAs (legacy rows issued before capture was wired in).
+                UserAgentParser.Describe(t.DeviceInfo),
                 t.CreatedAt,
                 t.ExpiresAt,
                 t.Id == currentSessionId
