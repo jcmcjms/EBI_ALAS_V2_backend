@@ -1,11 +1,6 @@
 using System.ComponentModel.DataAnnotations.Schema;
 
 namespace EBI.ALAS.Api.Features.WebLoans;
-
-/// <summary>
-/// Maps to dbo.loan_acct_info in the WebLoan database — loan account master per client.
-/// Links cis_no (client) to acct_no (loan account).
-/// </summary>
 [Table("loan_acct_info", Schema = "dbo")]
 public class LoanAcctInfo
 {

@@ -2,16 +2,6 @@ using EBI.ALAS.Api.Features.WebLoans;
 using Microsoft.EntityFrameworkCore;
 
 namespace EBI.ALAS.Api.Infrastructure.Data;
-
-/// <summary>
-/// Read-only database context for the existing WebLoan system database.
-/// Used to pull borrower and loan data from the legacy webloan DB on the same server.
-///
-/// IMPORTANT:
-/// - This database already exists and is owned by the WebLoan system.
-/// - NEVER run EF Core migrations against this context.
-/// - SaveChanges is intentionally blocked to enforce read-only access.
-/// </summary>
 public class WebLoanDbContext : DbContext
 {
     public WebLoanDbContext(DbContextOptions<WebLoanDbContext> options) : base(options) { }
@@ -83,11 +73,6 @@ public class WebLoanDbContext : DbContext
             entity.HasIndex(e => new { e.GroupNo, e.IdCode });
         });
     }
-
-    /// <summary>
-    /// WebLoan DB is read-only from this API. Any write attempt fails fast
-    /// with a clear message instead of a confusing SQL permission error.
-    /// </summary>
     public override int SaveChanges()
     {
         ThrowReadOnly();

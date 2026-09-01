@@ -4,16 +4,8 @@ using EBI.ALAS.Api.Features.Branches;
 using Microsoft.EntityFrameworkCore;
 
 namespace EBI.ALAS.Api.Infrastructure.Data;
-
-/// <summary>
-/// Database initializer that seeds default data including admin user.
-/// Only runs if the database is empty.
-/// </summary>
 public static class DbInitializer
 {
-    /// <summary>
-    /// Initializes the database with seed data if it's empty.
-    /// </summary>
     public static async Task InitializeAsync(AppDbContext context, IServiceProvider serviceProvider)
     {
         // Get time provider for consistent timestamp generation

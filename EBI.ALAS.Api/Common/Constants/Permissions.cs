@@ -1,8 +1,4 @@
 namespace EBI.ALAS.Api.Common.Constants;
-
-/// <summary>
-/// Permission constants for granular access control.
-/// </summary>
 public static class Permissions
 {
     // Loan permissions
@@ -29,10 +25,6 @@ public static class Permissions
 
     // Audit log permissions
     public const string AuditLogsView = "auditLogs.view";
-
-    /// <summary>
-    /// All available permissions in the system.
-    /// </summary>
     public static readonly string[] All = new[]
     {
         LoansCreate,

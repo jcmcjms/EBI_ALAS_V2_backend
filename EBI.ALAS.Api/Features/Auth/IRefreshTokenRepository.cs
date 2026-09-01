@@ -1,8 +1,4 @@
 namespace EBI.ALAS.Api.Features.Auth;
-
-/// <summary>
-/// Interface for refresh token data access operations.
-/// </summary>
 public interface IRefreshTokenRepository
 {
     Task<RefreshToken> CreateRefreshTokenAsync(int userId, string tokenHash, DateTime expiresAt, DateTime absoluteExpiry, string? deviceInfo = null);

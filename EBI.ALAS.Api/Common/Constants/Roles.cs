@@ -1,8 +1,4 @@
 namespace EBI.ALAS.Api.Common.Constants;
-
-/// <summary>
-/// Role constants for the application.
-/// </summary>
 public static class Roles
 {
     public const string Encoder = "Encoder";
@@ -10,10 +6,6 @@ public static class Roles
     public const string Evaluator = "Evaluator";
     public const string Approver = "Approver";
     public const string Admin = "Admin";
-
-    /// <summary>
-    /// Role display names for documentation purposes.
-    /// </summary>
     public static class DisplayNames
     {
         public const string Encoder = "Encoder (AO/CAA)";

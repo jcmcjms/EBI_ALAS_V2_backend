@@ -4,10 +4,6 @@ using EBI.ALAS.Api.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 
 namespace EBI.ALAS.Api.Features.Loans;
-
-/// <summary>
-/// Loan repository implementation using Entity Framework Core.
-/// </summary>
 public class LoanRepository : ILoanRepository
 {
     private readonly AppDbContext _context;

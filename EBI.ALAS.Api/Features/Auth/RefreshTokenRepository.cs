@@ -3,11 +3,6 @@ using EBI.ALAS.Api.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 
 namespace EBI.ALAS.Api.Features.Auth;
-
-/// <summary>
-/// Refresh token repository using Entity Framework Core.
-/// Stores hashed refresh tokens for session persistence via HttpOnly cookies.
-/// </summary>
 public class RefreshTokenRepository : IRefreshTokenRepository
 {
     private readonly AppDbContext _context;

@@ -1,9 +1,4 @@
 namespace EBI.ALAS.Api.Features.WebLoans;
-
-/// <summary>
-/// Labels for loan_data.creation_type codes in the WebLoan database.
-/// Source: webloan domain knowledge (no lookup table exists for this column).
-/// </summary>
 public static class WebLoanCreationTypes
 {
     public const byte NewLoan = 0;
@@ -25,7 +20,6 @@ public static class WebLoanCreationTypes
         [AdditionalLoan] = "Additional Loan"
     };
 
-    /// <summary>Returns the display label for a creation_type code, or null if unknown.</summary>
     public static string? GetLabel(byte? code) =>
         code is null ? null : Labels.TryGetValue(code.Value, out var label) ? label : null;
 }

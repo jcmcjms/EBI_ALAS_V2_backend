@@ -1,8 +1,4 @@
 namespace EBI.ALAS.Api.Features.Loans;
-
-/// <summary>
-/// Interface for loan workflow status transition management.
-/// </summary>
 public interface ILoanWorkflowService
 {
     bool IsValidTransition(string fromStatus, string toStatus, string userRole);

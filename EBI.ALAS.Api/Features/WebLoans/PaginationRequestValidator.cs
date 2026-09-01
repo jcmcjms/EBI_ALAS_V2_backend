@@ -2,13 +2,6 @@ using EBI.ALAS.Api.Common.Models;
 using FluentValidation;
 
 namespace EBI.ALAS.Api.Features.WebLoans;
-
-/// <summary>
-/// Validates <see cref="PaginationRequest"/> query parameters on the WebLoan
-/// endpoints. Enforces the audit's pagination contract: page &gt;= 1,
-/// pageSize in [1, 100]. Validation failures are returned as 400 by the
-/// global FluentValidation auto-validation middleware.
-/// </summary>
 public sealed class PaginationRequestValidator : AbstractValidator<PaginationRequest>
 {
     public PaginationRequestValidator()

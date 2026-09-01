@@ -1,10 +1,6 @@
 using EBI.ALAS.Api.Common.Models;
 
 namespace EBI.ALAS.Api.Features.Loans;
-
-/// <summary>
-/// Interface for loan data access operations.
-/// </summary>
 public interface ILoanRepository
 {
     Task<LoanApplication?> GetByIdAsync(int id, bool includeRelated = false);

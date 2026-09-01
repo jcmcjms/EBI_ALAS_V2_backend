@@ -2,17 +2,6 @@ using System.Data.Common;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 
 namespace EBI.ALAS.Api.Infrastructure.Interceptors;
-
-/// <summary>
-/// Defense-in-depth guard for the WebLoan database: blocks any data-modifying
-/// or schema-changing SQL command at the ADO.NET level, BEFORE it reaches
-/// SQL Server. This catches raw SQL (FromSqlRaw / ExecuteSqlRaw / SqlQuery)
-/// that would bypass the SaveChanges override on WebLoanDbContext.
-///
-/// Allowed: SELECT, and command types that only read (stored procs are NOT
-/// allowed by default — enable case-by-case if the webloan system exposes
-/// safe read procedures).
-/// </summary>
 public sealed class WebLoanReadOnlyInterceptor : DbCommandInterceptor
 {
     // Commands that modify data or schema. Anything not starting with an

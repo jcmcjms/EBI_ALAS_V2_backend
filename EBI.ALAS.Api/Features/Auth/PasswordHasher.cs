@@ -1,8 +1,4 @@
 namespace EBI.ALAS.Api.Features.Auth;
-
-/// <summary>
-/// Password hasher implementation using BCrypt with timing attack prevention.
-/// </summary>
 public class PasswordHasher : IPasswordHasher
 {
     private const int WorkFactor = 12;

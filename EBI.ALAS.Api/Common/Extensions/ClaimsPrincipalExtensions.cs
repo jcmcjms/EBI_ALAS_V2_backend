@@ -1,10 +1,6 @@
 using System.Security.Claims;
 
 namespace EBI.ALAS.Api.Common.Extensions;
-
-/// <summary>
-/// Extension methods for extracting user information from JWT claims.
-/// </summary>
 public static class ClaimsPrincipalExtensions
 {
     public static int GetUserId(this ClaimsPrincipal principal)

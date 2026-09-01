@@ -1,3 +1,4 @@
+using EBI.ALAS.Api.Common.Exceptions;
 using EBI.ALAS.Api.Common.Models;
 using FluentValidation;
 using Microsoft.AspNetCore.Mvc;
@@ -60,5 +61,45 @@ public static class UserEndpoints
                 ? Results.Ok(ApiResponse.SuccessResponse($"User status updated to {(request.IsActive ? "Active" : "Suspended")}"))
                 : Results.NotFound(ApiResponse.ErrorResponse("User not found"));
         }).WithName("UpdateUserStatus").RequireAuthorization("CanSuspendUsers");
+
+        group.MapPost("/{id:int}/reset-password", async (int id, [FromBody] ResetPasswordRequest request, IUserService userService) =>
+        {
+            try
+            {
+                var tempPassword = await userService.ResetPasswordAsync(id, request.NewPassword);
+                return Results.Ok(ApiResponse<string>.SuccessResponse(tempPassword, "Password reset successfully. User must change password on next login."));
+            }
+            catch (NotFoundException ex)
+            {
+                return Results.NotFound(ApiResponse.ErrorResponse(ex.Message));
+            }
+        }).WithName("ResetUserPassword").RequireAuthorization("CanEditUsers");
+
+        group.MapPost("/{id:int}/force-password-reset", async (int id, IUserService userService) =>
+        {
+            var success = await userService.ForcePasswordResetAsync(id);
+            return success
+                ? Results.Ok(ApiResponse.SuccessResponse("User will be required to change password on next login"))
+                : Results.NotFound(ApiResponse.ErrorResponse("User not found"));
+        }).WithName("ForcePasswordReset").RequireAuthorization("CanEditUsers");
+
+        group.MapPost("/{id:int}/revoke-sessions", async (int id, IUserService userService) =>
+        {
+            try
+            {
+                var revokedCount = await userService.RevokeAllSessionsAsync(id);
+                return Results.Ok(ApiResponse<int>.SuccessResponse(revokedCount, $"Revoked {revokedCount} active session(s)"));
+            }
+            catch (NotFoundException ex)
+            {
+                return Results.NotFound(ApiResponse.ErrorResponse(ex.Message));
+            }
+        }).WithName("RevokeUserSessions").RequireAuthorization("CanSuspendUsers");
+
+        group.MapGet("/{id:int}/audit-log", async (int id, IUserService userService, [FromQuery] int pageNumber = 1, [FromQuery] int pageSize = 20) =>
+        {
+            var auditLog = await userService.GetAuditLogAsync(id, pageNumber, pageSize);
+            return Results.Ok(ApiResponse<List<UserAuditLogResponse>>.SuccessResponse(auditLog));
+        }).WithName("GetUserAuditLog").RequireAuthorization("CanViewUsers");
     }
 }

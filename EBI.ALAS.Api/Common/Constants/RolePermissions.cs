@@ -1,8 +1,4 @@
 namespace EBI.ALAS.Api.Common.Constants;
-
-/// <summary>
-/// Maps roles to their allowed permissions.
-/// </summary>
 public static class RolePermissions
 {
     private static readonly Dictionary<string, string[]> RolePermissionMap = new()
@@ -52,20 +48,12 @@ public static class RolePermissions
             Permissions.AuditLogsView
         }
     };
-
-    /// <summary>
-    /// Gets all permissions for a given role.
-    /// </summary>
     public static string[] GetPermissionsForRole(string role)
     {
         return RolePermissionMap.TryGetValue(role, out var permissions)
             ? permissions
             : Array.Empty<string>();
     }
-
-    /// <summary>
-    /// Checks if a role has a specific permission.
-    /// </summary>
     public static bool RoleHasPermission(string role, string permission)
     {
         if (!RolePermissionMap.TryGetValue(role, out var permissions))

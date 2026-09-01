@@ -1,8 +1,4 @@
 namespace EBI.ALAS.Api.Features.Branches;
-
-/// <summary>
-/// Branch entity representing a bank branch.
-/// </summary>
 public class Branch
 {
     public int Id { get; set; }

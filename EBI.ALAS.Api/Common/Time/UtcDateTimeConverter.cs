@@ -2,11 +2,6 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 
 namespace EBI.ALAS.Api.Common.Time;
-
-/// <summary>
-/// JSON converter that serializes DateTime as UTC with 'Z' suffix (ISO 8601).
-/// This ensures frontend clients can correctly interpret timestamps regardless of their local timezone.
-/// </summary>
 public sealed class UtcDateTimeConverter : JsonConverter<DateTime>
 {
     public override DateTime Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
@@ -42,10 +37,6 @@ public sealed class UtcDateTimeConverter : JsonConverter<DateTime>
         writer.WriteStringValue(utc.ToString("yyyy-MM-ddTHH:mm:ss.fffZ"));
     }
 }
-
-/// <summary>
-/// JSON converter for nullable DateTime that serializes as UTC with 'Z' suffix.
-/// </summary>
 public sealed class UtcNullableDateTimeConverter : JsonConverter<DateTime?>
 {
     public override DateTime? Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
@@ -89,10 +80,6 @@ public sealed class UtcNullableDateTimeConverter : JsonConverter<DateTime?>
         writer.WriteStringValue(utc.ToString("yyyy-MM-ddTHH:mm:ss.fffZ"));
     }
 }
-
-/// <summary>
-/// JSON converter for DateTimeOffset that ensures proper offset serialization.
-/// </summary>
 public sealed class DateTimeOffsetConverter : JsonConverter<DateTimeOffset>
 {
     public override DateTimeOffset Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)

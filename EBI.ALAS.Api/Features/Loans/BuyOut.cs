@@ -1,8 +1,4 @@
 namespace EBI.ALAS.Api.Features.Loans;
-
-/// <summary>
-/// BuyOut entity for tracking loan buy-out information.
-/// </summary>
 public class BuyOut
 {
     public int Id { get; set; }

@@ -1,24 +1,8 @@
 using System.Text.RegularExpressions;
 
 namespace EBI.ALAS.Api.Features.Account;
-
-/// <summary>
-/// Best-effort User-Agent parser for the "Active Sessions" UI. Turns the raw
-/// UA string browsers send into a short, human-readable description like
-/// "Chrome on Windows" or "Safari on iOS".
-///
-/// Implementation is regex-based and intentionally simple — we are not
-/// building a fingerprinting engine. The goal is just to avoid showing users
-/// "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like
-/// Gecko) Chrome/151.0.0.0 Safari/537.36" on the account page.
-/// </summary>
 public static class UserAgentParser
 {
-    /// <summary>
-    /// Parse a User-Agent header into a short browser + OS label.
-    /// Falls back to the raw string (or "Unknown Device" when null/empty)
-    /// if nothing matches — better than showing an empty row.
-    /// </summary>
     public static string Describe(string? userAgent)
     {
         if (string.IsNullOrWhiteSpace(userAgent)) return "Unknown Device";

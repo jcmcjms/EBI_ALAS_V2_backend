@@ -8,7 +8,6 @@ namespace EBI.ALAS.Api.Features.AuditLogs;
 
 // ─── Query Parameters ──────────────────────────────────────────────────────────
 
-/// <summary>Query parameters for the audit log list endpoint.</summary>
 public record AuditLogQuery(
     int Page = 1,
     int PageSize = 20,
@@ -19,7 +18,6 @@ public record AuditLogQuery(
     DateTime? EndDate = null
 );
 
-/// <summary>FluentValidation validator for AuditLogQuery.</summary>
 public class AuditLogQueryValidator : AbstractValidator<AuditLogQuery>
 {
     private static readonly string[] ValidActions = { "Create", "Update", "StatusChange", "Login", "Logout", "Delete" };
@@ -47,7 +45,6 @@ public class AuditLogQueryValidator : AbstractValidator<AuditLogQuery>
 
 // ─── Response DTOs ─────────────────────────────────────────────────────────────
 
-/// <summary>Audit log record returned by the list endpoint.</summary>
 public record AuditLogResponse(
     int Id,
     DateTime Timestamp,

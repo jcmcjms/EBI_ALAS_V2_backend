@@ -1,24 +1,8 @@
 namespace EBI.ALAS.Api.Common.Exceptions;
-
-/// <summary>
-/// Exception thrown when an invalid workflow status transition is attempted.
-/// Maps to HTTP 400 Bad Request by the GlobalExceptionHandler.
-/// </summary>
 public class InvalidWorkflowException : Exception
 {
-    /// <summary>
-    /// The current status of the resource before the attempted transition.
-    /// </summary>
     public string FromStatus { get; }
-
-    /// <summary>
-    /// The target status that was requested.
-    /// </summary>
     public string ToStatus { get; }
-
-    /// <summary>
-    /// The role that was attempting the transition.
-    /// </summary>
     public string? UserRole { get; }
 
     public InvalidWorkflowException(string fromStatus, string toStatus, string? userRole = null)

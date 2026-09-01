@@ -3,11 +3,6 @@ using EBI.ALAS.Api.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 
 namespace EBI.ALAS.Api.Features.Loans;
-
-/// <summary>
-/// Form number generator that creates unique form numbers in format LAM-yyyyMMdd-XXXXXX.
-/// Uses Philippines Time for the date portion to match business day boundaries.
-/// </summary>
 public class FormNumberGenerator : IFormNumberGenerator
 {
     private readonly AppDbContext _context;

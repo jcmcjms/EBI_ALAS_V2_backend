@@ -4,10 +4,6 @@ using EBI.ALAS.Api.Common.Models;
 using Microsoft.AspNetCore.Authorization;
 
 namespace EBI.ALAS.Api.Features.Dashboard;
-
-/// <summary>
-/// Dashboard endpoint definitions using Minimal APIs.
-/// </summary>
 public static class DashboardEndpoints
 {
     public static void MapDashboardEndpoints(this WebApplication app)

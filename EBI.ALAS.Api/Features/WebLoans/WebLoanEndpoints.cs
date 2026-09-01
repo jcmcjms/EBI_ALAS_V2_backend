@@ -3,10 +3,6 @@ using FluentValidation;
 using Microsoft.AspNetCore.Authorization;
 
 namespace EBI.ALAS.Api.Features.WebLoans;
-
-/// <summary>
-/// Read-only endpoints for fetching borrower data from the WebLoan system database.
-/// </summary>
 public static class WebLoanEndpoints
 {
     public static void MapWebLoanEndpoints(this WebApplication app)

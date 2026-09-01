@@ -3,11 +3,6 @@ using EBI.ALAS.Api.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 
 namespace EBI.ALAS.Api.Features.Auth;
-
-/// <summary>
-/// Token revocation repository using Entity Framework Core.
-/// Stores revoked JWT IDs in the database for logout enforcement.
-/// </summary>
 public class TokenRevocationRepository : ITokenRevocationRepository
 {
     private readonly AppDbContext _context;

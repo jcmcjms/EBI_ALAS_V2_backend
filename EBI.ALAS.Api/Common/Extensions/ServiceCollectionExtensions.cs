@@ -14,22 +14,8 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.Extensions.Caching.Memory;
 
 namespace EBI.ALAS.Api.Common.Extensions;
-
-/// <summary>
-/// Extension methods for registering application services in the DI container.
-/// </summary>
 public static class ServiceCollectionExtensions
 {
-    /// <summary>
-    /// Registers all application services, repositories, and infrastructure components.
-    /// </summary>
-    /// <remarks>
-    /// <para>
-    /// <see cref="IMemoryCache"/> is registered here so it is available to the
-    /// token-revocation cache decorator regardless of whether callers go through
-    /// <c>AddApplicationServices</c> alone or in combination with other helpers.
-    /// </para>
-    /// </remarks>
     public static IServiceCollection AddApplicationServices(this IServiceCollection services)
     {
         // ─── Common Services ──────────────────────────────────────────────

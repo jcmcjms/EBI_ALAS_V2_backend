@@ -1,10 +1,6 @@
 using EBI.ALAS.Api.Features.Auth;
 
 namespace EBI.ALAS.Api.Features.Loans;
-
-/// <summary>
-/// Loan action entity for audit logging of status changes.
-/// </summary>
 public class LoanAction
 {
     public int Id { get; set; }

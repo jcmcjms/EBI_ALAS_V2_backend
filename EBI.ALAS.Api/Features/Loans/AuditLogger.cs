@@ -3,10 +3,6 @@ using EBI.ALAS.Api.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 
 namespace EBI.ALAS.Api.Features.Loans;
-
-/// <summary>
-/// Audit logger implementation for tracking loan actions.
-/// </summary>
 public class AuditLogger : IAuditLogger
 {
     private readonly AppDbContext _context;

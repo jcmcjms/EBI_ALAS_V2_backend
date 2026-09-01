@@ -7,11 +7,6 @@ using Microsoft.EntityFrameworkCore.ChangeTracking;
 using System.Text.Json;
 
 namespace EBI.ALAS.Api.Infrastructure.Data;
-
-/// <summary>
-/// Application database context for EBI.ALAS.V2 banking API.
-/// Configures all entity relationships, indexes, and constraints.
-/// </summary>
 public class AppDbContext : DbContext
 {
     public AppDbContext(DbContextOptions<AppDbContext> options) : base(options) { }

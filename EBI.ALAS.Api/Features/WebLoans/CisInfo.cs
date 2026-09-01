@@ -1,11 +1,6 @@
 using System.ComponentModel.DataAnnotations.Schema;
 
 namespace EBI.ALAS.Api.Features.WebLoans;
-
-/// <summary>
-/// Maps to dbo.cis_info in the WebLoan database — borrower/client master record.
-/// Only columns needed by ALAS are mapped; table is owned by the WebLoan system.
-/// </summary>
 [Table("cis_info", Schema = "dbo")]
 public class CisInfo
 {

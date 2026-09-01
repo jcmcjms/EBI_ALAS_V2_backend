@@ -1,14 +1,6 @@
 namespace EBI.ALAS.Api.Common.Exceptions;
-
-/// <summary>
-/// Exception thrown when the authenticated user lacks permission to perform the requested action.
-/// Mapped to HTTP 403 by the GlobalExceptionHandler.
-/// </summary>
 public class ForbiddenAccessException : Exception
 {
-    /// <summary>
-    /// The permission key that was required but not held by the user.
-    /// </summary>
     public string? RequiredPermission { get; }
 
     public ForbiddenAccessException()

@@ -28,6 +28,18 @@ public record UpdateUserRequest(
 
 public record UserStatusRequest(bool IsActive);
 
+public record ResetPasswordRequest(string NewPassword);
+
+public record UserAuditLogResponse(
+    int Id,
+    string Action,
+    string EntityType,
+    string EntityLabel,
+    string Summary,
+    DateTime Timestamp,
+    string? IpAddress
+);
+
 public record UserResponse(
     int Id,
     string Username,

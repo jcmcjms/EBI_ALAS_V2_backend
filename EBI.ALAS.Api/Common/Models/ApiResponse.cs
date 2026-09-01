@@ -1,10 +1,6 @@
 using EBI.ALAS.Api.Common.Time;
 
 namespace EBI.ALAS.Api.Common.Models;
-
-/// <summary>
-/// Standard API response wrapper for consistent response format across all endpoints.
-/// </summary>
 public class ApiResponse<T>
 {
     public bool Success { get; set; }
@@ -35,10 +31,6 @@ public class ApiResponse<T>
         };
     }
 }
-
-/// <summary>
-/// Non-generic API response for endpoints that don't return data.
-/// </summary>
 public class ApiResponse
 {
     public bool Success { get; set; }

@@ -3,11 +3,6 @@ using EBI.ALAS.Api.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 
 namespace EBI.ALAS.Api.Features.Dashboard;
-
-/// <summary>
-/// Dashboard service implementation for aggregating loan statistics.
-/// Uses database-side aggregation to avoid loading large datasets into memory.
-/// </summary>
 public class DashboardService : IDashboardService
 {
     private readonly AppDbContext _context;

@@ -1,8 +1,4 @@
 namespace EBI.ALAS.Api.Features.Dashboard;
-
-/// <summary>
-/// Dashboard summary response DTO with aggregated loan statistics.
-/// </summary>
 public class DashboardSummaryResponse
 {
     public int TotalApplications { get; set; }
@@ -10,10 +6,6 @@ public class DashboardSummaryResponse
     public Dictionary<string, int> StatusCounts { get; set; } = new();
     public Dictionary<string, BranchSummary> BranchCounts { get; set; } = new();
 }
-
-/// <summary>
-/// Branch-level summary for the dashboard.
-/// </summary>
 public class BranchSummary
 {
     public string BranchCode { get; set; } = string.Empty;

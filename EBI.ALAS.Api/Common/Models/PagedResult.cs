@@ -1,8 +1,4 @@
 namespace EBI.ALAS.Api.Common.Models;
-
-/// <summary>
-/// Generic paged result wrapper for paginated list responses.
-/// </summary>
 public class PagedResult<T>
 {
     public List<T> Items { get; set; } = new();
@@ -34,10 +30,6 @@ public class PagedResult<T>
         };
     }
 }
-
-/// <summary>
-/// Pagination request parameters for list endpoints.
-/// </summary>
 public class PaginationParams
 {
     private const int MaxPageSize = 100;

@@ -1,9 +1,4 @@
 namespace EBI.ALAS.Api.Features.Auth;
-
-/// <summary>
-/// Stores refresh tokens for session persistence via HttpOnly cookies.
-/// Each refresh token is single-use: rotation revokes the old and issues a new one.
-/// </summary>
 public class RefreshToken
 {
     public int Id { get; set; }

@@ -4,14 +4,6 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
 
 namespace EBI.ALAS.Api.Features.WebLoans;
-
-/// <summary>
-/// Assembles ALAS loan-application sections from the read-only WebLoan database.
-/// Source tables: cis_info (client master), cis_info_misc_data (per-client attributes),
-/// loan_acct_info (client→account), loan_data (PN records), loan_status / loan_product
-/// (lookups), mis_group (multi-purpose hierarchy — group_no=1 holds MIS region/agency
-/// paths, group_no=2 holds requesting officers, group_no=26 holds agency types).
-/// </summary>
 public class WebLoanService : IWebLoanService
 {
     private readonly WebLoanDbContext _db;
@@ -258,14 +250,6 @@ public class WebLoanService : IWebLoanService
             }).ToList()
         };
     }
-
-    /// <summary>
-    /// Human-readable label for a loan_status code. The webloan DB has a
-    /// dbo.loan_status lookup table, but a small inline mapping covers the
-    /// codes the reference query renders (Current / Pastdue / Litigation /
-    /// etc.) without an extra round-trip. Falls back to the raw code as a
-    /// string for any code not in the table.
-    /// </summary>
     private static string? StatusCodeLabel(byte? code) => code switch
     {
         0 => "Current",
@@ -584,23 +568,6 @@ public class WebLoanService : IWebLoanService
             Page: safePagination.Page,
             PageSize: safePagination.PageSize);
     }
-
-    /// <summary>
-    /// Returns the top <paramref name="takePerAccount"/> most-recent PNs for
-    /// each supplied account number, fully projected into <see cref="PnRecord"/>
-    /// shape (status / product descriptions resolved). The result is keyed by
-    /// <c>AccountNo</c>; accounts with no PNs (or no matching non-ledger rows)
-    /// are absent from the dictionary.
-    /// </summary>
-    /// <remarks>
-    /// SQL Server's <c>ROW_NUMBER() OVER (PARTITION BY acct_no ORDER BY date_granted DESC)</c>
-    /// would be the ideal single-roundtrip solution, but EF Core 8 cannot
-    /// translate a window function directly. We work around this with a bounded
-    /// top-N query (<c>Take(N * takePerAccount)</c>) that orders the union of
-    /// recent PNs globally, then take the top <c>takePerAccount</c> per group
-    /// in memory. This bounds the wire payload to <c>accounts.Count * takePerAccount</c>
-    /// rows even for a corporate borrower with hundreds of accounts.
-    /// </remarks>
     private async Task<Dictionary<string, List<PnRecord>>> BuildRecentPnsPerAccountAsync(
         IReadOnlyList<string> accountNos,
         int takePerAccount,
@@ -700,13 +667,6 @@ public class WebLoanService : IWebLoanService
             ProposedAmount = latest.AppliedPrincipal ?? latest.Principal
         };
     }
-
-    /// <summary>
-    /// Projects a <see cref="LoanData"/> row into a <see cref="PnRecord"/> DTO,
-    /// resolving status and product descriptions via the supplied lookup tables.
-    /// Centralised so the borrower-profile, account-detail and paged endpoints
-    /// all serialise PN rows identically.
-    /// </summary>
     private static PnRecord MapLoanDataToPnRecord(
         LoanData l,
         IReadOnlyDictionary<string, LoanStatusLookup> statusByCode,
@@ -744,10 +704,6 @@ public class WebLoanService : IWebLoanService
             TotalAmortization = l.TotalAmortization
         };
     }
-
-    /// <summary>
-    /// Loads the status and product lookup tables with caching to avoid repeated DB hits.
-    /// </summary>
     private async Task<(Dictionary<string, LoanStatusLookup> Status, Dictionary<string, LoanProductLookup> Product)>
         LoadLookupDictionariesAsync(CancellationToken ct)
     {
@@ -774,10 +730,6 @@ public class WebLoanService : IWebLoanService
             .ToDictionary(p => p.IdCode!, p => p, StringComparer.OrdinalIgnoreCase);
         return (statusByCode, productByCode);
     }
-
-    /// <summary>
-    /// Gets all requesting officers (group_no=2) with caching.
-    /// </summary>
     private async Task<List<MisGroup>> GetOfficersCachedAsync(CancellationToken ct)
     {
         return await _cache.GetOrCreateAsync(CacheKeyOfficers, async entry =>
@@ -789,10 +741,6 @@ public class WebLoanService : IWebLoanService
                 .ToListAsync(ct);
         }) ?? [];
     }
-
-    /// <summary>
-    /// Gets all MIS agency groups (group_no=1) with caching.
-    /// </summary>
     private async Task<Dictionary<string, MisGroup>> GetMisAgencyCachedAsync(CancellationToken ct)
     {
         var list = await _cache.GetOrCreateAsync(CacheKeyMisAgency, async entry =>

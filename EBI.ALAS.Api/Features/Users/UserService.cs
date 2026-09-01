@@ -1,6 +1,9 @@
+using EBI.ALAS.Api.Common.Exceptions;
 using EBI.ALAS.Api.Common.Models;
 using EBI.ALAS.Api.Common.Time;
 using EBI.ALAS.Api.Features.Auth;
+using EBI.ALAS.Api.Infrastructure.Data;
+using Microsoft.EntityFrameworkCore;
 
 namespace EBI.ALAS.Api.Features.Users;
 
@@ -9,12 +12,21 @@ public class UserService : IUserService
     private readonly IUserRepository _userRepository;
     private readonly IPasswordHasher _passwordHasher;
     private readonly ITimeProvider _timeProvider;
+    private readonly IRefreshTokenRepository _refreshTokenRepository;
+    private readonly AppDbContext _context;
 
-    public UserService(IUserRepository userRepository, IPasswordHasher passwordHasher, ITimeProvider timeProvider)
+    public UserService(
+        IUserRepository userRepository,
+        IPasswordHasher passwordHasher,
+        ITimeProvider timeProvider,
+        IRefreshTokenRepository refreshTokenRepository,
+        AppDbContext context)
     {
         _userRepository = userRepository;
         _passwordHasher = passwordHasher;
         _timeProvider = timeProvider;
+        _refreshTokenRepository = refreshTokenRepository;
+        _context = context;
     }
 
     public async Task<PagedResult<UserResponse>> GetUsersAsync(UserQueryParameters parameters) =>
@@ -74,5 +86,67 @@ public class UserService : IUserService
         user.IsActive = isActive;
         await _userRepository.UpdateUserAsync();
         return true;
+    }
+
+    public async Task<bool> ForcePasswordResetAsync(int id)
+    {
+        var user = await _userRepository.GetUserByIdAsync(id);
+        if (user == null) return false;
+
+        user.MustChangePassword = true;
+        await _userRepository.UpdateUserAsync();
+        return true;
+    }
+
+    public async Task<string> ResetPasswordAsync(int id, string newPassword)
+    {
+        var user = await _userRepository.GetUserByIdAsync(id);
+        if (user == null)
+            throw new NotFoundException("User", id);
+
+        user.PasswordHash = _passwordHasher.HashPassword(newPassword);
+        user.MustChangePassword = true; // Force change on next login
+        await _userRepository.UpdateUserAsync();
+
+        return newPassword;
+    }
+
+    public async Task<int> RevokeAllSessionsAsync(int id)
+    {
+        var user = await _userRepository.GetUserByIdAsync(id);
+        if (user == null)
+            throw new NotFoundException("User", id);
+
+        // Get count of active sessions before revoking
+        var activeSessions = await _context.RefreshTokens
+            .Where(rt => rt.UserId == id && rt.ExpiresAt > _timeProvider.UtcNow && !rt.IsRevoked)
+            .CountAsync();
+
+        await _refreshTokenRepository.RevokeAllUserTokensAsync(id);
+
+        return activeSessions;
+    }
+
+    public async Task<List<UserAuditLogResponse>> GetAuditLogAsync(int userId, int pageNumber = 1, int pageSize = 20)
+    {
+        var query = _context.AuditLogs
+            .Where(log => log.UserId == userId)
+            .OrderByDescending(log => log.Timestamp);
+
+        var items = await query
+            .Skip((pageNumber - 1) * pageSize)
+            .Take(pageSize)
+            .Select(log => new UserAuditLogResponse(
+                log.Id,
+                log.Action,
+                log.EntityType,
+                log.EntityLabel,
+                log.Summary,
+                log.Timestamp,
+                log.IpAddress
+            ))
+            .ToListAsync();
+
+        return items;
     }
 }

@@ -2,10 +2,6 @@ using EBI.ALAS.Api.Features.Auth;
 using System.Text.Json.Serialization;
 
 namespace EBI.ALAS.Api.Features.Loans;
-
-/// <summary>
-/// Loan application entity with all client and loan parameter fields.
-/// </summary>
 public class LoanApplication
 {
     public int Id { get; set; }

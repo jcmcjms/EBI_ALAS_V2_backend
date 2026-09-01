@@ -3,24 +3,6 @@ using EBI.ALAS.Api.Features.Auth;
 using Microsoft.Extensions.Caching.Memory;
 
 namespace EBI.ALAS.Api.Infrastructure.Security;
-
-/// <summary>
-/// Caching decorator over <see cref="ITokenRevocationRepository"/> that fronts the
-/// EF Core implementation with an in-process <see cref="IMemoryCache"/>.
-///
-/// <para>
-/// Rationale: <c>OnTokenValidated</c> fires once per authenticated request and
-/// must check the JTI blacklist. At 2,500 req/sec a single SQL roundtrip per
-/// request is the bottleneck, so we answer almost all checks from memory.
-/// </para>
-///
-/// <para>
-/// Write path remains durable: every revocation is persisted to the database
-/// before the cache is updated, so the system is crash-safe. Cache TTL is
-/// bounded by the token's own remaining lifetime — entries never outlive the
-/// window in which they could cause harm.
-/// </para>
-/// </summary>
 public sealed class CachingTokenRevocationRepository : ITokenRevocationRepository
 {
     private const string CacheKeyPrefix = "revoked:";
@@ -36,14 +18,6 @@ public sealed class CachingTokenRevocationRepository : ITokenRevocationRepositor
 
     // Hard ceiling for any cache entry — protects against pathological expiresAt values.
     private static readonly TimeSpan MaxTtl = TimeSpan.FromDays(1);
-
-    /// <summary>
-    /// Builds a decorator over the supplied revocation repository.
-    /// </summary>
-    /// <param name="inner">Underlying durable repository (EF Core).</param>
-    /// <param name="cache">In-process memory cache.</param>
-    /// <param name="timeProvider">Time abstraction for testability.</param>
-    /// <param name="logger">Logger for cache miss / hit diagnostics.</param>
     public CachingTokenRevocationRepository(
         ITokenRevocationRepository inner,
         IMemoryCache cache,
@@ -55,13 +29,6 @@ public sealed class CachingTokenRevocationRepository : ITokenRevocationRepositor
         _timeProvider = timeProvider;
         _logger = logger;
     }
-
-    /// <inheritdoc />
-    /// <remarks>
-    /// Hot path: reads <c>revoked:{jti}</c> from memory. On miss it falls
-    /// through to the durable store, then primes the cache for the remainder
-    /// of the token's lifetime.
-    /// </remarks>
     public async Task<bool> IsTokenRevokedAsync(string tokenId)
     {
         ArgumentException.ThrowIfNullOrEmpty(tokenId);
@@ -88,13 +55,6 @@ public sealed class CachingTokenRevocationRepository : ITokenRevocationRepositor
 
         return fromStore;
     }
-
-    /// <inheritdoc />
-    /// <remarks>
-    /// Writes durably first, then mirrors the result into memory with a TTL
-    /// bounded by the token's remaining lifetime. If the token has already
-    /// expired, the cache entry is skipped (nothing to enforce).
-    /// </remarks>
     public async Task RevokeTokenAsync(string tokenId, int userId, DateTime expiresAt)
     {
         ArgumentException.ThrowIfNullOrEmpty(tokenId);
@@ -116,8 +76,6 @@ public sealed class CachingTokenRevocationRepository : ITokenRevocationRepositor
             "Token {TokenIdPrefix} revoked for user {UserId} (cache TTL {TtlSeconds}s)",
             Truncate(tokenId), userId, (int)(ttl > TimeSpan.Zero ? Math.Min(ttl.TotalSeconds, MaxTtl.TotalSeconds) : 0));
     }
-
-    /// <inheritdoc />
     public Task CleanupExpiredTokensAsync() => _inner.CleanupExpiredTokensAsync();
 
     private static MemoryCacheEntryOptions BuildEntryOptions(TimeSpan ttl) =>

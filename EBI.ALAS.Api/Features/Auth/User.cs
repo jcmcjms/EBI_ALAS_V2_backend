@@ -1,8 +1,4 @@
 namespace EBI.ALAS.Api.Features.Auth;
-
-/// <summary>
-/// User entity for authentication and authorization.
-/// </summary>
 public class User
 {
     public int Id { get; set; }

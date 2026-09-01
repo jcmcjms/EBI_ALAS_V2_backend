@@ -1,10 +1,6 @@
 using EBI.ALAS.Api.Common.Constants;
 
 namespace EBI.ALAS.Api.Features.Loans;
-
-/// <summary>
-/// Loan workflow service that manages status transitions and validates allowed transitions.
-/// </summary>
 public class LoanWorkflowService : ILoanWorkflowService
 {
     private static readonly Dictionary<(string From, string To), string> ValidTransitions = new()

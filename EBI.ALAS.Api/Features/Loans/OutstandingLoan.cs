@@ -1,8 +1,4 @@
 namespace EBI.ALAS.Api.Features.Loans;
-
-/// <summary>
-/// Outstanding loan entity for tracking existing loan obligations.
-/// </summary>
 public class OutstandingLoan
 {
     public int Id { get; set; }

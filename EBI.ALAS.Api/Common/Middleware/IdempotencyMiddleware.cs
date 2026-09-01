@@ -3,12 +3,6 @@ using System.Text.Json;
 using EBI.ALAS.Api.Common.Models;
 
 namespace EBI.ALAS.Api.Common.Middleware;
-
-/// <summary>
-/// Middleware that provides idempotency support for POST/PUT/PATCH requests.
-/// Clients should send an Idempotency-Key header to enable duplicate request detection.
-/// Cached responses are stored for 10 minutes (configurable).
-/// </summary>
 public class IdempotencyMiddleware
 {
     private readonly RequestDelegate _next;
@@ -130,10 +124,6 @@ public class IdempotencyMiddleware
         public Dictionary<string, string> ResponseHeaders { get; init; } = new();
     }
 }
-
-/// <summary>
-/// Extension method to register the idempotency middleware.
-/// </summary>
 public static class IdempotencyMiddlewareExtensions
 {
     public static IApplicationBuilder UseIdempotency(this IApplicationBuilder builder)

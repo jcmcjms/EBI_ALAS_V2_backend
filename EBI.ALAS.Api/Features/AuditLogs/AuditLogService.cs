@@ -2,11 +2,6 @@ using EBI.ALAS.Api.Common.Time;
 using EBI.ALAS.Api.Infrastructure.Data;
 
 namespace EBI.ALAS.Api.Features.AuditLogs;
-
-/// <summary>
-/// Service responsible for persisting audit log entries to the database.
-/// All significant user actions and system events should flow through here.
-/// </summary>
 public class AuditLogService : IAuditLogService
 {
     private readonly AppDbContext _context;
