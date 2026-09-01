@@ -68,6 +68,8 @@ public static class LoanEndpoints
                 Position = loan.Position,
                 EmployeeId = loan.EmployeeId,
                 NetTakeHomePay = loan.NetTakeHomePay,
+                School = loan.School,
+                Referrer = loan.Referrer,
                 Product = loan.Product,
                 Purpose = loan.Purpose,
                 ProposedAmount = loan.ProposedAmount,
@@ -147,6 +149,8 @@ public static class LoanEndpoints
                 Position = request.Position,
                 EmployeeId = request.EmployeeId,
                 NetTakeHomePay = request.NetTakeHomePay,
+                School = request.School,
+                Referrer = request.Referrer,
                 Product = request.Product,
                 Purpose = request.Purpose,
                 ProposedAmount = request.ProposedAmount,
@@ -185,6 +189,8 @@ public static class LoanEndpoints
                 Position = createdLoan.Position,
                 EmployeeId = createdLoan.EmployeeId,
                 NetTakeHomePay = createdLoan.NetTakeHomePay,
+                School = createdLoan.School,
+                Referrer = createdLoan.Referrer,
                 Product = createdLoan.Product,
                 Purpose = createdLoan.Purpose,
                 ProposedAmount = createdLoan.ProposedAmount,
@@ -278,6 +284,8 @@ public static class LoanEndpoints
                 Position = loan.Position,
                 EmployeeId = loan.EmployeeId,
                 NetTakeHomePay = loan.NetTakeHomePay,
+                School = loan.School,
+                Referrer = loan.Referrer,
                 Product = loan.Product,
                 Purpose = loan.Purpose,
                 ProposedAmount = loan.ProposedAmount,
@@ -318,6 +326,8 @@ public class LoanResponse
     public string? Position { get; set; }
     public string? EmployeeId { get; set; }
     public decimal? NetTakeHomePay { get; set; }
+    public string? School { get; set; }
+    public string? Referrer { get; set; }
     public string Product { get; set; } = string.Empty;
     public string? Purpose { get; set; }
     public decimal ProposedAmount { get; set; }
@@ -369,6 +379,8 @@ public class CreateLoanRequest
     public string? Position { get; init; }
     public string? EmployeeId { get; init; }
     public decimal? NetTakeHomePay { get; init; }
+    public string? School { get; init; }
+    public string? Referrer { get; init; }
     public string Product { get; init; } = string.Empty;
     public string? Purpose { get; init; }
     public decimal ProposedAmount { get; init; }
@@ -430,6 +442,16 @@ public class CreateLoanValidator : AbstractValidator<CreateLoanRequest>
         RuleFor(x => x.InterestRate)
             .InclusiveBetween(0, 100)
             .WithMessage("Interest rate must be between 0 and 100");
+
+        // Manual-entry fields — first-line defense against payload bloat.
+        // Mirrors the Zod schema on the frontend so the two never drift.
+        RuleFor(x => x.School)
+            .MaximumLength(200)
+            .WithMessage("School name must not exceed 200 characters");
+
+        RuleFor(x => x.Referrer)
+            .MaximumLength(100)
+            .WithMessage("Referrer name must not exceed 100 characters");
     }
 }
 

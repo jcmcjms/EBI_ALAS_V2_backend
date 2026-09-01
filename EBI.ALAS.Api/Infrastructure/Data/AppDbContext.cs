@@ -160,6 +160,14 @@ public class AppDbContext : DbContext
             entity.Property(e => e.NetTakeHomePay)
                 .HasColumnType("decimal(18,2)");
 
+            // Manual-entry information (School / Referrer) — length caps
+            // mirror the Zod schema and FluentValidation on the create path.
+            entity.Property(e => e.School)
+                .HasMaxLength(200);
+
+            entity.Property(e => e.Referrer)
+                .HasMaxLength(100);
+
             // Loan Parameters
             entity.Property(e => e.Product)
                 .IsRequired()

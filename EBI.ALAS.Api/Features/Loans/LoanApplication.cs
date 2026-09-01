@@ -22,6 +22,10 @@ public class LoanApplication
     public string? EmployeeId { get; set; }
     public decimal? NetTakeHomePay { get; set; }
 
+    // Additional manual-entry information (not sourced from CIS)
+    public string? School { get; set; }
+    public string? Referrer { get; set; }
+
     // Loan Parameters
     public string Product { get; set; } = string.Empty;
     public string? Purpose { get; set; }
