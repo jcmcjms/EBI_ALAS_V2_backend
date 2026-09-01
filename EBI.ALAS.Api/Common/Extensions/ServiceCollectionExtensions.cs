@@ -2,6 +2,7 @@ using EBI.ALAS.Api.Common.Authorization;
 using EBI.ALAS.Api.Common.Time;
 using EBI.ALAS.Api.Features.Account;
 using EBI.ALAS.Api.Features.Auth;
+using EBI.ALAS.Api.Features.AuditLogs;
 using EBI.ALAS.Api.Features.Branches;
 using EBI.ALAS.Api.Features.Dashboard;
 using EBI.ALAS.Api.Features.Loans;
@@ -81,6 +82,9 @@ public static class ServiceCollectionExtensions
         // ─── Account Services (My Account page) ──────────────────────────
         services.AddScoped<IAccountRepository, AccountRepository>();
         services.AddScoped<IAccountService, AccountService>();
+
+        // ─── Audit Log Services ─────────────────────────────────────────
+        services.AddScoped<IAuditLogService, AuditLogService>();
 
         // ─── Authorization ───────────────────────────────────────────────
         services.AddScoped<IAuthorizationHandler, PermissionAuthorizationHandler>();

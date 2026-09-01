@@ -3,9 +3,6 @@ using Microsoft.EntityFrameworkCore;
 
 namespace EBI.ALAS.Api.Features.Auth;
 
-/// <summary>
-/// Authentication repository implementation using Entity Framework Core.
-/// </summary>
 public class AuthRepository : IAuthRepository
 {
     private readonly AppDbContext _context;

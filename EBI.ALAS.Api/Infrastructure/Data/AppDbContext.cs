@@ -1,4 +1,5 @@
 using EBI.ALAS.Api.Features.Auth;
+using EBI.ALAS.Api.Features.AuditLogs;
 using EBI.ALAS.Api.Features.Branches;
 using EBI.ALAS.Api.Features.Loans;
 using Microsoft.EntityFrameworkCore;
@@ -24,6 +25,7 @@ public class AppDbContext : DbContext
     public DbSet<BuyOut> BuyOuts => Set<BuyOut>();
     public DbSet<RevokedToken> RevokedTokens => Set<RevokedToken>();
     public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
+    public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -128,6 +130,17 @@ public class AppDbContext : DbContext
 
             entity.HasIndex(e => e.FormNumber)
                 .IsUnique();
+
+            // Composite indexes for common query patterns
+            entity.HasIndex(e => new { e.Status, e.BranchCode })
+                .HasDatabaseName("IX_LoanApplications_Status_BranchCode");
+
+            entity.HasIndex(e => new { e.Status, e.BranchCode, e.ApplicationDate })
+                .HasDatabaseName("IX_LoanApplications_Status_BranchCode_Date")
+                .IsDescending(false, false, true);
+
+            entity.HasIndex(e => new { e.CreatedById, e.Status })
+                .HasDatabaseName("IX_LoanApplications_CreatedById_Status");
 
             entity.Property(e => e.BranchCode)
                 .IsRequired()
@@ -377,6 +390,59 @@ public class AppDbContext : DbContext
                 .WithMany()
                 .HasForeignKey(e => e.UserId)
                 .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // ─── AuditLog Entity ───────────────────────────────────────────
+        modelBuilder.Entity<AuditLog>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).ValueGeneratedOnAdd();
+
+            // Critical performance indexes for the audit log list query
+            // Descending index on Timestamp ensures latest entries are returned first without a sort
+            entity.HasIndex(e => e.Timestamp).IsDescending();
+            entity.HasIndex(e => e.UserId);
+            entity.HasIndex(e => e.Action);
+            entity.HasIndex(e => e.EntityType);
+
+            entity.Property(e => e.UserName)
+                .IsRequired()
+                .HasMaxLength(100);
+
+            entity.Property(e => e.Action)
+                .IsRequired()
+                .HasMaxLength(50);
+
+            entity.Property(e => e.EntityType)
+                .IsRequired()
+                .HasMaxLength(50);
+
+            entity.Property(e => e.EntityId)
+                .IsRequired()
+                .HasMaxLength(100);
+
+            entity.Property(e => e.EntityLabel)
+                .IsRequired()
+                .HasMaxLength(200);
+
+            entity.Property(e => e.Summary)
+                .IsRequired()
+                .HasMaxLength(500);
+
+            entity.Property(e => e.RawChanges)
+                .HasColumnType("nvarchar(max)");
+
+            entity.Property(e => e.IpAddress)
+                .HasMaxLength(50);
+
+            entity.Property(e => e.UserAgent)
+                .HasMaxLength(500);
+
+            // Foreign key to User (optional — system events have no user)
+            entity.HasOne(e => e.User)
+                .WithMany()
+                .HasForeignKey(e => e.UserId)
+                .OnDelete(DeleteBehavior.SetNull);
         });
     }
 }

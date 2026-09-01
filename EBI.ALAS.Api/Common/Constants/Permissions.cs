@@ -27,6 +27,9 @@ public static class Permissions
     public const string RoleManage = "role.manage";
     public const string RoleView = "role.view";
 
+    // Audit log permissions
+    public const string AuditLogsView = "auditLogs.view";
+
     /// <summary>
     /// All available permissions in the system.
     /// </summary>
@@ -45,6 +48,7 @@ public static class Permissions
         UserEdit,
         UserSuspend,
         RoleManage,
-        RoleView
+        RoleView,
+        AuditLogsView
     };
 }

@@ -47,7 +47,9 @@ public static class RolePermissions
             Permissions.UserSuspend,
             // Role & permission management permissions
             Permissions.RoleManage,
-            Permissions.RoleView
+            Permissions.RoleView,
+            // Audit log permissions
+            Permissions.AuditLogsView
         }
     };
 

@@ -8,10 +8,6 @@ using Microsoft.AspNetCore.Mvc;
 
 namespace EBI.ALAS.Api.Features.Loans;
 
-/// <summary>
-/// Loan endpoint definitions using Minimal APIs.
-/// </summary>
-
 public static class LoanEndpoints
 {
     public static void MapLoanEndpoints(this WebApplication app)
@@ -20,7 +16,6 @@ public static class LoanEndpoints
             .WithTags("Loans")
             .RequireAuthorization();
 
-        // GET /api/loans
         group.MapGet("/", async (
             [AsParameters] PaginationParams pagination,
             ILoanRepository loanRepository,
@@ -43,7 +38,6 @@ public static class LoanEndpoints
         .Produces<ApiResponse<PagedResult<LoanApplication>>>(200)
         .RequireAuthorization("CanViewLoan");
 
-        // GET /api/loans/{id}
         group.MapGet("/{id:int}", async (
             int id,
             ILoanRepository loanRepository,
@@ -93,8 +87,6 @@ public static class LoanEndpoints
                     ActionDate = a.ActionDate,
                     ActionByUserName = $"{a.ActionByUser.FirstName} {a.ActionByUser.LastName}"
                 }).ToList(),
-
-                // WebLoan Traceability
                 WebLoanCisNo = loan.WebLoanCisNo,
                 WebLoanBranchCode = loan.WebLoanBranchCode,
                 WebLoanAccountNumbers = loan.WebLoanAccountNumbers,
@@ -109,7 +101,6 @@ public static class LoanEndpoints
         .Produces<ApiResponse>(404)
         .RequireAuthorization("CanViewLoan");
 
-        // POST /api/loans
         group.MapPost("/", async (
             [FromBody] CreateLoanRequest request,
             IValidator<CreateLoanRequest> validator,
@@ -214,7 +205,6 @@ public static class LoanEndpoints
         .Produces<ApiResponse>(400)
         .RequireAuthorization("CanCreateLoan");
 
-        // PUT /api/loans/{id}/status
         group.MapPut("/{id:int}/status", async (
             int id,
             [FromBody] UpdateLoanStatusRequest request,
@@ -310,9 +300,6 @@ public static class LoanEndpoints
     }
 }
 
-/// <summary>
-/// Loan response DTO.
-/// </summary>
 public class LoanResponse
 {
     public int Id { get; set; }
@@ -351,9 +338,6 @@ public class LoanResponse
     public DateTime? WebLoanLastSyncedAt { get; set; }
 }
 
-/// <summary>
-/// Loan action response DTO.
-/// </summary>
 public class LoanActionResponse
 {
     public int Id { get; set; }
@@ -365,9 +349,6 @@ public class LoanActionResponse
     public string ActionByUserName { get; set; } = string.Empty;
 }
 
-/// <summary>
-/// Create loan request DTO.
-/// </summary>
 public class CreateLoanRequest
 {
     public string BranchCode { get; init; } = string.Empty;
@@ -391,18 +372,12 @@ public class CreateLoanRequest
     public string? CoMaker { get; init; }
 }
 
-/// <summary>
-/// Update loan status request DTO.
-/// </summary>
 public class UpdateLoanStatusRequest
 {
     public string Status { get; init; } = string.Empty;
     public string? Comments { get; init; }
 }
 
-/// <summary>
-/// FluentValidation validator for CreateLoanRequest.
-/// </summary>
 public class CreateLoanValidator : AbstractValidator<CreateLoanRequest>
 {
     public CreateLoanValidator()
@@ -455,9 +430,6 @@ public class CreateLoanValidator : AbstractValidator<CreateLoanRequest>
     }
 }
 
-/// <summary>
-/// FluentValidation validator for UpdateLoanStatusRequest.
-/// </summary>
 public class UpdateLoanStatusValidator : AbstractValidator<UpdateLoanStatusRequest>
 {
     private static readonly string[] ValidStatuses = new[]

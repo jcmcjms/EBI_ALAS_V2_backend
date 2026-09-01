@@ -7,39 +7,17 @@ namespace EBI.ALAS.Api.Features.Loans;
 /// </summary>
 public class LoanWorkflowService : ILoanWorkflowService
 {
-    /// <summary>
-    /// Defines valid status transitions and the role required for each transition.
-    /// </summary>
     private static readonly Dictionary<(string From, string To), string> ValidTransitions = new()
     {
-        // Draft → ForRecommendation (Encoder)
         [("Draft", "ForRecommendation")] = Roles.Encoder,
-        
-        // ForRecommendation → ForChecking (Recommender)
         [("ForRecommendation", "ForChecking")] = Roles.Recommender,
-        
-        // ForChecking → ForApproval (Evaluator)
         [("ForChecking", "ForApproval")] = Roles.Evaluator,
-        
-        // ForApproval → Approved (Approver)
         [("ForApproval", "Approved")] = Roles.Approver,
-        
-        // ForApproval → Rejected (Approver)
         [("ForApproval", "Rejected")] = Roles.Approver,
-        
-        // ForApproval → ForRevision (Approver)
         [("ForApproval", "ForRevision")] = Roles.Approver,
-        
-        // ForRevision → ForRecommendation (Encoder)
         [("ForRevision", "ForRecommendation")] = Roles.Encoder,
-        
-        // Approved → ForDisbursement (System/Admin)
         [("Approved", "ForDisbursement")] = Roles.Admin,
-        
-        // ForDisbursement → Disbursed (Admin)
         [("ForDisbursement", "Disbursed")] = Roles.Admin,
-        
-        // Disbursed → OnGoing (Admin)
         [("Disbursed", "OnGoing")] = Roles.Admin
     };
 

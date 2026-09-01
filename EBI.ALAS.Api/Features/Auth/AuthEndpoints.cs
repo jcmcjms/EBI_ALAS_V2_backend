@@ -2,42 +2,22 @@ using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using EBI.ALAS.Api.Common.Models;
 using EBI.ALAS.Api.Common.Time;
+using EBI.ALAS.Api.Features.AuditLogs;
 using FluentValidation;
 using Microsoft.AspNetCore.Mvc;
 
 namespace EBI.ALAS.Api.Features.Auth;
 
-/// <summary>
-/// Authentication endpoint definitions using Minimal APIs.
-/// Access token: returned in JSON body, stored in-memory on frontend (Zustand).
-/// Refresh token: stored in HttpOnly cookie — invisible to JavaScript, XSS-proof.
-/// </summary>
 public static class AuthEndpoints
 {
     private const string RefreshTokenCookieName = "refreshToken";
-
-    /// <summary>
-    /// Name of the non-HttpOnly cookie that mirrors the per-session CSRF token
-    /// (double-submit cookie pattern). JavaScript must read this cookie and
-    /// echo it in the <c>X-XSRF-TOKEN</c> header on state-changing requests.
-    /// </summary>
     private const string XsrfCookieName = "XSRF-TOKEN";
-
-    /// <summary>
-    /// Name of the HTTP header the frontend uses to echo the CSRF token.
-    /// </summary>
     private const string XsrfHeaderName = "X-XSRF-TOKEN";
 
     public static void MapAuthEndpoints(this WebApplication app)
     {
-        var group = app.MapGroup("/api/auth")
-            .WithTags("Authentication");
+        var group = app.MapGroup("/api/auth").WithTags("Authentication");
 
-        // ─────────────────────────────────────────────────────────────────
-        // POST /api/auth/login
-        // Authenticates the user, sets refresh token as HttpOnly cookie,
-        // returns access token in JSON body.
-        // ─────────────────────────────────────────────────────────────────
         group.MapPost("/login", async (
             [FromBody] LoginRequest request,
             IValidator<LoginRequest> validator,
@@ -45,30 +25,23 @@ public static class AuthEndpoints
             IPasswordHasher passwordHasher,
             IJwtTokenService jwtTokenService,
             IRefreshTokenRepository refreshTokenRepository,
+            IAuditLogService auditLogService,
             IConfiguration configuration,
             HttpContext http,
             ILogger<Program> logger,
             ITimeProvider timeProvider) =>
         {
-            // Validate request
             var validationResult = await validator.ValidateAsync(request);
             if (!validationResult.IsValid)
             {
                 var errors = validationResult.Errors
                     .GroupBy(e => e.PropertyName)
-                    .ToDictionary(
-                        g => g.Key,
-                        g => g.Select(e => e.ErrorMessage).ToArray());
-
-                return Results.BadRequest(ApiResponse.ErrorResponse(
-                    "Validation failed",
-                    errors.SelectMany(e => e.Value).ToList()));
+                    .ToDictionary(g => g.Key, g => g.Select(e => e.ErrorMessage).ToArray());
+                return Results.BadRequest(ApiResponse.ErrorResponse("Validation failed", errors.SelectMany(e => e.Value).ToList()));
             }
 
-            // Get user by username
             var user = await authRepository.GetUserByUsernameAsync(request.Username);
 
-            // Timing attack prevention: Always verify password even if user is null
             var dummyHash = BCrypt.Net.BCrypt.HashPassword("dummy_password");
             var passwordHash = user?.PasswordHash ?? dummyHash;
             var isPasswordValid = passwordHasher.VerifyPassword(request.Password, passwordHash);
@@ -79,70 +52,52 @@ public static class AuthEndpoints
                 return Results.Unauthorized();
             }
 
-            // ── Generate Access Token (with XSRF token claim) ─────────
             var (accessToken, xsrfToken) = jwtTokenService.GenerateTokenWithXsrf(user);
             var jwtSettings = configuration.GetSection("Jwt").Get<JwtSettings>()!;
             var accessExpiresAt = timeProvider.UtcNow.AddMinutes(jwtSettings.ExpiryMinutes);
 
-            // ── Generate Refresh Token ─────────────────────────────────
             var rawRefreshToken = jwtTokenService.GenerateRefreshToken();
             var refreshTokenHash = jwtTokenService.HashRefreshToken(rawRefreshToken);
-
             var refreshExpiry = timeProvider.UtcNow.AddDays(jwtSettings.RefreshTokenExpiryDays);
             var absoluteExpiry = timeProvider.UtcNow.AddDays(jwtSettings.AbsoluteSessionExpiryDays);
-
-            // Capture client device info from User-Agent header so the account
-            // "Active Sessions" view can show which device owns each refresh token.
-            // Falls back to "Unknown Device" if the header is missing (e.g. CLI tools).
             var deviceInfo = GetDeviceInfo(http);
 
-            // Store hashed refresh token in database
-            await refreshTokenRepository.CreateRefreshTokenAsync(
-                user.Id, refreshTokenHash, refreshExpiry, absoluteExpiry, deviceInfo);
+            await refreshTokenRepository.CreateRefreshTokenAsync(user.Id, refreshTokenHash, refreshExpiry, absoluteExpiry, deviceInfo);
 
-            // ── Set HttpOnly Cookie ────────────────────────────────────
             var cookieOptions = new CookieOptions
             {
-                HttpOnly = true,                                          // Invisible to JavaScript (XSS-proof)
-                Secure = true,                                            // HTTPS only in production
-                SameSite = SameSiteMode.Strict,                           // CSRF protection (same-origin only)
-                Expires = refreshExpiry,                                  // Browser auto-expires
-                Path = "/api/auth",                                       // Scoped to auth endpoints only
-                IsEssential = true                                        // GDPR: consent not required
+                HttpOnly = true,
+                Secure = true,
+                SameSite = SameSiteMode.Strict,
+                Expires = refreshExpiry,
+                Path = "/api/auth",
+                IsEssential = true
             };
 
-            // In Development over plain HTTP, Secure must be false
             if (http.Request.Host.Host == "localhost" || http.Request.Host.Host == "127.0.0.1")
-            {
                 cookieOptions.Secure = false;
-            }
 
             http.Response.Cookies.Append(RefreshTokenCookieName, rawRefreshToken, cookieOptions);
 
-            // ── Set XSRF Cookie (double-submit pattern) ────────────────
-            // Non-HttpOnly so the SPA can read it; Secure in production.
-            // The value mirrors the XsrfToken claim embedded in the JWT so
-            // the CSRF middleware can compare header ↔ claim.
             var xsrfCookieOptions = new CookieOptions
             {
-                HttpOnly = false,                                          // Must be readable by JS
-                Secure = cookieOptions.Secure,                             // Match parent cookie's Secure flag
+                HttpOnly = false,
+                Secure = cookieOptions.Secure,
                 SameSite = SameSiteMode.Strict,
-                Expires = accessExpiresAt,                                 // Bound to access-token lifetime
-                Path = "/",                                                // Available to all endpoints
+                Expires = accessExpiresAt,
+                Path = "/",
                 IsEssential = true
             };
             http.Response.Cookies.Append(XsrfCookieName, xsrfToken, xsrfCookieOptions);
 
             logger.LogInformation("User {Username} logged in successfully", user.Username);
 
-            return Results.Ok(ApiResponse<LoginResponse>.SuccessResponse(
-                new LoginResponse
-                {
-                    AccessToken = accessToken,
-                    ExpiresAt = accessExpiresAt
-                },
-                "Login successful"));
+            var userFullName = string.IsNullOrEmpty(user.MiddleName)
+                ? $"{user.FirstName} {user.LastName}"
+                : $"{user.FirstName} {user.MiddleName} {user.LastName}";
+            await auditLogService.LogLoginAsync(user.Id, userFullName, http.Connection.RemoteIpAddress?.ToString() ?? "unknown", GetDeviceInfo(http));
+
+            return Results.Ok(ApiResponse<LoginResponse>.SuccessResponse(new LoginResponse { AccessToken = accessToken, ExpiresAt = accessExpiresAt }, "Login successful"));
         })
         .WithName("Login")
         .Produces<ApiResponse<LoginResponse>>(200)
@@ -150,12 +105,6 @@ public static class AuthEndpoints
         .Produces<ApiResponse>(400)
         .RequireRateLimiting("LoginLimiter");
 
-        // ─────────────────────────────────────────────────────────────────
-        // POST /api/auth/refresh
-        // Silent token refresh: reads refresh token from HttpOnly cookie,
-        // validates, rotates (revokes old + issues new), returns new access token.
-        // Called by frontend useAuthInit on mount and by Axios interceptor on 401.
-        // ─────────────────────────────────────────────────────────────────
         group.MapPost("/refresh", async (
             HttpContext http,
             IAuthRepository authRepository,
@@ -166,15 +115,12 @@ public static class AuthEndpoints
             ILogger<Program> logger,
             ITimeProvider timeProvider) =>
         {
-            // ── Read refresh token from HttpOnly cookie ────────────────
-            if (!http.Request.Cookies.TryGetValue(RefreshTokenCookieName, out var rawRefreshToken)
-                || string.IsNullOrEmpty(rawRefreshToken))
+            if (!http.Request.Cookies.TryGetValue(RefreshTokenCookieName, out var rawRefreshToken) || string.IsNullOrEmpty(rawRefreshToken))
             {
                 logger.LogDebug("Refresh endpoint called without refresh token cookie");
                 return Results.Unauthorized();
             }
 
-            // ── Validate against database ──────────────────────────────
             var tokenHash = jwtTokenService.HashRefreshToken(rawRefreshToken);
             var storedToken = await refreshTokenRepository.GetActiveTokenByHashAsync(tokenHash);
 
@@ -184,7 +130,6 @@ public static class AuthEndpoints
                 return Results.Unauthorized();
             }
 
-            // ── Resolve user for new access token ─────────────────────
             var user = await authRepository.GetUserByIdAsync(storedToken.UserId);
 
             if (user == null || !user.IsActive)
@@ -193,9 +138,6 @@ public static class AuthEndpoints
                 return Results.Unauthorized();
             }
 
-            // ── Rotate: Revoke old, issue new ─────────────────────────
-            // Also revoke the current access token JTI if present (optional extra security)
-            // This ensures the old access token can't be used after refresh
             var jwtSettings = configuration.GetSection("Jwt").Get<JwtSettings>()!;
             var currentJti = http.User?.FindFirstValue(JwtRegisteredClaimNames.Jti);
             if (!string.IsNullOrEmpty(currentJti) && int.TryParse(http.User?.FindFirstValue("userId"), out var currentUserId))
@@ -204,25 +146,16 @@ public static class AuthEndpoints
                 await tokenRevocationRepository.RevokeTokenAsync(currentJti, currentUserId, currentExpiry);
             }
 
-            // Issue new access token (with rotated XSRF token)
             var (newAccessToken, newXsrfToken) = jwtTokenService.GenerateTokenWithXsrf(user);
             var newAccessExpiresAt = timeProvider.UtcNow.AddMinutes(jwtSettings.ExpiryMinutes);
-
-            // Issue new refresh token
             var newRawRefreshToken = jwtTokenService.GenerateRefreshToken();
             var newRefreshTokenHash = jwtTokenService.HashRefreshToken(newRawRefreshToken);
-
             var newRefreshExpiry = timeProvider.UtcNow.AddDays(jwtSettings.RefreshTokenExpiryDays);
             var newAbsoluteExpiry = timeProvider.UtcNow.AddDays(jwtSettings.AbsoluteSessionExpiryDays);
-
-            // Capture client device info on rotation too, so a refreshed session
-            // is attributed to the actual device that called /refresh.
             var newDeviceInfo = GetDeviceInfo(http);
 
-            await refreshTokenRepository.CreateRefreshTokenAsync(
-                user.Id, newRefreshTokenHash, newRefreshExpiry, newAbsoluteExpiry, newDeviceInfo);
+            await refreshTokenRepository.CreateRefreshTokenAsync(user.Id, newRefreshTokenHash, newRefreshExpiry, newAbsoluteExpiry, newDeviceInfo);
 
-            // ── Set new HttpOnly cookie ────────────────────────────────
             var cookieOptions = new CookieOptions
             {
                 HttpOnly = true,
@@ -234,13 +167,10 @@ public static class AuthEndpoints
             };
 
             if (http.Request.Host.Host == "localhost" || http.Request.Host.Host == "127.0.0.1")
-            {
                 cookieOptions.Secure = false;
-            }
 
             http.Response.Cookies.Append(RefreshTokenCookieName, newRawRefreshToken, cookieOptions);
 
-            // ── Set rotated XSRF cookie ──────────────────────────────────
             var newXsrfCookieOptions = new CookieOptions
             {
                 HttpOnly = false,
@@ -253,39 +183,29 @@ public static class AuthEndpoints
             http.Response.Cookies.Append(XsrfCookieName, newXsrfToken, newXsrfCookieOptions);
 
             logger.LogInformation("Token refreshed for user {UserId}", user.Id);
-
-            return Results.Ok(ApiResponse<LoginResponse>.SuccessResponse(
-                new LoginResponse
-                {
-                    AccessToken = newAccessToken,
-                    ExpiresAt = newAccessExpiresAt
-                },
-                "Token refreshed successfully"));
+            return Results.Ok(ApiResponse<LoginResponse>.SuccessResponse(new LoginResponse { AccessToken = newAccessToken, ExpiresAt = newAccessExpiresAt }, "Token refreshed successfully"));
         })
         .WithName("RefreshToken")
         .Produces<ApiResponse<LoginResponse>>(200)
         .Produces<ApiResponse>(401);
 
-        // ─────────────────────────────────────────────────────────────────
-        // POST /api/auth/logout
-        // Revokes both access token (blacklist) and refresh token (DB),
-        // then clears the HttpOnly cookie.
-        // ─────────────────────────────────────────────────────────────────
         group.MapPost("/logout", async (
-            ClaimsPrincipal user,
+            ClaimsPrincipal principal,
             HttpContext http,
             ITokenRevocationRepository tokenRevocationRepository,
             IRefreshTokenRepository refreshTokenRepository,
+            IAuditLogService auditLogService,
             IJwtTokenService jwtTokenService,
             IConfiguration configuration,
             ILogger<Program> logger) =>
         {
-            // ── Revoke access token (JTI blacklist) ───────────────────
-            var tokenId = user.FindFirstValue(JwtRegisteredClaimNames.Jti);
-            var userIdClaim = user.FindFirstValue("userId");
+            var tokenId = principal.FindFirstValue(JwtRegisteredClaimNames.Jti);
+            var userIdClaim = principal.FindFirstValue("userId");
+            var userName = principal.FindFirstValue("username") ?? "unknown";
 
-            if (!string.IsNullOrEmpty(tokenId) && !string.IsNullOrEmpty(userIdClaim)
-                && int.TryParse(userIdClaim, out var userId))
+            int.TryParse(userIdClaim, out var userId);
+
+            if (!string.IsNullOrEmpty(tokenId) && userId > 0)
             {
                 var jwtSettings = configuration.GetSection("Jwt").Get<JwtSettings>()!;
                 var expiresAt = DateTime.UtcNow.AddMinutes(jwtSettings.ExpiryMinutes);
@@ -293,24 +213,19 @@ public static class AuthEndpoints
                 logger.LogInformation("Access token {TokenId} revoked for user {UserId}", tokenId, userId);
             }
 
-            // ── Revoke refresh token (if present in cookie) ───────────
-            if (http.Request.Cookies.TryGetValue(RefreshTokenCookieName, out var rawRefreshToken)
-                && !string.IsNullOrEmpty(rawRefreshToken))
+            if (userId > 0)
+            {
+                await auditLogService.LogLogoutAsync(userId, userName, http.Connection.RemoteIpAddress?.ToString() ?? "unknown", GetDeviceInfo(http));
+            }
+
+            if (http.Request.Cookies.TryGetValue(RefreshTokenCookieName, out var rawRefreshToken) && !string.IsNullOrEmpty(rawRefreshToken))
             {
                 var tokenHash = jwtTokenService.HashRefreshToken(rawRefreshToken);
                 await refreshTokenRepository.RevokeTokenAsync(tokenHash);
                 logger.LogInformation("Refresh token revoked for user {UserId}", userIdClaim ?? "unknown");
             }
 
-            // ── Clear the HttpOnly cookie ──────────────────────────────
-            http.Response.Cookies.Delete(RefreshTokenCookieName, new CookieOptions
-            {
-                HttpOnly = true,
-                Secure = true,
-                SameSite = SameSiteMode.Strict,
-                Path = "/api/auth"
-            });
-
+            http.Response.Cookies.Delete(RefreshTokenCookieName, new CookieOptions { HttpOnly = true, Secure = true, SameSite = SameSiteMode.Strict, Path = "/api/auth" });
             return Results.Ok(ApiResponse.SuccessResponse("Logged out successfully"));
         })
         .WithName("Logout")
@@ -318,11 +233,6 @@ public static class AuthEndpoints
         .Produces<ApiResponse>(400)
         .RequireAuthorization();
 
-        // ─────────────────────────────────────────────────────────────────
-        // POST /api/auth/change-password
-        // Requires current password, updates hash, clears MustChangePassword flag,
-        // and revokes all active sessions globally (logout everywhere).
-        // ─────────────────────────────────────────────────────────────────
         group.MapPost("/change-password", async (
             ClaimsPrincipal principal,
             [FromBody] ChangePasswordRequest request,
@@ -338,9 +248,7 @@ public static class AuthEndpoints
             var validationResult = await validator.ValidateAsync(request);
             if (!validationResult.IsValid)
             {
-                var errors = validationResult.Errors
-                    .GroupBy(e => e.PropertyName)
-                    .ToDictionary(g => g.Key, g => g.Select(e => e.ErrorMessage).ToArray());
+                var errors = validationResult.Errors.GroupBy(e => e.PropertyName).ToDictionary(g => g.Key, g => g.Select(e => e.ErrorMessage).ToArray());
                 return Results.BadRequest(ApiResponse.ErrorResponse("Validation failed", errors.SelectMany(e => e.Value).ToList()));
             }
 
@@ -360,18 +268,13 @@ public static class AuthEndpoints
             user.MustChangePassword = false;
             await authRepository.UpdateUserAsync(user);
 
-            // Revoke all active sessions globally
             await refreshTokenRepository.RevokeAllUserTokensAsync(userId);
             var tokenId = principal.FindFirstValue(JwtRegisteredClaimNames.Jti);
             var jwtSettings = configuration.GetSection("Jwt").Get<JwtSettings>()!;
             var expiresAt = DateTime.UtcNow.AddMinutes(jwtSettings.ExpiryMinutes);
             await tokenRevocationRepository.RevokeTokenAsync(tokenId, userId, expiresAt);
 
-            http.Response.Cookies.Delete(RefreshTokenCookieName, new CookieOptions
-            {
-                HttpOnly = true, Secure = true, SameSite = SameSiteMode.Strict, Path = "/api/auth"
-            });
-
+            http.Response.Cookies.Delete(RefreshTokenCookieName, new CookieOptions { HttpOnly = true, Secure = true, SameSite = SameSiteMode.Strict, Path = "/api/auth" });
             logger.LogInformation("User {UserId} changed password successfully", userId);
             return Results.Ok(ApiResponse.SuccessResponse("Password changed successfully. Please log in again."));
         })
@@ -382,13 +285,6 @@ public static class AuthEndpoints
         .RequireAuthorization();
     }
 
-    /// <summary>
-    /// Extract a short, human-readable device descriptor from the request's
-    /// User-Agent header for storage on the refresh token row. We trim to
-    /// 500 chars to match the column length and fall back to
-    /// "Unknown Device" when the header is missing (e.g. CLI tooling or
-    /// privacy-stripped browsers).
-    /// </summary>
     private static string GetDeviceInfo(HttpContext http)
     {
         var userAgent = http.Request.Headers.UserAgent.ToString();
@@ -397,77 +293,36 @@ public static class AuthEndpoints
     }
 }
 
-/// <summary>
-/// Login request DTO.
-/// </summary>
-public record LoginRequest
-{
-    public string Username { get; init; } = string.Empty;
-    public string Password { get; init; } = string.Empty;
-}
+public record LoginRequest { public string Username { get; init; } = string.Empty; public string Password { get; init; } = string.Empty; }
 
-/// <summary>
-/// Login response DTO — only the access token is returned.
-/// The refresh token lives in the HttpOnly cookie.
-/// </summary>
 public class LoginResponse
 {
     public string AccessToken { get; set; } = string.Empty;
     public DateTime ExpiresAt { get; set; }
 }
 
-/// <summary>
-/// FluentValidation validator for LoginRequest.
-/// </summary>
 public class LoginValidator : AbstractValidator<LoginRequest>
 {
     public LoginValidator()
     {
-        RuleFor(x => x.Username)
-            .NotEmpty()
-            .WithMessage("Username is required")
-            .MaximumLength(50)
-            .WithMessage("Username must not exceed 50 characters");
-
-        RuleFor(x => x.Password)
-            .NotEmpty()
-            .WithMessage("Password is required")
-            .MaximumLength(100)
-            .WithMessage("Password must not exceed 100 characters");
+        RuleFor(x => x.Username).NotEmpty().WithMessage("Username is required").MaximumLength(50).WithMessage("Username must not exceed 50 characters");
+        RuleFor(x => x.Password).NotEmpty().WithMessage("Password is required").MaximumLength(100).WithMessage("Password must not exceed 100 characters");
     }
 }
 
-/// <summary>
-/// Change password request DTO.
-/// </summary>
 public record ChangePasswordRequest(string CurrentPassword, string NewPassword);
 
-/// <summary>
-/// FluentValidation validator for ChangePasswordRequest.
-/// Enforces banking-grade password policy.
-/// </summary>
 public class ChangePasswordValidator : AbstractValidator<ChangePasswordRequest>
 {
     public ChangePasswordValidator()
     {
-        RuleFor(x => x.CurrentPassword)
-            .NotEmpty()
-            .WithMessage("Current password is required")
-            .MaximumLength(100);
-
-        RuleFor(x => x.NewPassword)
-            .NotEmpty()
-            .WithMessage("New password is required")
-            .MinimumLength(8)
-            .WithMessage("Password must be at least 8 characters long")
+        RuleFor(x => x.CurrentPassword).NotEmpty().WithMessage("Current password is required").MaximumLength(100);
+        RuleFor(x => x.NewPassword).NotEmpty().WithMessage("New password is required")
+            .MinimumLength(8).WithMessage("Password must be at least 8 characters long")
             .MaximumLength(100)
-            .Matches("[A-Z]")
-            .WithMessage("Must contain an uppercase letter")
-            .Matches("[a-z]")
-            .WithMessage("Must contain a lowercase letter")
-            .Matches("[0-9]")
-            .WithMessage("Must contain a digit")
-            .Matches(@"[\!\?\*\.]")
-            .WithMessage("Must contain one of !? *.");
+            .Matches("[A-Z]").WithMessage("Must contain an uppercase letter")
+            .Matches("[a-z]").WithMessage("Must contain a lowercase letter")
+            .Matches("[0-9]").WithMessage("Must contain a digit")
+            .Matches(@"[\!\?\*\.]").WithMessage("Must contain one of !? *.");
     }
 }

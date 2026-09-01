@@ -6,6 +6,7 @@ namespace EBI.ALAS.Api.Features.Dashboard;
 
 /// <summary>
 /// Dashboard service implementation for aggregating loan statistics.
+/// Uses database-side aggregation to avoid loading large datasets into memory.
 /// </summary>
 public class DashboardService : IDashboardService
 {
@@ -26,29 +27,41 @@ public class DashboardService : IDashboardService
             query = query.Where(l => l.BranchCode == branchId);
         }
 
-        var loans = await query.ToListAsync();
-
-        var statusCounts = loans
+        // Use database-side aggregation instead of loading all rows into memory
+        // Execute two queries: one for status counts, one for branch counts
+        var statusCounts = await query
             .GroupBy(l => l.Status)
-            .ToDictionary(g => g.Key, g => g.Count());
+            .Select(g => new { Status = g.Key, Count = g.Count() })
+            .ToListAsync();
 
-        var branchCounts = loans
+        var branchCounts = await query
             .GroupBy(l => l.BranchCode)
-            .ToDictionary(
-                g => g.Key,
-                g => new BranchSummary
-                {
-                    BranchCode = g.Key,
-                    ApplicationCount = g.Count(),
-                    TotalAmount = g.Sum(l => l.ProposedAmount)
-                });
+            .Select(g => new
+            {
+                BranchCode = g.Key,
+                ApplicationCount = g.Count(),
+                TotalAmount = g.Sum(l => l.ProposedAmount)
+            })
+            .ToListAsync();
+
+        var totalCountTask = query.CountAsync();
+        var totalAmountTask = query.SumAsync(l => l.ProposedAmount);
+
+        await Task.WhenAll(totalCountTask, totalAmountTask);
 
         return new DashboardSummaryResponse
         {
-            TotalApplications = loans.Count,
-            TotalAmount = loans.Sum(l => l.ProposedAmount),
-            StatusCounts = statusCounts,
-            BranchCounts = branchCounts
+            TotalApplications = await totalCountTask,
+            TotalAmount = await totalAmountTask,
+            StatusCounts = statusCounts.ToDictionary(x => x.Status, x => x.Count),
+            BranchCounts = branchCounts.ToDictionary(
+                x => x.BranchCode,
+                x => new BranchSummary
+                {
+                    BranchCode = x.BranchCode,
+                    ApplicationCount = x.ApplicationCount,
+                    TotalAmount = x.TotalAmount
+                })
         };
     }
 }

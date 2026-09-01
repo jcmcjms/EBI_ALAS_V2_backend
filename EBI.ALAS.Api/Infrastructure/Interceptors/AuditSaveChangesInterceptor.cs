@@ -5,11 +5,6 @@ using Microsoft.EntityFrameworkCore.Diagnostics;
 
 namespace EBI.ALAS.Api.Infrastructure.Interceptors;
 
-/// <summary>
-/// EF Core interceptor that automatically sets CreatedAt and UpdatedAt timestamps
-/// on entities that implement the IAuditable interface.
-/// Uses ITimeProvider for consistent UTC timestamp generation.
-/// </summary>
 public class AuditSaveChangesInterceptor : SaveChangesInterceptor
 {
     private readonly ITimeProvider _timeProvider;
@@ -46,34 +41,22 @@ public class AuditSaveChangesInterceptor : SaveChangesInterceptor
         {
             if (entry.State == EntityState.Added)
             {
-                // Set CreatedAt for new entities
                 if (entry.Properties.Any(p => p.Metadata.Name == "CreatedAt"))
-                {
                     entry.Property("CreatedAt").CurrentValue = utcNow;
-                }
             }
 
             if (entry.State == EntityState.Modified)
             {
-                // Set UpdatedAt for modified entities (if the property exists)
                 if (entry.Properties.Any(p => p.Metadata.Name == "UpdatedAt"))
-                {
                     entry.Property("UpdatedAt").CurrentValue = utcNow;
-                }
 
-                // Prevent modification of CreatedAt
                 if (entry.Properties.Any(p => p.Metadata.Name == "CreatedAt"))
-                {
                     entry.Property("CreatedAt").IsModified = false;
-                }
             }
         }
     }
 }
 
-/// <summary>
-/// Interface for entities that support audit tracking.
-/// </summary>
 public interface IAuditable
 {
     DateTime CreatedAt { get; set; }

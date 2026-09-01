@@ -95,10 +95,9 @@ public static class WebLoanEndpoints
 
         // ─── Active Loans by Account ───────────────────────────────────────
         // GET /api/webloans/cis/{cisNo}/accounts/{accountNo}/active-loans
-        // Mirrors the reference "Active Loans by existing borrower" SQL:
-        //   TOP 10 loan_data rows where acct_no + bch='000' + is_loan=1 + loan_status != 10,
-        //   ordered by date_granted desc. Returns 404 if the account does not
-        //   belong to the given CIS (prevents cross-tenant enumeration).
+        // Returns all active loans matching: acct_no + bch='000' + is_loan=1 + loan_status != 10,
+        // ordered by date_granted desc. Returns 404 if the account does not
+        // belong to the given CIS (prevents cross-tenant enumeration).
         group.MapGet("/cis/{cisNo}/accounts/{accountNo}/active-loans", async (
             string cisNo,
             string accountNo,
@@ -115,7 +114,7 @@ public static class WebLoanEndpoints
         .WithName("GetActiveLoansByAccount")
         .Produces<ApiResponse<ActiveLoansResponse>>(200)
         .Produces<ApiResponse<ActiveLoansResponse>>(404)
-        .WithSummary("Get up to 10 active loans for a (CIS, account) pair");
+        .WithSummary("Get all active loans for a (CIS, account) pair");
 
         // ─── Original full profile (backward compatibility) ────────────────
         // GET /api/webloans/cis/{cisNo}

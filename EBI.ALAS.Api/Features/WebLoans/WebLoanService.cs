@@ -1,6 +1,7 @@
 using EBI.ALAS.Api.Common.Models;
 using EBI.ALAS.Api.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
 
 namespace EBI.ALAS.Api.Features.WebLoans;
 
@@ -15,6 +16,18 @@ public class WebLoanService : IWebLoanService
 {
     private readonly WebLoanDbContext _db;
     private readonly ILogger<WebLoanService> _logger;
+    private readonly IMemoryCache _cache;
+
+    // Cache keys for lookup tables
+    private const string CacheKeyStatuses = "WebLoan:Statuses";
+    private const string CacheKeyProducts = "WebLoan:Products";
+    private const string CacheKeyOfficers = "WebLoan:Officers:Group2";
+    private const string CacheKeyMisAgency = "WebLoan:MisAgency:Group1";
+    private const string CacheKeyAgencyTypes = "WebLoan:AgencyTypes:Group26";
+
+    // Cache durations
+    private static readonly TimeSpan LookupCacheDuration = TimeSpan.FromMinutes(15);
+    private static readonly TimeSpan MisGroupCacheDuration = TimeSpan.FromMinutes(15);
 
     // loan_status codes considered CLOSED/PAYOFF — excluded from Outstanding Loans
     // per requirement "do not include accounts for payoff".
@@ -47,10 +60,11 @@ public class WebLoanService : IWebLoanService
     // (which collides with group_no=1 — not used by any current borrower).
     private const int AgencyTypeGroupNo = 26;
 
-    public WebLoanService(WebLoanDbContext db, ILogger<WebLoanService> logger)
+    public WebLoanService(WebLoanDbContext db, ILogger<WebLoanService> logger, IMemoryCache cache)
     {
         _db = db;
         _logger = logger;
+        _cache = cache;
     }
 
     public async Task<CisSearchResult?> SearchCisAsync(string cisNo, CancellationToken ct = default)
@@ -95,7 +109,11 @@ public class WebLoanService : IWebLoanService
         };
     }
 
-    public async Task<AccountWithPnsResponse?> GetAccountWithPnsAsync(string cisNo, string accountNo, CancellationToken ct = default)
+    public async Task<AccountWithPnsResponse?> GetAccountWithPnsAsync(
+        string cisNo,
+        string accountNo,
+        int limit = 500,
+        CancellationToken ct = default)
     {
         // Verify account belongs to this CIS
         var account = await _db.LoanAcctInfos
@@ -105,17 +123,18 @@ public class WebLoanService : IWebLoanService
         if (account is null)
             return null;
 
-        // Get active PN records for this account using is_loan(loan_no) = 1 and loan_status != 10
-        // Matches the sample query: WHERE webloan.dbo.is_loan(ld.loan_no) = 1 AND loan_status != 10
+        // Get PN records for this account with limit to prevent unbounded payloads.
+        // Uses raw SQL since the is_loan() UDF cannot be translated by EF Core.
+        var safeLimit = Math.Clamp(limit, 1, 500); // Cap at 500 max
         var loans = await _db.LoanDatas
             .FromSqlRaw<LoanData>(@"
-                SELECT *
+                SELECT TOP (@p0) *
                 FROM dbo.loan_data
-                WHERE acct_no = {0}
+                WHERE acct_no = {1}
                   AND loan_no IS NOT NULL
                   AND webloan.dbo.is_loan(loan_no) = 1
                   AND loan_status != 10
-                ORDER BY date_granted DESC", accountNo)
+                ORDER BY date_granted DESC", safeLimit, accountNo)
             .AsNoTracking()
             .ToListAsync(ct);
 
@@ -190,12 +209,11 @@ public class WebLoanService : IWebLoanService
         if (!accountExists)
             return null;
 
-        // The reference query uses TOP 10 + an ORDER BY. To use FromSqlRaw with
-        // EF Core we must declare the top inline. We also pass the constant
-        // '000' branch code as a parameter to keep the prepared SQL cached.
+        // Get all active loans matching the filter criteria, ordered by date granted.
+        // We pass the constant '000' branch code as a parameter to keep the prepared SQL cached.
         var loans = await _db.LoanDatas
             .FromSqlRaw<LoanData>(@"
-                SELECT TOP 10 *
+                SELECT *
                 FROM dbo.loan_data
                 WHERE acct_no = {0}
                   AND bch = {1}
@@ -327,31 +345,28 @@ public class WebLoanService : IWebLoanService
             .Distinct()
             .ToList();
 
-        // Requesting officer lookup: group_no=2, per-iterator because the same
-        // path can have multiple rows at different grp_level. We want the most
-        // specific (highest grp_level) match, with prefix-fallback for missing rows.
+        // Requesting officer lookup: group_no=2, single round-trip for all paths.
+        // Uses cached data to avoid repeated DB hits. The same path can have multiple rows
+        // at different grp_level, so we pick the highest grp_level for exact matches,
+        // or the longest matching prefix as fallback.
+        var allOfficers = await GetOfficersCachedAsync(ct);
+
         var officerByPath = new Dictionary<string, MisGroup>(StringComparer.OrdinalIgnoreCase);
         foreach (var path in solicitorPaths)
         {
-            var candidates = await _db.MisGroups
-                .AsNoTracking()
-                .Where(m => m.GroupNo == RequestingOfficerGroupNo && m.Path == path)
-                .ToListAsync(ct);
+            var candidates = allOfficers.Where(m => m.Path == path).ToList();
 
             if (candidates.Count == 0)
             {
                 // Fall back to the longest matching prefix.
                 MisGroup? best = null;
-                var prefixes = await _db.MisGroups
-                    .AsNoTracking()
-                    .Where(m => m.GroupNo == RequestingOfficerGroupNo
-                                && m.Path != null
-                                && path.StartsWith(m.Path))
-                    .ToListAsync(ct);
-                foreach (var m in prefixes)
+                foreach (var m in allOfficers)
                 {
-                    if (best is null || (m.Path!.Length > best.Path!.Length))
-                        best = m;
+                    if (m.Path != null && path.StartsWith(m.Path))
+                    {
+                        if (best is null || m.Path.Length > (best.Path?.Length ?? 0))
+                            best = m;
+                    }
                 }
                 if (best is not null) officerByPath[path] = best;
             }
@@ -363,16 +378,13 @@ public class WebLoanService : IWebLoanService
             }
         }
 
-        // MIS agency lookup: group_no=1, single round-trip keyed by path. Within
-        // the group the same path is unique, so the dictionary is unambiguous.
-        var misAgencyByPath = misGroup2Paths.Count == 0
+        // MIS agency lookup: group_no=1, uses cached data.
+        var misAgencyByPath = await GetMisAgencyCachedAsync(ct);
+        var filteredMisAgency = misGroup2Paths.Count == 0
             ? new Dictionary<string, MisGroup>(StringComparer.OrdinalIgnoreCase)
-            : await _db.MisGroups
-                .AsNoTracking()
-                .Where(m => m.GroupNo == MisGroupingGroupNo
-                            && m.Path != null
-                            && misGroup2Paths.Contains(m.Path))
-                .ToDictionaryAsync(m => m.Path!, m => m, ct);
+            : misAgencyByPath
+                .Where(kvp => misGroup2Paths.Contains(kvp.Key))
+                .ToDictionary(kvp => kvp.Key, kvp => kvp.Value, StringComparer.OrdinalIgnoreCase);
 
         // ─── Agency type via cis_info_misc_data (id_code=14) ─────────────
         // cis_info_misc_data.value_str is a mis_group.id_code within the
@@ -385,11 +397,18 @@ public class WebLoanService : IWebLoanService
         string? agencyTypeDescription = null;
         if (agencyTypeRow is { ValueStr: { Length: > 0 } idCode })
         {
-            agencyTypeDescription = await _db.MisGroups
-                .AsNoTracking()
-                .Where(m => m.GroupNo == AgencyTypeGroupNo && m.IdCode == idCode)
-                .Select(m => m.Description)
-                .FirstOrDefaultAsync(ct);
+            // Agency types are cached - get all group 26 and find by idCode
+            var agencyTypes = await _cache.GetOrCreateAsync(CacheKeyAgencyTypes, async entry =>
+            {
+                entry.AbsoluteExpirationRelativeToNow = MisGroupCacheDuration;
+                return await _db.MisGroups
+                    .AsNoTracking()
+                    .Where(m => m.GroupNo == AgencyTypeGroupNo)
+                    .ToListAsync(ct);
+            }) ?? [];
+
+            agencyTypeDescription = agencyTypes
+                .FirstOrDefault(m => m.IdCode == idCode)?.Description;
         }
 
         // ─── Pick the primary account: the one whose most-recent PN is the
@@ -406,7 +425,7 @@ public class WebLoanService : IWebLoanService
 
         var primaryMisGroup2Description =
             primaryAccount?.MisGroup2 is { } mg2Path
-                ? misAgencyByPath.GetValueOrDefault(mg2Path)?.Description
+                ? filteredMisAgency.GetValueOrDefault(mg2Path)?.Description
                 : null;
 
         var response = new WebLoanBorrowerResponse
@@ -727,15 +746,22 @@ public class WebLoanService : IWebLoanService
     }
 
     /// <summary>
-    /// Loads the status and product lookup tables once, keyed by their natural
-    /// codes, so callers can resolve descriptions in O(1) per row instead of
-    /// re-running the linear scan that the original implementation used.
+    /// Loads the status and product lookup tables with caching to avoid repeated DB hits.
     /// </summary>
     private async Task<(Dictionary<string, LoanStatusLookup> Status, Dictionary<string, LoanProductLookup> Product)>
         LoadLookupDictionariesAsync(CancellationToken ct)
     {
-        var statuses = await _db.LoanStatuses.AsNoTracking().ToListAsync(ct);
-        var products = await _db.LoanProducts.AsNoTracking().ToListAsync(ct);
+        var statuses = await _cache.GetOrCreateAsync(CacheKeyStatuses, async entry =>
+        {
+            entry.AbsoluteExpirationRelativeToNow = LookupCacheDuration;
+            return await _db.LoanStatuses.AsNoTracking().ToListAsync(ct);
+        }) ?? [];
+
+        var products = await _cache.GetOrCreateAsync(CacheKeyProducts, async entry =>
+        {
+            entry.AbsoluteExpirationRelativeToNow = LookupCacheDuration;
+            return await _db.LoanProducts.AsNoTracking().ToListAsync(ct);
+        }) ?? [];
 
         // Status codes are tinyint; the lookup table stores them as varchar.
         // Use the numeric representation as the key so MapLoanDataToPnRecord
@@ -747,6 +773,38 @@ public class WebLoanService : IWebLoanService
             .Where(p => !string.IsNullOrEmpty(p.IdCode))
             .ToDictionary(p => p.IdCode!, p => p, StringComparer.OrdinalIgnoreCase);
         return (statusByCode, productByCode);
+    }
+
+    /// <summary>
+    /// Gets all requesting officers (group_no=2) with caching.
+    /// </summary>
+    private async Task<List<MisGroup>> GetOfficersCachedAsync(CancellationToken ct)
+    {
+        return await _cache.GetOrCreateAsync(CacheKeyOfficers, async entry =>
+        {
+            entry.AbsoluteExpirationRelativeToNow = MisGroupCacheDuration;
+            return await _db.MisGroups
+                .AsNoTracking()
+                .Where(m => m.GroupNo == RequestingOfficerGroupNo)
+                .ToListAsync(ct);
+        }) ?? [];
+    }
+
+    /// <summary>
+    /// Gets all MIS agency groups (group_no=1) with caching.
+    /// </summary>
+    private async Task<Dictionary<string, MisGroup>> GetMisAgencyCachedAsync(CancellationToken ct)
+    {
+        var list = await _cache.GetOrCreateAsync(CacheKeyMisAgency, async entry =>
+        {
+            entry.AbsoluteExpirationRelativeToNow = MisGroupCacheDuration;
+            return await _db.MisGroups
+                .AsNoTracking()
+                .Where(m => m.GroupNo == MisGroupingGroupNo)
+                .ToListAsync(ct);
+        }) ?? [];
+
+        return list.ToDictionary(m => m.Path!, m => m, StringComparer.OrdinalIgnoreCase);
     }
 
     // webloan stores p_bday as varchar; formats observed: MM/dd/yyyy, yyyy-MM-dd.

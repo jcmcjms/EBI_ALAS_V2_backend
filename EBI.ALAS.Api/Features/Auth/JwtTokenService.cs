@@ -8,12 +8,8 @@ using Microsoft.IdentityModel.Tokens;
 
 namespace EBI.ALAS.Api.Features.Auth;
 
-/// <summary>
-/// JWT token service implementation for generating and validating tokens.
-/// </summary>
 public class JwtTokenService : IJwtTokenService
 {
-    /// <summary>Claim name carrying the per-session CSRF token (double-submit).</summary>
     public const string XsrfTokenClaim = "XsrfToken";
 
     private readonly IConfiguration _configuration;
@@ -27,14 +23,12 @@ public class JwtTokenService : IJwtTokenService
         _timeProvider = timeProvider;
     }
 
-    /// <inheritdoc />
     public string GenerateToken(User user)
     {
         var (accessToken, _) = GenerateTokenWithXsrf(user);
         return accessToken;
     }
 
-    /// <inheritdoc />
     public (string AccessToken, string XsrfToken) GenerateTokenWithXsrf(User user)
     {
         var jwtSettings = _configuration.GetSection("Jwt").Get<JwtSettings>()!;
@@ -89,9 +83,6 @@ public class JwtTokenService : IJwtTokenService
         return (accessToken, xsrfToken);
     }
 
-    /// <summary>
-    /// Generates a cryptographically random CSRF token (URL-safe base64 of 32 bytes).
-    /// </summary>
     private static string GenerateXsrfToken()
     {
         var bytes = new byte[32];
@@ -149,23 +140,12 @@ public class JwtTokenService : IJwtTokenService
     }
 }
 
-/// <summary>
-/// JWT settings configuration model.
-/// </summary>
 public class JwtSettings
 {
     public string SecretKey { get; set; } = string.Empty;
     public string Issuer { get; set; } = string.Empty;
     public string Audience { get; set; } = string.Empty;
     public int ExpiryMinutes { get; set; } = 15;
-
-    /// <summary>
-    /// Refresh token sliding window expiry in days (default: 7 days).
-    /// </summary>
     public int RefreshTokenExpiryDays { get; set; } = 7;
-
-    /// <summary>
-    /// Absolute session maximum in days — forces re-login (default: 14 days).
-    /// </summary>
     public int AbsoluteSessionExpiryDays { get; set; } = 14;
 }

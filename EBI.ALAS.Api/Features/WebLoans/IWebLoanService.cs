@@ -32,7 +32,17 @@ public interface IWebLoanService
 
     Task<CisSearchResult?> SearchCisAsync(string cisNo, CancellationToken ct = default);
 
-    Task<AccountWithPnsResponse?> GetAccountWithPnsAsync(string cisNo, string accountNo, CancellationToken ct = default);
+    /// <summary>
+    /// Returns PN records for the (CIS, account) pair, capped at <paramref name="limit"/>
+    /// records to prevent unbounded payloads. The cap is intentionally high (500) to
+    /// avoid breaking existing callers; callers needing all PNs should use
+    /// <see cref="GetAccountPromissoryNotesPagedAsync"/>.
+    /// </summary>
+    Task<AccountWithPnsResponse?> GetAccountWithPnsAsync(
+        string cisNo,
+        string accountNo,
+        int limit = 500,
+        CancellationToken ct = default);
 
     /// <summary>
     /// Paginated variant of <see cref="GetAccountWithPnsAsync"/>. Returns a single
@@ -47,10 +57,8 @@ public interface IWebLoanService
         CancellationToken ct = default);
 
     /// <summary>
-    /// Get up to 10 active loans for a (cis, account) pair — mirrors the reference
-    /// "Active Loans by existing borrower" SQL exactly:
-    ///   <c>SELECT TOP 10 ... FROM dbo.loan_data
-    ///    WHERE acct_no = @acct AND bch = '000'
+    /// Get all active loans for a (cis, account) pair — filtered by:
+    ///   <c>WHERE acct_no = @acct AND bch = '000'
     ///      AND webloan.dbo.is_loan(loan_no) = 1
     ///      AND loan_status != 10
     ///    ORDER BY date_granted DESC</c>.
