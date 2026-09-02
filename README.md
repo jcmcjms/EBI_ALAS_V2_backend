@@ -494,7 +494,7 @@ All require JWT.
 |---|---|---|
 | `GET` | `/api/webloans/cis/{cisNo}/search` | Step 1 — borrower + account list |
 | `GET` | `/api/webloans/cis/{cisNo}/accounts/{accountNo}` | Step 2 — PN records for an account |
-| `GET` | `/api/webloans/cis/{cisNo}/accounts/{accountNo}/active-loans` | Up to 10 active loans for the (CIS, account) pair |
+| `GET` | `/api/webloans/cis/{cisNo}/accounts/{accountNo}/active-loans` | Up to 10 active loans for the (CIS, account) pair; each row carries a CASE-computed `amortAmount` (C35/C23 → `principal`, otherwise `amort_data.total_amort`) |
 | `GET` | `/api/webloans/cis/{cisNo}` | Full borrower profile (backward compatible) |
 
 ### Dashboard `/api/dashboard`
@@ -545,7 +545,7 @@ The WebLoan feature exposes a **drill-down flow** designed for the loan-originat
 
 1. **Search CIS** — `GET /api/webloans/cis/{cisNo}/search` returns the borrower (`cis_info` + `mis_group`) and a flat list of their accounts (`loan_acct_info`). The frontend renders these as cards.
 2. **Pick an account** — `GET /api/webloans/cis/{cisNo}/accounts/{accountNo}` returns all `loan_data` rows (PN records) for that account. The frontend renders the PN table.
-3. **Pull active loans** — `GET /api/webloans/cis/{cisNo}/accounts/{accountNo}/active-loans` returns up to 10 active loans (filters `bch='000'`, `is_loan=1`, `loan_status != 10`, ordered by `date_granted desc`). 404 if the account does not belong to the given CIS — prevents cross-tenant enumeration.
+3. **Pull active loans** — `GET /api/webloans/cis/{cisNo}/accounts/{accountNo}/active-loans` returns up to 10 active loans (filters `bch='000'`, `is_loan=1`, `loan_status != 10`, ordered by `date_granted desc`). 404 if the account does not belong to the given CIS — prevents cross-tenant enumeration. Each loan row carries a CASE-computed `amortAmount` sourced from `amort_data.total_amort` (first installment, `amort_no = 1`), falling back to `principal` for `C35`/`C23` products.
 4. **Full profile** — `GET /api/webloans/cis/{cisNo}` returns everything in one response for backward compatibility.
 
 When a loan is created referencing a WebLoan CIS/account, the resulting `LoanApplication` stores the WebLoan `cis_no`, `bch_code`, `account_no`s, and `pn_no`s for full traceability — visible on `GET /api/loans/{id}` under `WebLoanCisNo`, `WebLoanBranchCode`, `WebLoanAccountNumbers`, `WebLoanPnNumbers`, `WebLoanLastSyncedAt`.

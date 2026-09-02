@@ -1,175 +1,126 @@
+using System.Security.Claims;
+using EBI.ALAS.Api.Common.Extensions;
 using EBI.ALAS.Api.Common.Models;
-using FluentValidation;
-using Microsoft.AspNetCore.Authorization;
 
 namespace EBI.ALAS.Api.Features.WebLoans;
+
 public static class WebLoanEndpoints
 {
     public static void MapWebLoanEndpoints(this WebApplication app)
     {
         var group = app.MapGroup("/api/webloans")
             .WithTags("WebLoans")
-            .RequireAuthorization();
+            .RequireAuthorization("CanViewLoan");
 
-        // Lightweight search: returns basic borrower info + account list for selection.
+        // ─── Step 1: CIS search ────────────────────────────────────────
+        // Returns the borrower profile + flat list of accounts. The bch
+        // is taken from the JWT — never from the client — so a user
+        // cannot spoof another branch by adding it to the query string.
+        // Admin role passes null bch (no filter, since CIS search is not
+        // branch-scoped anyway).
         group.MapGet("/cis/{cisNo}/search", async (
             string cisNo,
-            IWebLoanService webLoanService) =>
+            ClaimsPrincipal user,
+            IWebLoanService webLoanService,
+            CancellationToken ct) =>
         {
-            var result = await webLoanService.SearchCisAsync(cisNo);
+            var bch = ResolveBranchForUser(user);
 
+            var result = await webLoanService.SearchByCisAsync(cisNo, bch, ct);
             return result is null
-                ? Results.NotFound(ApiResponse<CisSearchResult>.ErrorResponse(
-                    $"No webloan records found for CIS number '{cisNo}'."))
-                : Results.Ok(ApiResponse<CisSearchResult>.SuccessResponse(
-                    result, "CIS search completed successfully."));
+                ? Results.NotFound(ApiResponse.ErrorResponse("CIS not found"))
+                : Results.Ok(ApiResponse<CisSearchResponse>.SuccessResponse(result));
         })
         .WithName("SearchCis")
-        .Produces<ApiResponse<CisSearchResult>>(200)
-        .Produces<ApiResponse<CisSearchResult>>(404)
-        .WithSummary("Step 1: Search CIS - returns borrower info + account list for selection");
+        .Produces<ApiResponse<CisSearchResponse>>(200)
+        .Produces<ApiResponse>(404)
+        .Produces<ApiResponse>(401);
 
-        // Returns all PN records for the selected account.
-        group.MapGet("/cis/{cisNo}/accounts/{accountNo}", async (
+        // ─── Step 2: outstanding loans for an account ──────────────────
+        // The route parameter `accountId` is the combined
+        // "<branchCode>-<accountNo>" form (e.g. "011-05-13081-1"). The
+        // branch is therefore caller-controlled — the JWT no longer
+        // restricts branch scope for this endpoint, mirroring the
+        // original SQL's WHERE bch = ... AND acct_no = ... shape.
+        // Admin and non-Admin behave identically for the branch filter;
+        // the JWT still gates *which* accounts a caller may read via
+        // AccountBelongsToCisAsync (the (bch, acct_no, cis_no) ownership
+        // check).
+        group.MapGet("/cis/{cisNo}/accounts/{accountId}/outstanding-loans", async (
             string cisNo,
-            string accountNo,
-            IWebLoanService webLoanService) =>
-        {
-            var result = await webLoanService.GetAccountWithPnsAsync(cisNo, accountNo);
-
-            return result is null
-                ? Results.NotFound(ApiResponse<AccountWithPnsResponse>.ErrorResponse(
-                    $"Account '{accountNo}' not found for CIS '{cisNo}'."))
-                : Results.Ok(ApiResponse<AccountWithPnsResponse>.SuccessResponse(
-                    result, "Account PN records retrieved successfully."));
-        })
-        .WithName("GetAccountWithPns")
-        .Produces<ApiResponse<AccountWithPnsResponse>>(200)
-        .Produces<ApiResponse<AccountWithPnsResponse>>(404)
-        .WithSummary("Step 2: Get account detail with all PN records for selected account");
-
-        // ─── Paginated PN history per account ──────────────────────────────
-        // GET /api/webloans/cis/{cisNo}/accounts/{accountNo}/promissory-notes?page=&pageSize=
-        // Returns a single page of PN records for the (CIS, account) pair.
-        // page >= 1, 1 <= pageSize <= 100. IDOR protected — 404 when the
-        // account does not belong to the given CIS.
-        group.MapGet("/cis/{cisNo}/accounts/{accountNo}/promissory-notes", async (
-            string cisNo,
-            string accountNo,
+            string accountId,
             IWebLoanService webLoanService,
-            IValidator<PaginationRequest> paginationValidator,
-            int page = 1,
-            int pageSize = PaginationRequest.DefaultPageSize) =>
+            CancellationToken ct) =>
         {
-            var pagination = new PaginationRequest(page, pageSize);
-
-            // FluentValidation auto-validation already runs on [AsParameters]
-            // model binding, but for query-string primitives we run it
-            // explicitly so the 400 contract is honoured.
-            var validation = await paginationValidator.ValidateAsync(pagination);
-            if (!validation.IsValid)
-            {
-                var errors = validation.Errors.Select(e => e.ErrorMessage).ToList();
-                return Results.BadRequest(ApiResponse.ErrorResponse(
-                    "Invalid pagination parameters.", errors));
-            }
-
-            var result = await webLoanService.GetAccountPromissoryNotesPagedAsync(
-                cisNo, accountNo, pagination);
-
+            var result = await webLoanService.GetOutstandingLoansAsync(cisNo, accountId, ct);
             return result is null
-                ? Results.NotFound(ApiResponse<PagedResponse<PnRecord>>.ErrorResponse(
-                    $"Account '{accountNo}' not found for CIS '{cisNo}'."))
-                : Results.Ok(ApiResponse<PagedResponse<PnRecord>>.SuccessResponse(
-                    result, "Account promissory notes retrieved successfully."));
+                ? Results.NotFound(ApiResponse.ErrorResponse("Account not found for the given CIS"))
+                : Results.Ok(ApiResponse<OutstandingLoansResponse>.SuccessResponse(result));
         })
-        .WithName("GetAccountPromissoryNotesPaged")
-        .Produces<ApiResponse<PagedResponse<PnRecord>>>(200)
-        .Produces<ApiResponse<PagedResponse<PnRecord>>>(400)
-        .Produces<ApiResponse<PagedResponse<PnRecord>>>(404)
-        .WithSummary("Get a paginated slice of PN records for an account (full history)");
+        .WithName("GetOutstandingLoans")
+        .Produces<ApiResponse<OutstandingLoansResponse>>(200)
+        .Produces<ApiResponse>(404)
+        .Produces<ApiResponse>(401);
 
-        // ─── Active Loans by Account ───────────────────────────────────────
-        // GET /api/webloans/cis/{cisNo}/accounts/{accountNo}/active-loans
-        // Returns all active loans matching: acct_no + bch='000' + is_loan=1 + loan_status != 10,
-        // ordered by date_granted desc. Returns 404 if the account does not
-        // belong to the given CIS (prevents cross-tenant enumeration).
-        group.MapGet("/cis/{cisNo}/accounts/{accountNo}/active-loans", async (
+        // ─── Step 3: pending loan for an account ──────────────────────
+        // Same combined-`accountId` shape as the outstanding-loans
+        // endpoint. Returns the in-flight pre_loan_data rows + NTHP
+        // enrichment. Anti-enumeration guard runs first (mirrors Step 2).
+        //
+        // 200 with Loans=[] is a valid response: the (cisNo, accountId)
+        // pair exists but has no pending loan. Only 404 when the
+        // account↔CIS pair is unknown.
+        group.MapGet("/cis/{cisNo}/accounts/{accountId}/pending-loan", async (
             string cisNo,
-            string accountNo,
-            IWebLoanService webLoanService) =>
-        {
-            var result = await webLoanService.GetActiveLoansByAccountAsync(cisNo, accountNo);
-
-            return result is null
-                ? Results.NotFound(ApiResponse<ActiveLoansResponse>.ErrorResponse(
-                    $"Account '{accountNo}' not found for CIS '{cisNo}'."))
-                : Results.Ok(ApiResponse<ActiveLoansResponse>.SuccessResponse(
-                    result, "Active loans retrieved successfully."));
-        })
-        .WithName("GetActiveLoansByAccount")
-        .Produces<ApiResponse<ActiveLoansResponse>>(200)
-        .Produces<ApiResponse<ActiveLoansResponse>>(404)
-        .WithSummary("Get all active loans for a (CIS, account) pair");
-
-        // ─── Original full profile (backward compatibility) ────────────────
-        // GET /api/webloans/cis/{cisNo}
-        // Returns all webloan data for a borrower, structured per ALAS
-        // application sections (personal info, loan info, outstanding loans, reloans).
-        // Existing endpoint — preserved as-is for callers that have not opted
-        // into the new paginated shape. Note: this response is unbounded and
-        // can be very large for corporate borrowers; prefer the paginated
-        // variant below for any new integration.
-        group.MapGet("/cis/{cisNo}", async (
-            string cisNo,
-            IWebLoanService webLoanService) =>
-        {
-            var borrower = await webLoanService.GetBorrowerByCisAsync(cisNo);
-
-            return borrower is null
-                ? Results.NotFound(ApiResponse<WebLoanBorrowerResponse>.ErrorResponse(
-                    $"No webloan records found for CIS number '{cisNo}'."))
-                : Results.Ok(ApiResponse<WebLoanBorrowerResponse>.SuccessResponse(
-                    borrower, "Webloan borrower data retrieved successfully."));
-        })
-        .WithName("GetWebLoanByCis")
-        .Produces<ApiResponse<WebLoanBorrowerResponse>>(200)
-        .Produces<ApiResponse<WebLoanBorrowerResponse>>(404)
-        .WithSummary("Full borrower profile (backward compatible)");
-
-        // Bounded JSON payload — corporate borrowers with many accounts no longer
-        // return multi-megabyte responses. Each account carries at most
-        // Constants.RecentPnPerAccount recent PNs; use the dedicated
-        // /promissory-notes endpoint for arbitrary per-account PN history.
-        group.MapGet("/cis/{cisNo}/paginated", async (
-            string cisNo,
+            string accountId,
             IWebLoanService webLoanService,
-            IValidator<PaginationRequest> paginationValidator,
-            int page = 1,
-            int pageSize = PaginationRequest.DefaultPageSize) =>
+            CancellationToken ct) =>
         {
-            var pagination = new PaginationRequest(page, pageSize);
-
-            var validation = await paginationValidator.ValidateAsync(pagination);
-            if (!validation.IsValid)
-            {
-                var errors = validation.Errors.Select(e => e.ErrorMessage).ToList();
-                return Results.BadRequest(ApiResponse.ErrorResponse(
-                    "Invalid pagination parameters.", errors));
-            }
-
-            var result = await webLoanService.GetBorrowerByCisPagedAsync(cisNo, pagination);
-
+            var result = await webLoanService.GetPendingLoanAsync(cisNo, accountId, ct);
             return result is null
-                ? Results.NotFound(ApiResponse<PagedResponse<AccountWithPnsPagedItem>>.ErrorResponse(
-                    $"No webloan records found for CIS number '{cisNo}'."))
-                : Results.Ok(ApiResponse<PagedResponse<AccountWithPnsPagedItem>>.SuccessResponse(
-                    result, "Paginated borrower profile retrieved successfully."));
+                ? Results.NotFound(ApiResponse.ErrorResponse("Account not found for the given CIS"))
+                : Results.Ok(ApiResponse<PendingLoanResponse>.SuccessResponse(result));
         })
-        .WithName("GetWebLoanByCisPaged")
-        .Produces<ApiResponse<PagedResponse<AccountWithPnsPagedItem>>>(200)
-        .Produces<ApiResponse>(400)
-        .Produces<ApiResponse<PagedResponse<AccountWithPnsPagedItem>>>(404)
-        .WithSummary("Bounded paginated borrower profile — accounts list + per-account recent PNs");
+        .WithName("GetPendingLoan")
+        .Produces<ApiResponse<PendingLoanResponse>>(200)
+        .Produces<ApiResponse>(404)
+        .Produces<ApiResponse>(401);
+    }
+
+    /// <summary>
+    /// Resolves the authenticated user's webloan <c>bch</c> from the JWT
+    /// <c>branchId</c> claim, with an Admin-role bypass.
+    ///
+    /// ALAS <c>Branch.Code</c> and webloan <c>bch</c> are the same string
+    /// (e.g. <c>"011"</c>), so direct mapping.
+    ///
+    /// Returns:
+    ///   * <c>null</c> when the caller has the Admin role — branch
+    ///     scoping is bypassed, the repository emits an "IS NULL OR"
+    ///     predicate. Mirrors the existing HasPermission Admin wildcard
+    ///     in ClaimsPrincipalExtensions.
+    ///   * <c>string</c> — the user's <c>branchId</c> claim value, when
+    ///     the caller is non-Admin.
+    ///
+    /// Throws <see cref="UnauthorizedAccessException"/> when a non-Admin
+    /// token lacks the <c>branchId</c> claim. Every token this service
+    /// issues carries one, so a missing claim means a malformed or
+    /// external token; the existing GlobalExceptionHandler surfaces this
+    /// as 401.
+    /// </summary>
+    private static string? ResolveBranchForUser(ClaimsPrincipal user)
+    {
+        if (user.IsInRole("Admin"))
+        {
+            return null;
+        }
+
+        var raw = user.GetBranchId();
+        if (string.IsNullOrWhiteSpace(raw))
+        {
+            throw new UnauthorizedAccessException(
+                "JWT is missing the branchId claim. Re-authenticate.");
+        }
+        return raw;
     }
 }

@@ -24,6 +24,14 @@ public class LoanData
     [Column("principal_bal")] public decimal? PrincipalBalance { get; set; }
     [Column("amort_amount")] public decimal? AmortizationAmount { get; set; }
     [Column("over_bal")] public decimal? OutstandingBalance { get; set; }
+    // Note: the computed amortization amount surfaced on the outstanding-
+    // loans endpoint (CASE WHEN loan_product IN ('C35','C23') THEN
+    // principal ELSE ad.total_amort END, joined to dbo.amort_data with
+    // amort_no = 1) is NOT modelled here — it is a derived column, not a
+    // webloan column, and EF will reject any FromSql that fails to
+    // project every mapped property. The repository carries a dedicated
+    // projection record type for this purpose; see
+    // WebLoanRepository.GetOutstandingLoansAsync.
     [Column("date_granted")] public DateTime? DateGranted { get; set; }
     [Column("date_maturity")] public DateTime? DateMaturity { get; set; }
     [Column("loan_status")] public byte? StatusCode { get; set; }

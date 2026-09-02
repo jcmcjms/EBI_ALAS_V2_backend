@@ -53,13 +53,24 @@ builder.Services.AddDbContext<AppDbContext>((sp, options) =>
     options.AddInterceptors(sp.GetRequiredService<AuditSaveChangesInterceptor>());
 });
 
-builder.Services.AddDbContext<WebLoanDbContext>(options =>
+// Each parallel query against webloan gets its own DbContext via the
+// factory. DbContext is not thread-safe; the search endpoint fires 3-6
+// concurrent lookups, all of which need an isolated context.
+//
+// We register ONLY the factory (not AddDbContext<>) because:
+//   * Nothing else injects WebLoanDbContext directly — the factory
+//     produces short-lived contexts on demand.
+//   * AddDbContext registers DbContextOptions<T> as scoped, which makes
+//     the singleton IDbContextFactory capture it — captive dependency.
+//     AddDbContextFactory wires DbContextOptions<T> as singleton, which
+//     is what the factory needs.
+builder.Services.AddDbContextFactory<WebLoanDbContext>(options =>
 {
     options.UseSqlServer(
         configuration.GetConnectionString("WebLoanConnection"),
         sqlOptions =>
         {
-            sqlOptions.CommandTimeout(60); // WebLoan queries can be heavier
+            sqlOptions.CommandTimeout(60);
             sqlOptions.EnableRetryOnFailure(
                 maxRetryCount: 3,
                 maxRetryDelay: TimeSpan.FromSeconds(5),
@@ -259,10 +270,10 @@ app.MapUserEndpoints();
 app.MapRoleEndpoints();
 app.MapBranchEndpoints();
 app.MapLoanEndpoints();
-app.MapWebLoanEndpoints();
 app.MapDashboardEndpoints();
 app.MapAuditLogEndpoints();
 app.MapAccountEndpoints();
+app.MapWebLoanEndpoints();
 
 using (var scope = app.Services.CreateScope())
 {

@@ -64,21 +64,39 @@ public class AccountRepository : IAccountRepository
         var totalCount = await query.CountAsync();
         var totalPages = (int)Math.Ceiling(totalCount / (double)pageSize);
         
-        var items = await query
+        // Project only raw columns in SQL — the DeviceInfo → "Browser on OS"
+        // label is computed in memory below via UserAgentParser.Describe.
+        // Calling the static parser inside the EF projection would throw
+        // "could not be translated" at runtime (Regex.IsMatch has no SQL
+        // equivalent), which surfaces to the UI as a generic 500 and was
+        // the root cause of the "Unable to load client profile" toast
+        // seen during the CIS lookup page load.
+        var rows = await query
             .Skip((pageNumber - 1) * pageSize)
             .Take(pageSize)
-            .Select(t => new SessionResponse(
+            .Select(t => new
+            {
                 t.Id,
+                t.DeviceInfo,
+                t.CreatedAt,
+                t.ExpiresAt,
+                IsCurrent = t.Id == currentSessionId
+            })
+            .ToListAsync();
+
+        var items = rows
+            .Select(r => new SessionResponse(
+                r.Id,
                 // Translate the raw User-Agent into a short "Browser on OS"
                 // label for the UI. We keep the raw UA in the DB for forensics,
                 // but display the parsed form. Falls back to "Unknown Device"
                 // for null UAs (legacy rows issued before capture was wired in).
-                UserAgentParser.Describe(t.DeviceInfo),
-                t.CreatedAt,
-                t.ExpiresAt,
-                t.Id == currentSessionId
+                UserAgentParser.Describe(r.DeviceInfo),
+                r.CreatedAt,
+                r.ExpiresAt,
+                r.IsCurrent
             ))
-            .ToListAsync();
+            .ToList();
 
         return new PagedSessionsResponse(
             items,

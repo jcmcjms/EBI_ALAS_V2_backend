@@ -62,7 +62,8 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IBranchRepository, BranchRepository>();
         services.AddScoped<IBranchService, BranchService>();
 
-        // ─── WebLoan Integration (read-only) ─────────────────────────────
+        // ─── WebLoan Services (read-only integration with legacy DB) ──
+        services.AddScoped<IWebLoanRepository, WebLoanRepository>();
         services.AddScoped<IWebLoanService, WebLoanService>();
 
         // ─── Account Services (My Account page) ──────────────────────────
