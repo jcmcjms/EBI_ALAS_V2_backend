@@ -18,8 +18,10 @@ public static class LoanEndpoints
 
         group.MapGet("/", async (
             [AsParameters] PaginationParams pagination,
+            [FromQuery] bool? includeRelated,
             ILoanRepository loanRepository,
-            ClaimsPrincipal user) =>
+            ClaimsPrincipal user,
+            CancellationToken ct) =>
         {
             var userId = user.GetUserId();
             var role = user.GetRole();
@@ -30,7 +32,9 @@ public static class LoanEndpoints
                 pagination.PageSize,
                 role,
                 branchId,
-                userId);
+                userId,
+                includeRelated ?? false,
+                ct);
 
             return Results.Ok(ApiResponse<PagedResult<LoanApplication>>.SuccessResponse(result));
         })

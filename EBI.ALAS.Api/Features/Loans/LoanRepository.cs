@@ -13,7 +13,7 @@ public class LoanRepository : ILoanRepository
         _context = context;
     }
 
-    public async Task<LoanApplication?> GetByIdAsync(int id, bool includeRelated = false)
+    public async Task<LoanApplication?> GetByIdAsync(int id, bool includeRelated = false, CancellationToken ct = default)
     {
         var query = _context.LoanApplications
             .Where(l => l.Id == id);
@@ -28,13 +28,13 @@ public class LoanRepository : ILoanRepository
                 .Include(l => l.BuyOuts);
         }
 
-        return await query.FirstOrDefaultAsync();
+        return await query.FirstOrDefaultAsync(ct);
     }
 
-    public async Task<LoanApplication?> GetByFormNumberAsync(string formNumber)
+    public async Task<LoanApplication?> GetByFormNumberAsync(string formNumber, CancellationToken ct = default)
     {
         return await _context.LoanApplications
-            .FirstOrDefaultAsync(l => l.FormNumber == formNumber);
+            .FirstOrDefaultAsync(l => l.FormNumber == formNumber, ct);
     }
 
     public async Task<PagedResult<LoanApplication>> GetAllAsync(
@@ -42,13 +42,14 @@ public class LoanRepository : ILoanRepository
         int pageSize,
         string? role = null,
         string? branchId = null,
-        int? userId = null)
+        int? userId = null,
+        bool includeRelated = false,
+        CancellationToken ct = default)
     {
-        var query = _context.LoanApplications
-            .Include(l => l.CreatedBy)
-            .AsQueryable();
+        var query = _context.LoanApplications.AsQueryable();
 
-        // Apply role-based filtering
+        // Apply role-based filtering BEFORE includes so the join does not
+        // multiply row counts unnecessarily.
         if (!string.IsNullOrEmpty(role))
         {
             query = role switch
@@ -71,48 +72,57 @@ public class LoanRepository : ILoanRepository
             query = query.Where(l => l.BranchCode == branchId);
         }
 
-        var totalCount = await query.CountAsync();
+        // OPTIONAL related-data hydration. The list endpoint defaults to a
+        // lightweight projection (created-by only) because every caller
+        // was previously triggering N+1 follow-up queries the moment they
+        // touched l.Actions / l.OutstandingLoans / l.BuyOuts. Pass
+        // includeRelated=true only from flows that genuinely need the
+        // full aggregate (the loan detail screen, the audit reviewer,
+        // etc.).
+        if (includeRelated)
+        {
+            query = query
+                .Include(l => l.CreatedBy)
+                .Include(l => l.Actions)
+                    .ThenInclude(a => a.ActionByUser)
+                .Include(l => l.OutstandingLoans)
+                .Include(l => l.BuyOuts);
+        }
+        else
+        {
+            // Always include CreatedBy — the list view renders it.
+            query = query.Include(l => l.CreatedBy);
+        }
+
+        var totalCount = await query.CountAsync(ct);
         var items = await query
             .OrderByDescending(l => l.ApplicationDate)
             .Skip((page - 1) * pageSize)
             .Take(pageSize)
-            .ToListAsync();
+            .ToListAsync(ct);
 
         return PagedResult<LoanApplication>.Create(items, totalCount, page, pageSize);
     }
 
-    public async Task<LoanApplication> CreateAsync(LoanApplication loan)
+    public async Task<LoanApplication> CreateAsync(LoanApplication loan, CancellationToken ct = default)
     {
         _context.LoanApplications.Add(loan);
-        await _context.SaveChangesAsync();
+        await _context.SaveChangesAsync(ct);
         return loan;
     }
 
-    public async Task UpdateAsync(LoanApplication loan)
+    public async Task UpdateAsync(LoanApplication loan, CancellationToken ct = default)
     {
         _context.LoanApplications.Update(loan);
-        await _context.SaveChangesAsync();
+        await _context.SaveChangesAsync(ct);
     }
 
-    public async Task<bool> ExistsAsync(int id)
+    public async Task<bool> ExistsAsync(int id, CancellationToken ct = default)
     {
-        return await _context.LoanApplications.AnyAsync(l => l.Id == id);
+        return await _context.LoanApplications.AnyAsync(l => l.Id == id, ct);
     }
 
-    public async Task<int> GetCountByStatusAsync(string status, string? branchId = null)
-    {
-        var query = _context.LoanApplications
-            .Where(l => l.Status == status);
-
-        if (!string.IsNullOrEmpty(branchId))
-        {
-            query = query.Where(l => l.BranchCode == branchId);
-        }
-
-        return await query.CountAsync();
-    }
-
-    public async Task<decimal> GetTotalAmountByStatusAsync(string status, string? branchId = null)
+    public async Task<int> GetCountByStatusAsync(string status, string? branchId = null, CancellationToken ct = default)
     {
         var query = _context.LoanApplications
             .Where(l => l.Status == status);
@@ -122,6 +132,19 @@ public class LoanRepository : ILoanRepository
             query = query.Where(l => l.BranchCode == branchId);
         }
 
-        return await query.SumAsync(l => l.ProposedAmount);
+        return await query.CountAsync(ct);
+    }
+
+    public async Task<decimal> GetTotalAmountByStatusAsync(string status, string? branchId = null, CancellationToken ct = default)
+    {
+        var query = _context.LoanApplications
+            .Where(l => l.Status == status);
+
+        if (!string.IsNullOrEmpty(branchId))
+        {
+            query = query.Where(l => l.BranchCode == branchId);
+        }
+
+        return await query.SumAsync(l => l.ProposedAmount, ct);
     }
 }
