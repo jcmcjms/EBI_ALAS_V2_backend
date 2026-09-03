@@ -10,9 +10,34 @@ public static class DbInitializer
     {
         // Get time provider for consistent timestamp generation
         var timeProvider = serviceProvider.GetRequiredService<ITimeProvider>();
+        var logger = serviceProvider.GetRequiredService<ILogger<AppDbContext>>();
 
-        // Ensure database is created
-        await context.Database.EnsureCreatedAsync();
+        // NOTE: We intentionally do NOT call EnsureCreatedAsync here.
+        // That method is incompatible with Migrations: if any migration
+        // has already created the schema, EnsureCreatedAsync becomes a
+        // no-op, and any pending migration is silently ignored. We use
+        // MigrateAsync instead, which walks the __EFMigrationsHistory
+        // table and applies whatever's missing.
+        //
+        // If you have a fresh dev environment and want the schema
+        // bootstrapped without authoring migrations yet, run:
+        //   dotnet ef database update
+        // from the project directory — this generates the
+        // __EFMigrationsHistory row automatically.
+        //
+        // Any failure here (missing connection, auth error, pending
+        // migration that conflicts) is logged loudly and rethrown so
+        // the app fails fast rather than silently booting with a
+        // half-migrated schema.
+        try
+        {
+            await context.Database.MigrateAsync();
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Database migration failed during startup. The application will halt.");
+            throw;
+        }
 
         // Check if database already has data
         if (await context.Users.AnyAsync())

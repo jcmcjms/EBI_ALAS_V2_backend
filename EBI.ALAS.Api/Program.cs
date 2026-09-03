@@ -47,8 +47,13 @@ builder.Services.AddDbContext<AppDbContext>((sp, options) =>
             sqlOptions.CommandTimeout(30);
             sqlOptions.EnableRetryOnFailure(
                 maxRetryCount: 3,
-                maxRetryDelay: TimeSpan.FromSeconds(5),
-                errorNumbersToAdd: null);
+                maxRetryDelay: TimeSpan.FromSeconds(10),
+                // Azure SQL transient errors. Without this list the
+                // retry policy only triggers on the default network/
+                // deadlock codes — missing these leaves a thundering
+                // herd exposed to login-throttling (40613) and
+                // database-going-offline (40197) outages.
+                errorNumbersToAdd: new[] { 4060, 40197, 40501, 40613, 49918, 49919, 49920 });
         });
     options.AddInterceptors(sp.GetRequiredService<AuditSaveChangesInterceptor>());
 });
@@ -73,8 +78,8 @@ builder.Services.AddDbContextFactory<WebLoanDbContext>(options =>
             sqlOptions.CommandTimeout(60);
             sqlOptions.EnableRetryOnFailure(
                 maxRetryCount: 3,
-                maxRetryDelay: TimeSpan.FromSeconds(5),
-                errorNumbersToAdd: null);
+                maxRetryDelay: TimeSpan.FromSeconds(10),
+                errorNumbersToAdd: new[] { 4060, 40197, 40501, 40613, 49918, 49919, 49920 });
         });
     options.UseQueryTrackingBehavior(QueryTrackingBehavior.NoTracking);
     options.AddInterceptors(new WebLoanReadOnlyInterceptor());
