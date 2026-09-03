@@ -169,6 +169,27 @@ public class WebLoanService(IWebLoanRepository repository) : IWebLoanService
                 var status = WebLoanRegions.ResolveLoanStatus(r.StatusCode);
                 var statusLabel = WebLoanRegions.Label(status);
                 var productCode = r.ProductCode ?? string.Empty;
+
+                // Product-with-description string, computed in SQL via a
+                // LEFT JOIN to webloan.dbo.loan_product on
+                // (ld.loan_product = lp.id_code):
+                //
+                //   ld.loan_product + ' - ' + ISNULL(lp.description, '')
+                //
+                // When the loan_product row is missing (orphaned/retired
+                // product code), the SQL coerces the description to ''
+                // and we end up with "<code> - " here. Trim the trailing
+                // " - " so the UI never sees a dangling separator —
+                // productCode alone is a perfectly valid display value
+                // for those legacy rows. See
+                // WebLoanRepository.GetOutstandingLoansAsync for the
+                // full join + ISNULL rationale.
+                var productWithDesc = (r.ProductWithDescription ?? string.Empty).TrimEnd();
+                if (productWithDesc.EndsWith(" - ", StringComparison.Ordinal))
+                {
+                    productWithDesc = productWithDesc[..^3];
+                }
+
                 return new OutstandingLoanDto(
                     LoanNo: r.LoanNo,
                     Principal: r.Principal,
@@ -190,7 +211,13 @@ public class WebLoanService(IWebLoanRepository repository) : IWebLoanService
                     DateGranted: r.DateGranted,
                     DateMaturity: r.DateMaturity,
                     ProductCode: productCode,
-                    ProductStatus: $"{productCode} - {statusLabel}");
+                    ProductStatus: $"{productCode} - {statusLabel}",
+                    // "<loan_product> - <description>" (e.g.
+                    // "C35 - Quick Loan"), or just the product code when
+                    // no loan_product row matched the join. Trimming the
+                    // trailing " - " happens above; this is the
+                    // post-trim string.
+                    ProductWithDescription: productWithDesc);
             })
             .ToList();
 

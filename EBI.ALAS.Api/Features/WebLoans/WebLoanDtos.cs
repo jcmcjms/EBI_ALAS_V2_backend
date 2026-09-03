@@ -137,7 +137,14 @@ public record OutstandingLoanDto(
     DateTime? DateGranted,
     DateTime? DateMaturity,
     string ProductCode,
-    string ProductStatus);    // "<loan_product> - <status label>"
+    string ProductStatus,        // "<loan_product> - <status label>"
+    // "<loan_product> - <description>" (e.g. "C35 - Quick Loan"), or
+    // just the product code when no loan_product row matched the join
+    // (orphaned/retired product). Assembled in SQL via a LEFT JOIN to
+    // webloan.dbo.loan_product on (ld.loan_product = lp.id_code); see
+    // WebLoanRepository.GetOutstandingLoansAsync for the join +
+    // ISNULL(coalesce) rationale.
+    string ProductWithDescription);
 
 // ─── GET /api/webloans/cis/{cisNo}/accounts/{accountId}/pending-loan ──────
 // accountId is the combined "<branchCode>-<accountNo>" form

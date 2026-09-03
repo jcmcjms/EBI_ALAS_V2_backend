@@ -192,6 +192,25 @@ public class WebLoanRepository(IDbContextFactory<WebLoanDbContext> contextFactor
         // as "unknown, show it" rather than "hide it", because `NULL != 0`
         // evaluates to NULL and a bare `principal_bal <> 0` predicate
         // would silently drop those rows too.
+        //
+        // product_with_desc: a SECOND LEFT JOIN to webloan.dbo.loan_product
+        // on (ld.loan_product = lp.id_code) enriches each row with a
+        // human-readable description, producing
+        //   ld.loan_product + ' - ' + lp.description
+        // for the UI ("C35 - Quick Loan", etc.). This avoids the
+        // N+1 round-trips the pending-loan endpoint pays through
+        // GetLoanProductByIdCodeAsync — the join is cheap (small
+        // reference table, primary key on id_code) and lets the
+        // outstanding-loans list be returned in a single SQL execution.
+        //
+        // ISNULL(lp.description, ''): the LEFT JOIN can miss when an
+        // open loan carries a product code that no longer exists in
+        // loan_product (e.g. product was retired, loans still active).
+        // In SQL Server, `NULL + ' - ' + NULL` is NULL, not
+        // "<code> - ", so we coerce the description to '' and let the
+        // service layer trim the trailing separator when projecting to
+        // the DTO. The code half of the concat is non-nullable in
+        // practice but is also ISNULL-wrapped for symmetry.
         FormattableString sql = $@"
             SELECT
                 ld.bk, ld.bch, ld.acct_no, ld.loan_no,
@@ -204,13 +223,16 @@ public class WebLoanRepository(IDbContextFactory<WebLoanDbContext> contextFactor
                 CASE
                     WHEN ld.loan_product IN ('C35','C23') THEN ld.principal
                     ELSE ad.total_amort
-                END AS computed_amort_amount
+                END AS computed_amort_amount,
+                ISNULL(ld.loan_product, '') + ' - ' + ISNULL(lp.description, '') AS product_with_desc
             FROM webloan.dbo.loan_data AS ld
             LEFT JOIN webloan.dbo.amort_data AS ad
                 ON  ld.loan_no = ad.loan_no
                 AND ld.acct_no = ad.acct_no
                 AND ld.bch     = ad.bch
                 AND ad.amort_no = 1
+            LEFT JOIN webloan.dbo.loan_product AS lp
+                ON  ld.loan_product = lp.id_code
             WHERE ld.acct_no = {accountNo}
               AND ld.bch     = {branchCode}
               AND webloan.dbo.is_loan(ld.loan_no) = 1

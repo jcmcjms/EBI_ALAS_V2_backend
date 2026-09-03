@@ -61,4 +61,20 @@ public class OutstandingLoanRow
     // → NULL for non-C35/C23 products with no amort_data row.
     [Column("computed_amort_amount")]
     public decimal? ComputedAmortAmount { get; set; }
+
+    // ─── Derived product-with-description string ─────────────────────────
+    // Bound to the SELECT-list alias `product_with_desc`:
+    //
+    //   ld.loan_product + ' - ' + ISNULL(lp.description, '')
+    //
+    // Sourced from a second LEFT JOIN to webloan.dbo.loan_product on
+    // (ld.loan_product = lp.id_code). When no loan_product row matches
+    // (orphaned product code in loan_data, or the product was retired
+    // but loans are still open), the LEFT JOIN miss leaves lp.description
+    // NULL — ISNULL coerces it to '' so the result is at least
+    // "<code> - " instead of a full NULL. The service layer trims that
+    // trailing separator when projecting to the DTO so the UI never sees
+    // a dangling " - ".
+    [Column("product_with_desc")]
+    public string? ProductWithDescription { get; set; }
 }
