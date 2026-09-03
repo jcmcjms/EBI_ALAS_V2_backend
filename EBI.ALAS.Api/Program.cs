@@ -261,8 +261,10 @@ if (app.Environment.IsDevelopment())
 if (!app.Environment.IsDevelopment())
     app.UseHttpsRedirection();
 
+app.UseMiddleware<CorrelationIdMiddleware>();  // FIRST — every later log line gets the correlation scope
 app.UseCors("AllowFrontend");
 app.UseMiddleware<GlobalExceptionHandler>();
+app.UseMiddleware<SecurityHeadersMiddleware>();
 app.UseIdempotency();  // Must be before rate limiter to catch all requests
 app.UseRateLimiter();
 app.UseAuthentication();
