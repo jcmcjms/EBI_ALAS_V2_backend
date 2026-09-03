@@ -185,6 +185,13 @@ public class WebLoanRepository(IDbContextFactory<WebLoanDbContext> contextFactor
         // LEFT JOIN semantics: when amort_data has no row for the (bk,
         // bch, acct_no, loan_no, amort_no=1) tuple, the CASE falls through
         // to NULL for non-C35/C23 products — the UI renders this as "—".
+        //
+        // principal_bal > 0 filter: drop rows with a settled balance of 0
+        // (e.g. fully-paid but not yet status=10, or zero at issuance).
+        // NULLs are intentionally retained — a missing balance is treated
+        // as "unknown, show it" rather than "hide it", because `NULL != 0`
+        // evaluates to NULL and a bare `principal_bal <> 0` predicate
+        // would silently drop those rows too.
         FormattableString sql = $@"
             SELECT
                 ld.bk, ld.bch, ld.acct_no, ld.loan_no,
@@ -208,6 +215,7 @@ public class WebLoanRepository(IDbContextFactory<WebLoanDbContext> contextFactor
               AND ld.bch     = {branchCode}
               AND webloan.dbo.is_loan(ld.loan_no) = 1
               AND ld.loan_status != 10
+              AND ld.principal_bal > 0
             ORDER BY ld.date_granted DESC";
 
         await using var context = await contextFactory.CreateDbContextAsync(ct);
