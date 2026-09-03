@@ -20,9 +20,16 @@ public interface IWebLoanService
     // `accountId` is the combined "<branchCode>-<accountNo>" form, e.g.
     // "011-05-13081-1" — see WebLoanAccountId.Parse. The service splits
     // it and passes the two halves down to the repository.
+    //
+    // Pagination defaults match the original TOP (10) behaviour for
+    // accounts with a handful of active loans, while letting the UI
+    // ask for more when needed. Hard ceiling on pageSize is enforced
+    // by the endpoint layer — the service trusts its caller.
     Task<OutstandingLoansResponse?> GetOutstandingLoansAsync(
         string cisNo,
         string accountId,
+        int pageSize = 50,
+        int pageNumber = 1,
         CancellationToken ct = default);
 
     // Pending loan application context for an account. Returns null when

@@ -61,8 +61,10 @@ public interface IWebLoanRepository
     //
     // Returns all outstanding rows for the account, ordered by most
     // recent date_granted first. The original "active loans" query used
-    // TOP (10) — dropped in favor of returning the full set so the UI
-    // can paginate/sort client-side.
+    // TOP (10) — replaced with parameterized OFFSET/FETCH so the UI
+    // can paginate without us hydrating every historical row into
+    // memory. Default cap of 50 keeps a single response small even for
+    // accounts with hundreds of historical outstanding loans.
     //
     // The returned rows are OutstandingLoanRow (keyless), not LoanData,
     // because the outstanding-loans query joins dbo.amort_data and
@@ -73,6 +75,8 @@ public interface IWebLoanRepository
     Task<IReadOnlyList<OutstandingLoanRow>> GetOutstandingLoansAsync(
         string branchCode,
         string accountNo,
+        int pageSize = 50,
+        int pageNumber = 1,
         CancellationToken ct = default);
 
     // ─── Pending loans (pre_loan_data) ─────────────────────────────────

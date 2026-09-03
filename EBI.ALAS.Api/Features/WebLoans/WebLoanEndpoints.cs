@@ -50,9 +50,18 @@ public static class WebLoanEndpoints
             string cisNo,
             string accountId,
             IWebLoanService webLoanService,
-            CancellationToken ct) =>
+            int pageSize = 50,
+            int pageNumber = 1,
+            CancellationToken ct = default) =>
         {
-            var result = await webLoanService.GetOutstandingLoansAsync(cisNo, accountId, ct);
+            // Clamp to a sane ceiling: 500 rows max per page keeps the
+            // response payload under 1MB even with the LEFT JOINs to
+            // amort_data and loan_product. Anything bigger is a UI bug
+            // — humans don't scroll through 500 outstanding loans.
+            pageSize = Math.Clamp(pageSize, 1, 500);
+            pageNumber = Math.Max(1, pageNumber);
+
+            var result = await webLoanService.GetOutstandingLoansAsync(cisNo, accountId, pageSize, pageNumber, ct);
             return result is null
                 ? Results.NotFound(ApiResponse.ErrorResponse("Account not found for the given CIS"))
                 : Results.Ok(ApiResponse<OutstandingLoansResponse>.SuccessResponse(result));

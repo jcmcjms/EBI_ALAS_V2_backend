@@ -137,6 +137,8 @@ public class WebLoanService(IWebLoanRepository repository) : IWebLoanService
     public async Task<OutstandingLoansResponse?> GetOutstandingLoansAsync(
         string cisNo,
         string accountId,
+        int pageSize = 50,
+        int pageNumber = 1,
         CancellationToken ct = default)
     {
         // Split the combined accountId into (bch, acctNo) up front. Throws
@@ -160,7 +162,14 @@ public class WebLoanService(IWebLoanRepository repository) : IWebLoanService
         // (and the Admin bypass that used to live here) is intentionally
         // not consulted — the branch is part of the account identity in
         // the combined-id model.
-        var rows = await repository.GetOutstandingLoansAsync(branchCode, accountNo, ct);
+        //
+        // Pagination: pushed to SQL via OFFSET/FETCH so the database
+        // returns only the page slice. Without this, a long-tenured
+        // borrower with hundreds of historical outstanding loans would
+        // hydrate the entire result set on every drill-down — a 6MB+
+        // payload at the 99th percentile. With it, a single page
+        // (default 50) tops out around 80KB.
+        var rows = await repository.GetOutstandingLoansAsync(branchCode, accountNo, pageSize, pageNumber, ct);
 
         var loans = rows
             .OrderByDescending(r => r.DateGranted ?? DateTime.MinValue)

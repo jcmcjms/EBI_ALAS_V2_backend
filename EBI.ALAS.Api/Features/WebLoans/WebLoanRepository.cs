@@ -142,6 +142,8 @@ public class WebLoanRepository(IDbContextFactory<WebLoanDbContext> contextFactor
     public async Task<IReadOnlyList<OutstandingLoanRow>> GetOutstandingLoansAsync(
         string branchCode,
         string accountNo,
+        int pageSize = 50,
+        int pageNumber = 1,
         CancellationToken ct = default)
     {
         // Raw SQL is the right tool here:
@@ -238,7 +240,9 @@ public class WebLoanRepository(IDbContextFactory<WebLoanDbContext> contextFactor
               AND webloan.dbo.is_loan(ld.loan_no) = 1
               AND ld.loan_status != 10
               AND ld.principal_bal > 0
-            ORDER BY ld.date_granted DESC";
+            ORDER BY ld.date_granted DESC
+            OFFSET {(pageNumber - 1) * pageSize} ROWS
+            FETCH NEXT {pageSize} ROWS ONLY";
 
         await using var context = await contextFactory.CreateDbContextAsync(ct);
 
