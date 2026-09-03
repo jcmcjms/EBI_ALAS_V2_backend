@@ -2,6 +2,7 @@ using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Text;
 using System.Threading.RateLimiting;
+using Microsoft.AspNetCore.ResponseCompression;
 using Microsoft.AspNetCore.RateLimiting;
 using EBI.ALAS.Api.Common.Authorization;
 using EBI.ALAS.Api.Common.Constants;
@@ -236,6 +237,24 @@ builder.Services.AddSwaggerGen(options =>
 builder.Services.AddHealthChecks();
 builder.Services.AddBankingSecurityHardening(builder.Configuration, builder.Environment);
 
+// HTTP response compression (brotli + gzip). Brings the average JSON
+// payload (loan lists, branch lists, dashboard summaries) from ~200KB
+// raw down to ~30KB on the wire — a 6× bandwidth win at 3000 users.
+builder.Services.AddResponseCompression(options =>
+{
+    options.EnableForHttps = true;
+    options.Providers.Add<BrotliCompressionProvider>();
+    options.Providers.Add<GzipCompressionProvider>();
+});
+builder.Services.Configure<BrotliCompressionProviderOptions>(options =>
+{
+    options.Level = System.IO.Compression.CompressionLevel.Fastest;
+});
+builder.Services.Configure<GzipCompressionProviderOptions>(options =>
+{
+    options.Level = System.IO.Compression.CompressionLevel.Fastest;
+});
+
 // OpenTelemetry distributed tracing
 builder.Services.AddOpenTelemetry()
     .ConfigureResource(resource => resource.AddService("EBI.ALAS.V2.API"))
@@ -261,6 +280,7 @@ if (app.Environment.IsDevelopment())
 if (!app.Environment.IsDevelopment())
     app.UseHttpsRedirection();
 
+app.UseResponseCompression();  // MUST be before UseCors — works on the wire, not on the framework response object
 app.UseMiddleware<CorrelationIdMiddleware>();  // FIRST — every later log line gets the correlation scope
 app.UseCors("AllowFrontend");
 app.UseMiddleware<GlobalExceptionHandler>();
