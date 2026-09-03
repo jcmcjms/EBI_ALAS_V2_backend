@@ -82,8 +82,12 @@ public sealed class CachingTokenRevocationRepository : ITokenRevocationRepositor
         new()
         {
             AbsoluteExpirationRelativeToNow = ttl,
-            // Size-based eviction is not enabled (no SizeLimit on the cache);
-            // we rely on absolute expiration + token-lifetime bounding.
+            // Size-based eviction is enabled on the cache (see
+            // ServiceCollectionExtensions.AddMemoryCache — SizeLimit = 10k).
+            // Every entry MUST declare a Size or
+            // IMemoryCache.Set throws InvalidOperationException at runtime.
+            // A JTI revocation lookup is a single bool, so 1 unit is fine.
+            Size = 1,
             Priority = CacheItemPriority.Normal
         };
 

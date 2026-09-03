@@ -22,9 +22,19 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<ITimeProvider, PhilippinesTimeProvider>();
 
         // ─── In-process cache ────────────────────────────────────────────
-        // IMemoryCache backs the JTI blacklist hot path. Must be registered
-        // before any auth pipeline that resolves ITokenRevocationRepository.
-        services.AddMemoryCache();
+        // IMemoryCache backs the JTI blacklist hot path AND the dashboard
+        // summary cache. Must be registered before any auth pipeline that
+        // resolves ITokenRevocationRepository.
+        //
+        // SizeLimit gives us a hard ceiling so a malicious caller can't
+        // blow up the server's working set with millions of unique
+        // cache keys. The dashboard entries declare Size=1 each; we
+        // cap at 10k entries which is well above any realistic
+        // (branch × role) combination.
+        services.AddMemoryCache(options =>
+        {
+            options.SizeLimit = 10_000;
+        });
 
         // ─── Data Access ─────────────────────────────────────────────────
         services.AddScoped<AppDbContext>();
