@@ -20,8 +20,8 @@ public record AuditLogQuery(
 
 public class AuditLogQueryValidator : AbstractValidator<AuditLogQuery>
 {
-    private static readonly string[] ValidActions = { "Create", "Update", "StatusChange", "Login", "Logout", "Delete" };
-    private static readonly string[] ValidEntityTypes = { "LoanApplication", "User", "Auth", "Branch", "Role", "LoanProduct" };
+    private static readonly string[] ValidActions = { "Create", "Update", "StatusChange", "Delete" };
+    private static readonly string[] ValidEntityTypes = { "LoanApplication", "User", "Branch", "Role", "LoanProduct" };
 
     public AuditLogQueryValidator()
     {

@@ -43,32 +43,4 @@ public class AuditLogService : IAuditLogService
         _context.AuditLogs.Add(entry);
         await _context.SaveChangesAsync();
     }
-
-    public async Task LogLoginAsync(int userId, string userName, string ipAddress, string? userAgent)
-    {
-        await LogAsync(
-            userId,
-            userName,
-            action: "Login",
-            entityType: "Auth",
-            entityId: $"user_{userId}",
-            entityLabel: userName,
-            summary: $"User '{userName}' logged in successfully.",
-            ipAddress: ipAddress,
-            userAgent: userAgent);
-    }
-
-    public async Task LogLogoutAsync(int userId, string userName, string ipAddress, string? userAgent)
-    {
-        await LogAsync(
-            userId,
-            userName,
-            action: "Logout",
-            entityType: "Auth",
-            entityId: $"user_{userId}",
-            entityLabel: userName,
-            summary: $"User '{userName}' logged out.",
-            ipAddress: ipAddress,
-            userAgent: userAgent);
-    }
 }

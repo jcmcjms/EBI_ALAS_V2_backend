@@ -12,8 +12,4 @@ public interface IAuditLogService
         string? rawChanges = null,
         string? ipAddress = null,
         string? userAgent = null);
-
-    Task LogLoginAsync(int userId, string userName, string ipAddress, string? userAgent);
-
-    Task LogLogoutAsync(int userId, string userName, string ipAddress, string? userAgent);
 }

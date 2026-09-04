@@ -2,7 +2,6 @@ using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using EBI.ALAS.Api.Common.Models;
 using EBI.ALAS.Api.Common.Time;
-using EBI.ALAS.Api.Features.AuditLogs;
 using FluentValidation;
 using Microsoft.AspNetCore.Mvc;
 
@@ -25,7 +24,6 @@ public static class AuthEndpoints
             IPasswordHasher passwordHasher,
             IJwtTokenService jwtTokenService,
             IRefreshTokenRepository refreshTokenRepository,
-            IAuditLogService auditLogService,
             IConfiguration configuration,
             HttpContext http,
             ILogger<Program> logger,
@@ -91,11 +89,6 @@ public static class AuthEndpoints
             http.Response.Cookies.Append(XsrfCookieName, xsrfToken, xsrfCookieOptions);
 
             logger.LogInformation("User {Username} logged in successfully", user.Username);
-
-            var userFullName = string.IsNullOrEmpty(user.MiddleName)
-                ? $"{user.FirstName} {user.LastName}"
-                : $"{user.FirstName} {user.MiddleName} {user.LastName}";
-            await auditLogService.LogLoginAsync(user.Id, userFullName, http.Connection.RemoteIpAddress?.ToString() ?? "unknown", GetDeviceInfo(http));
 
             return Results.Ok(ApiResponse<LoginResponse>.SuccessResponse(new LoginResponse { AccessToken = accessToken, ExpiresAt = accessExpiresAt }, "Login successful"));
         })
@@ -194,7 +187,6 @@ public static class AuthEndpoints
             HttpContext http,
             ITokenRevocationRepository tokenRevocationRepository,
             IRefreshTokenRepository refreshTokenRepository,
-            IAuditLogService auditLogService,
             IJwtTokenService jwtTokenService,
             IConfiguration configuration,
             ILogger<Program> logger) =>
@@ -211,11 +203,6 @@ public static class AuthEndpoints
                 var expiresAt = DateTime.UtcNow.AddMinutes(jwtSettings.ExpiryMinutes);
                 await tokenRevocationRepository.RevokeTokenAsync(tokenId, userId, expiresAt);
                 logger.LogInformation("Access token {TokenId} revoked for user {UserId}", tokenId, userId);
-            }
-
-            if (userId > 0)
-            {
-                await auditLogService.LogLogoutAsync(userId, userName, http.Connection.RemoteIpAddress?.ToString() ?? "unknown", GetDeviceInfo(http));
             }
 
             if (http.Request.Cookies.TryGetValue(RefreshTokenCookieName, out var rawRefreshToken) && !string.IsNullOrEmpty(rawRefreshToken))
