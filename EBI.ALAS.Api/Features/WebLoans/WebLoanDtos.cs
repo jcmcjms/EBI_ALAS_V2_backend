@@ -181,6 +181,18 @@ public record PendingLoanDto(
     byte? CreationType,           // raw code from loan_data.creation_type
     string CreationTypeLabel);    // "New Loan" / "Reloan" / "Restructured" / "Additional Loan" / "Unknown"
 
+// ─── GET /api/webloans/loan-products ──────────────────────────────────────
+// Surfaces every row in dbo.loan_product where expiration IS NULL —
+// i.e. products that have not been retired by the webloan system.
+// Projects only id_code + description per the spec; the retirement
+// flag is server-side only.
+//
+// Ordered by id_code ascending (enforced in the repository) so
+// dropdowns render in a stable order across calls.
+public record LoanProductDto(
+    string IdCode,
+    string Description);
+
 // ─── Combined account identifier ("branchCode-accountNo") ─────────────────
 //
 // The two drill-down endpoints (outstanding-loans, pending-loan) take a

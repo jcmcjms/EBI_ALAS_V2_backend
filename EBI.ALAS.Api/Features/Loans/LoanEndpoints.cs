@@ -384,8 +384,19 @@ public class UpdateLoanStatusRequest
 
 public class CreateLoanValidator : AbstractValidator<CreateLoanRequest>
 {
-    public CreateLoanValidator()
+    // The validator was previously parameterless. It now needs
+    // ILoanProductRepository to enforce the per-product policy
+    // bounds (min/max amount, min/max term). FluentValidation
+    // resolves validator constructors via the same DI container as
+    // everything else — AddValidatorsFromAssemblyContaining<Program>()
+    // picks this up automatically as long as the dependencies are
+    // registered (they are, in ServiceCollectionExtensions).
+    private readonly ILoanProductRepository _productRepository;
+
+    public CreateLoanValidator(ILoanProductRepository productRepository)
     {
+        _productRepository = productRepository;
+
         RuleFor(x => x.BranchCode)
             .NotEmpty()
             .WithMessage("Branch code is required")
@@ -410,14 +421,63 @@ public class CreateLoanValidator : AbstractValidator<CreateLoanRequest>
             .MaximumLength(100)
             .WithMessage("Product must not exceed 100 characters");
 
+        // ─── Product-mirror-aware rules ─────────────────────────────
+        // These rules are async because the bounds live in the
+        // LoanProducts mirror — fetched on demand per request. The
+        // mirror is a single-row PK lookup, so latency is the same
+        // order as a join would be.
+        //
+        // TODO(option-A lockdown): the user calling the loan-creation
+        // endpoint is typically NOT an Admin, so they cannot hit
+        // GET /api/loan-products/active (403) to populate the
+        // dropdown in the form. The form needs an alternative source
+        // for the product list — see the TODO in RolePermissions.cs
+        // for the three options. This validator still works because
+        // it reads the mirror directly (no HTTP call), but the form
+        // cannot render the product picker until one of the
+        // alternatives is in place.
+        //
+        // 1) The product code must reference a non-retired mirror
+        //    row. Encoders can never submit a loan for a product
+        //    that webloan has retired.
+        RuleFor(x => x.Product)
+            .MustAsync(async (product, ct) =>
+                await _productRepository.ExistsActiveByCodeAsync(product, ct))
+            .WithMessage("Selected product is not currently offered.");
+
+        // 2) The proposed amount must be within the product's
+        //    [MinAmount, MaxAmount] range. The async rule re-fetches
+        //    the row (cheap) so the message can interpolate the
+        //    actual bounds — better UX than a generic "out of range".
         RuleFor(x => x.ProposedAmount)
             .GreaterThan(0)
-            .WithMessage("Proposed amount must be greater than 0");
+            .WithMessage("Proposed amount must be greater than 0")
+            .MustAsync(async (req, amount, ct) =>
+            {
+                var product = await _productRepository.GetByCodeAsync(req.Product, ct);
+                if (product is null) return true; // rule 1 owns this case
+                return amount >= product.MinAmount && amount <= product.MaxAmount;
+            })
+            .WithMessage("Proposed amount must be within the product's allowed range.");
 
+        // 3) The term must be within the product's [MinTermMonths,
+        //    MaxTermMonths] range AND within the absolute 7-year
+        //    (84-month) business ceiling. Both checks are
+        //    independent and both must pass.
         RuleFor(x => x.TermMonths)
             .GreaterThan(0)
-            .WithMessage("Term months must be greater than 0");
+            .WithMessage("Term months must be greater than 0")
+            .LessThanOrEqualTo(LoanProductService.AbsoluteMaxTermMonths)
+            .WithMessage($"Term cannot exceed {LoanProductService.AbsoluteMaxTermMonths} months (7 years).")
+            .MustAsync(async (req, term, ct) =>
+            {
+                var product = await _productRepository.GetByCodeAsync(req.Product, ct);
+                if (product is null) return true; // rule 1 owns this case
+                return term >= product.MinTermMonths && term <= product.MaxTermMonths;
+            })
+            .WithMessage("Term must be within the product's allowed range.");
 
+        // Existing rule preserved.
         RuleFor(x => x.InterestRate)
             .InclusiveBetween(0, 100)
             .WithMessage("Interest rate must be between 0 and 100");

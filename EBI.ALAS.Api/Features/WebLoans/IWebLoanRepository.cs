@@ -118,4 +118,30 @@ public interface IWebLoanRepository
     // CCR07 row for the loan_acct_info.cis_no — carries NTHP amount
     // (description) and NTHP date (expiration).
     Task<CheckListData?> GetNthpAsync(string cisNo, CancellationToken ct = default);
+
+    // ─── Active loan products (lookup) ─────────────────────────────────
+    // Returns every row in dbo.loan_product WHERE expiration IS NULL —
+    // i.e. products that have not been retired. Projects only id_code
+    // and description (per spec); the full entity stays available via
+    // GetLoanProductByIdCodeAsync for the pending-loan join, which needs
+    // the same data regardless of the retirement flag.
+    //
+    // Ordered by id_code ascending so the response is deterministic and
+    // dropdowns render in a stable order across calls.
+    Task<IReadOnlyList<LoanProductLookup>> GetActiveLoanProductsAsync(CancellationToken ct = default);
+
+    // ─── All loan products (sync) ───────────────────────────────────────
+    // Returns EVERY row in dbo.loan_product, both active and retired,
+    // including the `expiration` column. Used by the
+    // LoanProductSyncService to mirror webloan's catalog into ALAS:
+    //   * Newly-retired rows get IsRetired=true in the ALAS mirror.
+    //   * Newly-active rows get IsRetired=false.
+    //   * The full entity (id_code, description, expiration) is the
+    //     source of truth; policy fields are NOT mirrored — ALAS owns
+    //     those and the sync leaves them alone.
+    //
+    // Returns the full LoanProductLookup rows (not a DTO) so the sync
+    // can read Expiration without a second round-trip. Ordered by
+    // id_code ascending.
+    Task<IReadOnlyList<LoanProductLookup>> GetAllLoanProductsAsync(CancellationToken ct = default);
 }

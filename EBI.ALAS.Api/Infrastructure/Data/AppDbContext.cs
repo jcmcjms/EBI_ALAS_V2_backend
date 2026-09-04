@@ -21,6 +21,7 @@ public class AppDbContext : DbContext
     public DbSet<RevokedToken> RevokedTokens => Set<RevokedToken>();
     public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
     public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
+    public DbSet<LoanProduct> LoanProducts => Set<LoanProduct>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -438,6 +439,73 @@ public class AppDbContext : DbContext
                 .WithMany()
                 .HasForeignKey(e => e.UserId)
                 .OnDelete(DeleteBehavior.SetNull);
+        });
+
+        // ─── LoanProduct Entity ──────────────────────────────────────
+        // ALAS-owned mirror of webloan.loan_product. The PK is the
+        // webloan id_code (string) so the sync upsert is idempotent by
+        // natural key. IsRetired is derived from webloan's
+        // `expiration IS NOT NULL` at sync time — no second source of
+        // truth, no manual toggle.
+        modelBuilder.Entity<LoanProduct>(entity =>
+        {
+            entity.HasKey(e => e.Code);
+            entity.Property(e => e.Code)
+                .IsRequired()
+                .HasMaxLength(20);
+
+            entity.Property(e => e.Description)
+                .IsRequired()
+                .HasMaxLength(200);
+
+            // Eligibility bounds — column types chosen to match the
+            // existing decimal conventions in LoanApplication so the
+            // disbursement math is homogeneous.
+            entity.Property(e => e.MinAmount)
+                .IsRequired()
+                .HasColumnType("decimal(18,2)");
+            entity.Property(e => e.MaxAmount)
+                .IsRequired()
+                .HasColumnType("decimal(18,2)");
+
+            entity.Property(e => e.MinTermMonths).IsRequired();
+            entity.Property(e => e.MaxTermMonths).IsRequired();
+
+            // Fees — all PHP, all decimal(18,2) for consistency with
+            // proposed-amount.
+            entity.Property(e => e.NotarialFee)
+                .IsRequired()
+                .HasColumnType("decimal(18,2)")
+                .HasDefaultValue(0m);
+            entity.Property(e => e.DocStampFee)
+                .IsRequired()
+                .HasColumnType("decimal(18,2)")
+                .HasDefaultValue(0m);
+            entity.Property(e => e.InsuranceFee)
+                .IsRequired()
+                .HasColumnType("decimal(18,2)")
+                .HasDefaultValue(0m);
+
+            // decimal(9,6) supports up to 999.999999% — comfortably
+            // above the realistic 0.05–0.30 range. 6 fractional digits
+            // is enough precision for a per-annum rate; over-precise
+            // values would imply false accuracy to ops.
+            entity.Property(e => e.AdvanceInterestRate)
+                .IsRequired()
+                .HasColumnType("decimal(9,6)")
+                .HasDefaultValue(0m);
+
+            // Sync state. IsRetired defaults to true so a brand-new
+            // mirror row inserted with default policy values is hidden
+            // from the dropdown until the first successful sync run
+            // proves it actually exists in webloan AND has a
+            // non-retired state. Prevents "phantom" products from
+            // appearing in encoders' dropdowns if the sync has never
+            // run.
+            entity.Property(e => e.IsRetired)
+                .IsRequired()
+                .HasDefaultValue(true);
+            entity.Property(e => e.LastSyncedAt).IsRequired();
         });
     }
 }

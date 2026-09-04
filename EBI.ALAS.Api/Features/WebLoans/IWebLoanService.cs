@@ -40,4 +40,11 @@ public interface IWebLoanService
         string cisNo,
         string accountId,
         CancellationToken ct = default);
+
+    // Active loan products lookup — surfaces products from dbo.loan_product
+    // where expiration IS NULL. Projects only id_code + description; the
+    // service is the seam for trimming webloan's column shape to the API
+    // contract. Returns an empty list (NOT null) when no active rows
+    // exist, mirroring how GetOutstandingLoansAsync handles empty pages.
+    Task<IReadOnlyList<LoanProductDto>> GetActiveLoanProductsAsync(CancellationToken ct = default);
 }

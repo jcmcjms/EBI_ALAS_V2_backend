@@ -94,6 +94,32 @@ public static class WebLoanEndpoints
         .Produces<ApiResponse<PendingLoanResponse>>(200)
         .Produces<ApiResponse>(404)
         .Produces<ApiResponse>(401);
+
+        // ─── Step 4: active loan products lookup ───────────────────────
+        // Surfaces every row in dbo.loan_product where expiration IS NULL
+        // — i.e. products that have not been retired by the webloan
+        // system. Projects only id_code + description. Intended as a
+        // dropdown source for the loan-origination UI.
+        //
+        // Gated by the same `CanViewLoan` policy as the rest of the
+        // group — loan origination / review workflows need the same
+        // read-only product access, and reusing the policy avoids
+        // creating a parallel permission tier for a 2-column lookup.
+        //
+        // 200 with `data: []` is a valid response (e.g. during a webloan
+        // cutover when no products are flagged active). The lookup is
+        // global — no per-branch / per-CIS scoping — because products
+        // are reference data shared across all branches.
+        group.MapGet("/loan-products", async (
+            IWebLoanService webLoanService,
+            CancellationToken ct) =>
+        {
+            var products = await webLoanService.GetActiveLoanProductsAsync(ct);
+            return Results.Ok(ApiResponse<IReadOnlyList<LoanProductDto>>.SuccessResponse(products));
+        })
+        .WithName("GetActiveLoanProducts")
+        .Produces<ApiResponse<IReadOnlyList<LoanProductDto>>>(200)
+        .Produces<ApiResponse>(401);
     }
 
     /// <summary>

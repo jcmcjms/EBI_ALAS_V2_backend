@@ -361,4 +361,44 @@ public class WebLoanRepository(IDbContextFactory<WebLoanDbContext> contextFactor
                 c => c.CisNo == cisNo && c.CheckListItem == CheckListData.NthpItem,
                 ct);
     }
+
+    public async Task<IReadOnlyList<LoanProductLookup>> GetActiveLoanProductsAsync(CancellationToken ct = default)
+    {
+        // Filter on `expiration IS NULL` to surface only products that
+        // are still active in webloan. The endpoint projects only id_code
+        // + description, but we hydrate the full entity (no extra cost
+        // beyond a single narrow row) so the service can decide what to
+        // expose. Loan_product is a small lookup table (~tens of rows
+        // in practice) so no pagination is needed — the whole set fits
+        // in one trip.
+        //
+        // Ordered by id_code ascending for a deterministic response; the
+        // PK on id_code makes this an index scan with no sort cost.
+        await using var context = await contextFactory.CreateDbContextAsync(ct);
+        return await context.LoanProducts
+            .AsNoTracking()
+            .Where(p => p.Expiration == null)
+            .OrderBy(p => p.IdCode)
+            .ToListAsync(ct);
+    }
+
+    public async Task<IReadOnlyList<LoanProductLookup>> GetAllLoanProductsAsync(CancellationToken ct = default)
+    {
+        // Same shape as GetActiveLoanProductsAsync but without the
+        // `expiration IS NULL` filter — the sync needs to see retired
+        // rows too so it can mark the matching ALAS mirror row
+        // IsRetired=true. The LoanProductLookup entity now exposes
+        // Expiration (nullable DateTime) so the sync can read the
+        // retirement signal in one round-trip; no second query needed.
+        //
+        // Webloan's loan_product table is small enough that the full
+        // scan is cheaper than a delta query — and a delta would
+        // miss rows webloan DELETED entirely (rare, but possible if
+        // the DBA cleans up). The full set keeps the sync robust.
+        await using var context = await contextFactory.CreateDbContextAsync(ct);
+        return await context.LoanProducts
+            .AsNoTracking()
+            .OrderBy(p => p.IdCode)
+            .ToListAsync(ct);
+    }
 }

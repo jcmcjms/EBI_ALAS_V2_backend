@@ -139,6 +139,8 @@ builder.Services.AddAuthorization(options =>
     options.AddPolicy("CanSuspendUsers", policy => policy.Requirements.Add(new PermissionRequirement(Permissions.UserSuspend)));
     options.AddPolicy("CanViewRoles", policy => policy.Requirements.Add(new PermissionRequirement(Permissions.RoleView)));
     options.AddPolicy("CanViewAuditLogs", policy => policy.Requirements.Add(new PermissionRequirement(Permissions.AuditLogsView)));
+    options.AddPolicy("CanViewLoanProduct", policy => policy.Requirements.Add(new PermissionRequirement(Permissions.LoanProductView)));
+    options.AddPolicy("CanManageLoanProduct", policy => policy.Requirements.Add(new PermissionRequirement(Permissions.LoanProductManage)));
 });
 
 builder.Services.AddCors(options =>
@@ -301,6 +303,7 @@ app.MapDashboardEndpoints();
 app.MapAuditLogEndpoints();
 app.MapAccountEndpoints();
 app.MapWebLoanEndpoints();
+app.MapLoanProductEndpoints();
 
 using (var scope = app.Services.CreateScope())
 {

@@ -61,6 +61,17 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IAuditLogger, AuditLogger>();
         services.AddScoped<IFormNumberGenerator, FormNumberGenerator>();
 
+        // Loan product catalog (ALAS-owned mirror of webloan.loan_product).
+        // Repository is scoped (uses AppDbContext). Service is scoped.
+        // Sync service is scoped — depends on the scoped repository.
+        services.AddScoped<ILoanProductRepository, LoanProductRepository>();
+        services.AddScoped<ILoanProductSyncService, LoanProductSyncService>();
+        services.AddScoped<ILoanProductService, LoanProductService>();
+
+        // Background job that runs the sync on a configurable interval.
+        // Hosted services are singletons by ASP.NET Core convention.
+        services.AddHostedService<LoanProductSyncHostedService>();
+
         // ─── Dashboard Services ──────────────────────────────────────────
         services.AddScoped<IDashboardService, DashboardService>();
 

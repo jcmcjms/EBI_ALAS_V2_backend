@@ -355,6 +355,26 @@ public class WebLoanService(IWebLoanRepository repository) : IWebLoanService
             NthpDate: nthp?.Expiration);
     }
 
+    // ─── Active loan products ────────────────────────────────────────────
+    public async Task<IReadOnlyList<LoanProductDto>> GetActiveLoanProductsAsync(CancellationToken ct = default)
+    {
+        // Single SQL roundtrip: the repository already filters
+        // `expiration IS NULL` and orders by id_code. We project only the
+        // two columns the spec asks for (id_code + description) — the
+        // retirement flag is a server-side predicate only and never
+        // surfaces to clients.
+        //
+        // Empty list is a valid result (no active products in webloan
+        // is a real — though unusual — state, e.g. during a cutover).
+        // The endpoint maps that to 200 with `data: []`, mirroring the
+        // pending-loan endpoint's "200 with empty Loans" semantics.
+        var rows = await repository.GetActiveLoanProductsAsync(ct);
+
+        return rows
+            .Select(p => new LoanProductDto(p.IdCode, p.Description))
+            .ToList();
+    }
+
     // ─── Helpers ──────────────────────────────────────────────────────────
     private static DateTime? ParseBirthDate(string? raw)
     {
