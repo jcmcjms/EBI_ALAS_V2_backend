@@ -8,9 +8,9 @@ public class LoanProductService(
     ITimeProvider timeProvider) : ILoanProductService
 {
     // Hard business ceiling: no product may offer more than 7 years
-    // (84 months) of term. Enforced here AND in the validator so the
+    // (2,555 days) of term. Enforced here AND in the validator so the
     // CreateLoan and admin-update paths both reject violations.
-    public const int AbsoluteMaxTermMonths = 84;
+    public const int AbsoluteMaxTermDays = 2555;
 
     public async Task<IReadOnlyList<LoanProductResponse>> GetAllAsync(CancellationToken ct = default)
     {
@@ -58,8 +58,8 @@ public class LoanProductService(
         // the policy fields.
         existing.MinAmount = request.MinAmount;
         existing.MaxAmount = request.MaxAmount;
-        existing.MinTermMonths = request.MinTermMonths;
-        existing.MaxTermMonths = request.MaxTermMonths;
+        existing.MinTermDays = request.MinTermDays;
+        existing.MaxTermDays = request.MaxTermDays;
         existing.NotarialFee = request.NotarialFee;
         existing.DocStampFee = request.DocStampFee;
         existing.InsuranceFee = request.InsuranceFee;
@@ -92,8 +92,8 @@ public class LoanProductService(
         p.Description,
         p.MinAmount,
         p.MaxAmount,
-        p.MinTermMonths,
-        p.MaxTermMonths,
+        p.MinTermDays,
+        p.MaxTermDays,
         p.NotarialFee,
         p.DocStampFee,
         p.InsuranceFee,
@@ -119,14 +119,14 @@ public class LoanProductService(
         if (r.MaxAmount < r.MinAmount)
             throw new ArgumentException(
                 $"MaxAmount ({r.MaxAmount}) must be >= MinAmount ({r.MinAmount}).", nameof(r));
-        if (r.MinTermMonths < 0)
-            throw new ArgumentException("MinTermMonths cannot be negative.", nameof(r));
-        if (r.MaxTermMonths < r.MinTermMonths)
+        if (r.MinTermDays < 0)
+            throw new ArgumentException("MinTermDays cannot be negative.", nameof(r));
+        if (r.MaxTermDays < r.MinTermDays)
             throw new ArgumentException(
-                $"MaxTermMonths ({r.MaxTermMonths}) must be >= MinTermMonths ({r.MinTermMonths}).", nameof(r));
-        if (r.MaxTermMonths > AbsoluteMaxTermMonths)
+                $"MaxTermDays ({r.MaxTermDays}) must be >= MinTermDays ({r.MinTermDays}).", nameof(r));
+        if (r.MaxTermDays > AbsoluteMaxTermDays)
             throw new ArgumentException(
-                $"MaxTermMonths ({r.MaxTermMonths}) cannot exceed the absolute ceiling of {AbsoluteMaxTermMonths} months (7 years).", nameof(r));
+                $"MaxTermDays ({r.MaxTermDays}) cannot exceed the absolute ceiling of {AbsoluteMaxTermDays} days (7 years).", nameof(r));
         if (r.NotarialFee < 0 || r.DocStampFee < 0 || r.InsuranceFee < 0)
             throw new ArgumentException("Fees cannot be negative.", nameof(r));
         if (r.AdvanceInterestRate < 0 || r.AdvanceInterestRate > 1m)

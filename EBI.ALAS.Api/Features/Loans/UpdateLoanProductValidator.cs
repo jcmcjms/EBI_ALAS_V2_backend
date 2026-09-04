@@ -19,15 +19,15 @@ public class UpdateLoanProductValidator : AbstractValidator<UpdateLoanProductReq
             .GreaterThanOrEqualTo(x => x.MinAmount)
             .WithMessage("MaxAmount must be greater than or equal to MinAmount.");
 
-        RuleFor(x => x.MinTermMonths)
+        RuleFor(x => x.MinTermDays)
             .GreaterThanOrEqualTo(0)
-            .WithMessage("MinTermMonths cannot be negative.");
+            .WithMessage("MinTermDays cannot be negative.");
 
-        RuleFor(x => x.MaxTermMonths)
-            .GreaterThanOrEqualTo(x => x.MinTermMonths)
-            .WithMessage("MaxTermMonths must be greater than or equal to MinTermMonths.")
-            .LessThanOrEqualTo(LoanProductService.AbsoluteMaxTermMonths)
-            .WithMessage($"MaxTermMonths cannot exceed the absolute ceiling of {LoanProductService.AbsoluteMaxTermMonths} months (7 years).");
+        RuleFor(x => x.MaxTermDays)
+            .GreaterThanOrEqualTo(x => x.MinTermDays)
+            .WithMessage("MaxTermDays must be greater than or equal to MinTermDays.")
+            .LessThanOrEqualTo(LoanProductService.AbsoluteMaxTermDays)
+            .WithMessage($"MaxTermDays cannot exceed the absolute ceiling of {LoanProductService.AbsoluteMaxTermDays} days (7 years).");
 
         RuleFor(x => x.NotarialFee)
             .GreaterThanOrEqualTo(0)

@@ -99,8 +99,8 @@ public class LoanProductRepository(AppDbContext context) : ILoanProductRepositor
             {
                 existing.MinAmount = product.MinAmount;
                 existing.MaxAmount = product.MaxAmount;
-                existing.MinTermMonths = product.MinTermMonths;
-                existing.MaxTermMonths = product.MaxTermMonths;
+                existing.MinTermDays = product.MinTermDays;
+                existing.MaxTermDays = product.MaxTermDays;
                 existing.NotarialFee = product.NotarialFee;
                 existing.DocStampFee = product.DocStampFee;
                 existing.InsuranceFee = product.InsuranceFee;

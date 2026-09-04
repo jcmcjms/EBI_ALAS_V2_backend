@@ -32,7 +32,7 @@ public interface ILoanProductRepository
     //     from the ClaimsPrincipal at the endpoint layer.
     //
     // `preservePolicyFields` controls whether the upsert overwrites
-    // MinAmount/MaxAmount/TermMonths/fees (true = leave them alone,
+    // MinAmount/MaxAmount/TermDays/fees (true = leave them alone,
     // false = overwrite with the supplied values). The sync passes
     // true so it never wipes out ops-configured policy on a refresh;
     // the admin endpoint passes false to write the new policy.

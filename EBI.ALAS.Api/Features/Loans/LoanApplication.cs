@@ -26,7 +26,7 @@ public class LoanApplication
     public string Product { get; set; } = string.Empty;
     public string? Purpose { get; set; }
     public decimal ProposedAmount { get; set; }
-    public int TermMonths { get; set; }
+    public int TermDays { get; set; }
     public decimal InterestRate { get; set; }
     public string? ModeOfPayment { get; set; }
     public DateTime? DateOfFirstRelease { get; set; }

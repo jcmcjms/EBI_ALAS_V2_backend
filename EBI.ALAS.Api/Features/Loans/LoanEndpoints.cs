@@ -71,7 +71,7 @@ public static class LoanEndpoints
                 Product = loan.Product,
                 Purpose = loan.Purpose,
                 ProposedAmount = loan.ProposedAmount,
-                TermMonths = loan.TermMonths,
+                TermDays = loan.TermDays,
                 InterestRate = loan.InterestRate,
                 ModeOfPayment = loan.ModeOfPayment,
                 DateOfFirstRelease = loan.DateOfFirstRelease,
@@ -149,7 +149,7 @@ public static class LoanEndpoints
                 Product = request.Product,
                 Purpose = request.Purpose,
                 ProposedAmount = request.ProposedAmount,
-                TermMonths = request.TermMonths,
+                TermDays = request.TermDays,
                 InterestRate = request.InterestRate,
                 ModeOfPayment = request.ModeOfPayment,
                 DateOfFirstRelease = request.DateOfFirstRelease,
@@ -189,7 +189,7 @@ public static class LoanEndpoints
                 Product = createdLoan.Product,
                 Purpose = createdLoan.Purpose,
                 ProposedAmount = createdLoan.ProposedAmount,
-                TermMonths = createdLoan.TermMonths,
+                TermDays = createdLoan.TermDays,
                 InterestRate = createdLoan.InterestRate,
                 ModeOfPayment = createdLoan.ModeOfPayment,
                 DateOfFirstRelease = createdLoan.DateOfFirstRelease,
@@ -283,7 +283,7 @@ public static class LoanEndpoints
                 Product = loan.Product,
                 Purpose = loan.Purpose,
                 ProposedAmount = loan.ProposedAmount,
-                TermMonths = loan.TermMonths,
+                TermDays = loan.TermDays,
                 InterestRate = loan.InterestRate,
                 ModeOfPayment = loan.ModeOfPayment,
                 DateOfFirstRelease = loan.DateOfFirstRelease,
@@ -322,7 +322,7 @@ public class LoanResponse
     public string Product { get; set; } = string.Empty;
     public string? Purpose { get; set; }
     public decimal ProposedAmount { get; set; }
-    public int TermMonths { get; set; }
+    public int TermDays { get; set; }
     public decimal InterestRate { get; set; }
     public string? ModeOfPayment { get; set; }
     public DateTime? DateOfFirstRelease { get; set; }
@@ -369,7 +369,7 @@ public class CreateLoanRequest
     public string Product { get; init; } = string.Empty;
     public string? Purpose { get; init; }
     public decimal ProposedAmount { get; init; }
-    public int TermMonths { get; init; }
+    public int TermDays { get; init; }
     public decimal InterestRate { get; init; }
     public string? ModeOfPayment { get; init; }
     public DateTime? DateOfFirstRelease { get; init; }
@@ -460,20 +460,20 @@ public class CreateLoanValidator : AbstractValidator<CreateLoanRequest>
             })
             .WithMessage("Proposed amount must be within the product's allowed range.");
 
-        // 3) The term must be within the product's [MinTermMonths,
-        //    MaxTermMonths] range AND within the absolute 7-year
-        //    (84-month) business ceiling. Both checks are
+        // 3) The term must be within the product's [MinTermDays,
+        //    MaxTermDays] range AND within the absolute 7-year
+        //    (2,555-day) business ceiling. Both checks are
         //    independent and both must pass.
-        RuleFor(x => x.TermMonths)
+        RuleFor(x => x.TermDays)
             .GreaterThan(0)
-            .WithMessage("Term months must be greater than 0")
-            .LessThanOrEqualTo(LoanProductService.AbsoluteMaxTermMonths)
-            .WithMessage($"Term cannot exceed {LoanProductService.AbsoluteMaxTermMonths} months (7 years).")
+            .WithMessage("Term days must be greater than 0")
+            .LessThanOrEqualTo(LoanProductService.AbsoluteMaxTermDays)
+            .WithMessage($"Term cannot exceed {LoanProductService.AbsoluteMaxTermDays} days (7 years).")
             .MustAsync(async (req, term, ct) =>
             {
                 var product = await _productRepository.GetByCodeAsync(req.Product, ct);
                 if (product is null) return true; // rule 1 owns this case
-                return term >= product.MinTermMonths && term <= product.MaxTermMonths;
+                return term >= product.MinTermDays && term <= product.MaxTermDays;
             })
             .WithMessage("Term must be within the product's allowed range.");
 

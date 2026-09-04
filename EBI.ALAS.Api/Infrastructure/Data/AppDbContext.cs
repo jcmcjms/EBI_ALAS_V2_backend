@@ -189,7 +189,7 @@ public class AppDbContext : DbContext
                 .IsRequired()
                 .HasColumnType("decimal(18,2)");
 
-            entity.Property(e => e.TermMonths)
+            entity.Property(e => e.TermDays)
                 .IsRequired();
 
             entity.Property(e => e.InterestRate)
@@ -468,8 +468,8 @@ public class AppDbContext : DbContext
                 .IsRequired()
                 .HasColumnType("decimal(18,2)");
 
-            entity.Property(e => e.MinTermMonths).IsRequired();
-            entity.Property(e => e.MaxTermMonths).IsRequired();
+            entity.Property(e => e.MinTermDays).IsRequired();
+            entity.Property(e => e.MaxTermDays).IsRequired();
 
             // Fees — all PHP, all decimal(18,2) for consistency with
             // proposed-amount.

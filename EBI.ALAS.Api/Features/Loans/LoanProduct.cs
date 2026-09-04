@@ -49,17 +49,15 @@ public class LoanProduct
     [Column("MaxAmount")]
     public decimal MaxAmount { get; set; }
 
-    // Shortest term an encoder can request, in whole months. Product
-    // rules in PH banking are typically in months; if a product ever
-    // needs day-granularity, the sync layer would have to convert.
-    [Column("MinTermMonths")]
-    public int MinTermMonths { get; set; }
+    // Shortest term an encoder can request, in whole days.
+    [Column("MinTermDays")]
+    public int MinTermDays { get; set; }
 
-    // Longest term, in months. The business has a hard 7-year (84-month)
+    // Longest term, in days. The business has a hard 7-year (2,555-day)
     // ceiling on all products; the validator enforces that on top of
     // this per-product value.
-    [Column("MaxTermMonths")]
-    public int MaxTermMonths { get; set; }
+    [Column("MaxTermDays")]
+    public int MaxTermDays { get; set; }
 
     // ── Fees & charges (ALAS-owned, all PHP) ──────────────────────────
     // Flat-fee columns. Each loan disbursement shows these as line
@@ -81,7 +79,7 @@ public class LoanProduct
     // banking means interest is deducted from proceeds at disbursement
     // (the borrower receives Principal - Interest - Fees). The
     // disbursement service multiplies this by principal and
-    // (termMonths / 12) to compute the deduction. 0.120000 = 12% p.a.
+    // (termDays / 365) to compute the deduction. 0.120000 = 12% p.a.
     //
     // We do NOT store a per-term rate table; products with rate
     // brackets need a separate child table (out of scope for this
