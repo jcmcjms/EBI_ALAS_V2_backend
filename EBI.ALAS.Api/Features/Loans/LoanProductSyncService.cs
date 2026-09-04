@@ -68,6 +68,11 @@ public class LoanProductSyncService(
                 // we set it explicitly here based on the webloan
                 // signal — a brand-new webloan product is active by
                 // construction.
+                //
+                // UpdatedDate/UpdatedById: sync is a system action, so
+                // updatedByUserId=null and updatedDate=syncedAt. The
+                // repository stamps both fields centrally, so the sync
+                // path does not have to know the audit-column shape.
                 var newRow = new LoanProduct
                 {
                     Code = wp.IdCode,
@@ -85,7 +90,11 @@ public class LoanProductSyncService(
                 };
 
                 await loanProductRepository.UpsertAsync(
-                    newRow, preservePolicyFields: true, ct);
+                    newRow,
+                    preservePolicyFields: true,
+                    updatedByUserId: null,
+                    updatedDate: syncedAt,
+                    ct);
                 added++;
             }
             else
@@ -108,7 +117,11 @@ public class LoanProductSyncService(
                     // fees alone. Ops configured them; the sync must
                     // not silently revert them on every refresh.
                     await loanProductRepository.UpsertAsync(
-                        existing, preservePolicyFields: true, ct);
+                        existing,
+                        preservePolicyFields: true,
+                        updatedByUserId: null,
+                        updatedDate: syncedAt,
+                        ct);
                     updated++;
                 }
                 else
@@ -120,7 +133,11 @@ public class LoanProductSyncService(
                     // "synced 3 days ago" on a healthy mirror.
                     existing.LastSyncedAt = syncedAt;
                     await loanProductRepository.UpsertAsync(
-                        existing, preservePolicyFields: true, ct);
+                        existing,
+                        preservePolicyFields: true,
+                        updatedByUserId: null,
+                        updatedDate: syncedAt,
+                        ct);
                     preserved++;
                 }
             }

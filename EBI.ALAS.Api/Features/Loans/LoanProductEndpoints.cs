@@ -1,3 +1,5 @@
+using System.Security.Claims;
+using EBI.ALAS.Api.Common.Extensions;
 using EBI.ALAS.Api.Common.Models;
 using FluentValidation;
 using Microsoft.AspNetCore.Mvc;
@@ -86,6 +88,7 @@ public static class LoanProductEndpoints
             [FromBody] UpdateLoanProductRequest request,
             IValidator<UpdateLoanProductRequest> validator,
             ILoanProductService service,
+            ClaimsPrincipal user,
             CancellationToken ct) =>
         {
             var validation = await validator.ValidateAsync(request, ct);
@@ -103,7 +106,18 @@ public static class LoanProductEndpoints
 
             try
             {
-                var updated = await service.UpdateAsync(code, request, ct);
+                // Resolve the caller's User.Id from the JWT claim so
+                // the row's UpdatedById carries the human attribution.
+                // RequireAuthorization("CanManageLoanProduct") has
+                // already gated this endpoint to admins, so the
+                // resolved id is trustworthy. If the claim is
+                // somehow missing (shouldn't happen post-authz),
+                // GetUserId() returns 0 — the repository will then
+                // save a row attributed to user 0, which the admin
+                // grid will surface as an obvious anomaly rather
+                // than silently misattribute.
+                var userId = user.GetUserId();
+                var updated = await service.UpdateAsync(code, request, userId, ct);
                 return updated is null
                     ? Results.NotFound(
                         ApiResponse.ErrorResponse($"Loan product '{code}' not found."))

@@ -25,17 +25,26 @@ public interface ILoanProductRepository
     // ─── Write paths (Admin / sync) ─────────────────────────────────────
     // Upsert by natural key. Called by:
     //   * The sync service when webloan introduces a new product or
-    //     changes a retirement flag.
-    //   * The admin update endpoint when ops changes the policy fields.
+    //     changes a retirement flag. updatedByUserId=null (system
+    //     action — no human attribution).
+    //   * The admin update endpoint when ops changes the policy
+    //     fields. updatedByUserId is the caller's User.Id, resolved
+    //     from the ClaimsPrincipal at the endpoint layer.
     //
     // `preservePolicyFields` controls whether the upsert overwrites
     // MinAmount/MaxAmount/TermMonths/fees (true = leave them alone,
     // false = overwrite with the supplied values). The sync passes
     // true so it never wipes out ops-configured policy on a refresh;
     // the admin endpoint passes false to write the new policy.
+    //
+    // `updatedDate` is server-supplied via ITimeProvider so audit
+    // timestamps are testable and timezone handling stays centralized
+    // — callers NEVER pass DateTime.UtcNow directly.
     Task<LoanProduct> UpsertAsync(
         LoanProduct product,
         bool preservePolicyFields,
+        int? updatedByUserId,
+        DateTime updatedDate,
         CancellationToken ct = default);
 
     // Hard delete by code. Used by the admin "remove" path; the sync

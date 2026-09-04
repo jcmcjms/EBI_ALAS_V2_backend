@@ -40,6 +40,8 @@ public class LoanProductRepository(AppDbContext context) : ILoanProductRepositor
     public async Task<LoanProduct> UpsertAsync(
         LoanProduct product,
         bool preservePolicyFields,
+        int? updatedByUserId,
+        DateTime updatedDate,
         CancellationToken ct = default)
     {
         // Two distinct behaviors depending on the caller:
@@ -47,9 +49,19 @@ public class LoanProductRepository(AppDbContext context) : ILoanProductRepositor
         //     is the source of truth for code/description/IsRetired/
         //     LastSyncedAt only. Policy fields (min/max/term/fees) are
         //     never touched — ops has configured them and a sync run
-        //     must not silently revert them.
+        //     must not silently revert them. updatedByUserId is null
+        //     (system action — no human attribution).
         //   * preservePolicyFields=false → admin endpoint. Caller
         //     supplied the full record; overwrite the row wholesale.
+        //     updatedByUserId is the caller-resolved User.Id.
+        //
+        // Both paths bump UpdatedDate to `updatedDate` (server-supplied
+        // via ITimeProvider, not DateTime.UtcNow) and set UpdatedById
+        // from `updatedByUserId`. Centralizing the audit-field writes
+        // here means the two callers cannot drift on what counts as
+        // "the row changed" — every successful SaveChangesAsync
+        // touches UpdatedDate, so the admin grid's "last modified"
+        // column reflects reality across both paths.
         //
         // Why merge instead of delete+insert: the PK is the natural
         // key (Code) — the row has no surrogate Id — so a
@@ -66,6 +78,14 @@ public class LoanProductRepository(AppDbContext context) : ILoanProductRepositor
             // a sync-inserted row is hidden from the dropdown until
             // the FIRST sync run explicitly marks it active. Prevents
             // a half-configured mirror from leaking into production.
+            //
+            // Audit fields: stamp UpdatedDate at insert time so a
+            // brand-new row already carries a "when did this enter the
+            // mirror?" signal. UpdatedById is whatever the caller
+            // supplied — null for sync, the admin's id for admin
+            // inserts (none today, but the schema supports it).
+            product.UpdatedDate = updatedDate;
+            product.UpdatedById = updatedByUserId;
             await context.LoanProducts.AddAsync(product, ct);
         }
         else
@@ -86,6 +106,15 @@ public class LoanProductRepository(AppDbContext context) : ILoanProductRepositor
                 existing.InsuranceFee = product.InsuranceFee;
                 existing.AdvanceInterestRate = product.AdvanceInterestRate;
             }
+
+            // Audit fields. ALWAYS bump them on every successful save
+            // — even on the sync "preserved" path where none of the
+            // business columns change, the row was still re-stamped
+            // and the audit log will reflect that. This keeps
+            // UpdatedDate in sync with reality and gives ops a single
+            // "when did this row last move?" answer.
+            existing.UpdatedDate = updatedDate;
+            existing.UpdatedById = updatedByUserId;
         }
 
         await context.SaveChangesAsync(ct);

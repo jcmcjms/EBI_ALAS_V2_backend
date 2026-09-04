@@ -1,8 +1,11 @@
+using EBI.ALAS.Api.Common.Time;
+
 namespace EBI.ALAS.Api.Features.Loans;
 
 public class LoanProductService(
     ILoanProductRepository repository,
-    ILoanProductSyncService syncService) : ILoanProductService
+    ILoanProductSyncService syncService,
+    ITimeProvider timeProvider) : ILoanProductService
 {
     // Hard business ceiling: no product may offer more than 7 years
     // (84 months) of term. Enforced here AND in the validator so the
@@ -30,6 +33,7 @@ public class LoanProductService(
     public async Task<LoanProductResponse?> UpdateAsync(
         string code,
         UpdateLoanProductRequest request,
+        int updatedByUserId,
         CancellationToken ct = default)
     {
         // Mirror rows for the policy fields can only be configured
@@ -63,9 +67,17 @@ public class LoanProductService(
 
         // UpsertAsync with preservePolicyFields=false is what writes
         // the updated row — the merge helper keeps the logic in one
-        // place.
+        // place. updatedByUserId comes from the endpoint (the
+        // caller's User.Id, resolved from the ClaimsPrincipal); the
+        // server clock (ITimeProvider — never DateTime.UtcNow) is the
+        // UpdatedDate source so all writes are testable and timezone
+        // handling stays centralized in Common/Time/.
         var updated = await repository.UpsertAsync(
-            existing, preservePolicyFields: false, ct);
+            existing,
+            preservePolicyFields: false,
+            updatedByUserId: updatedByUserId,
+            updatedDate: timeProvider.UtcNow,
+            ct);
         return ToResponse(updated);
     }
 
@@ -87,7 +99,18 @@ public class LoanProductService(
         p.InsuranceFee,
         p.AdvanceInterestRate,
         p.IsRetired,
-        p.LastSyncedAt);
+        p.LastSyncedAt,
+        p.UpdatedDate,
+        p.UpdatedById,
+        // Resolved from the navigation property when it is loaded
+        // (sync-driven rows have null UpdatedById, so the name is
+        // null too — the UI shows "system" or hides the column for
+        // those rows). The repository does NOT eagerly include
+        // UpdatedBy today; the admin grid query that needs the name
+        // should .Include(p => p.UpdatedBy) at the call site.
+        p.UpdatedBy is null
+            ? null
+            : $"{p.UpdatedBy.FirstName} {p.UpdatedBy.LastName}");
 
     private static void ValidatePolicyFields(UpdateLoanProductRequest r)
     {

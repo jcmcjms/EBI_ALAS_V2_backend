@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations.Schema;
+using EBI.ALAS.Api.Features.Auth;
 
 namespace EBI.ALAS.Api.Features.Loans;
 
@@ -104,4 +105,39 @@ public class LoanProduct
     // ops can see the lag without querying the webloan DB.
     [Column("LastSyncedAt")]
     public DateTime LastSyncedAt { get; set; }
+
+    // ── Audit (ALAS-owned) ───────────────────────────────────────────
+    // Last-modification timestamp across BOTH the sync path and the
+    // admin update path. Source of truth for "when did this row last
+    // change?". Distinct from LastSyncedAt, which is only bumped when
+    // webloan-side fields are refreshed — UpdatedDate is bumped on
+    // every successful SaveChangesAsync, including admin edits of
+    // policy fields.
+    //
+    // Stored as datetime2 (not datetime) — same type used by
+    // LoanApplication.LastActionDate and User.CreatedAt, so the
+    // audit-log timeline across the system is homogeneous.
+    [Column("UpdatedDate")]
+    public DateTime UpdatedDate { get; set; }
+
+    // User who last modified the row. NULL on rows inserted by the
+    // background sync service — system actions have no human
+    // attribution. The endpoint layer requires CanManageLoanProduct
+    // and passes the caller's user id, so UpdatedById is non-null on
+    // any admin-driven change.
+    //
+    // Stored as int (matching LoanApplication.CreatedById /
+    // LoanAction.ActionByUserId) rather than nvarchar(username) so
+    // renames don't rewrite history. The FK is set with
+    // DeleteBehavior.Restrict in AppDbContext to mirror the
+    // LoanApplication.CreatedBy convention — orphaning a user must
+    // never silently rewrite audit history.
+    [Column("UpdatedById")]
+    public int? UpdatedById { get; set; }
+
+    // Navigation property — populated by .Include(p => p.UpdatedBy)
+    // on read paths that need to surface the modifier's name. Not
+    // eagerly loaded by default; the response DTO handles the
+    // nullable case (UpdatedByName may be null for sync-driven rows).
+    public User? UpdatedBy { get; set; } = null!;
 }

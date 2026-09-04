@@ -506,6 +506,45 @@ public class AppDbContext : DbContext
                 .IsRequired()
                 .HasDefaultValue(true);
             entity.Property(e => e.LastSyncedAt).IsRequired();
+
+            // ── Audit (UpdatedDate / UpdatedById) ────────────────────
+            // UpdatedDate is datetime2 to match every other timestamp
+            // column in the schema (LoanApplication.LastActionDate,
+            // User.CreatedAt, AuditLog.Timestamp). Required because
+            // the repository sets it on every successful
+            // SaveChangesAsync — the application, not the DB, owns the
+            // value, so no SQL DEFAULT.
+            entity.Property(e => e.UpdatedDate)
+                .IsRequired();
+
+            // UpdatedById is a nullable int FK to User.Id. Nullable
+            // because the background sync service inserts/updates rows
+            // with no human attribution. On admin-driven updates the
+            // endpoint layer passes the caller's user id so the column
+            // is non-null at that point.
+            entity.Property(e => e.UpdatedById);
+
+            // Index on UpdatedById so the admin "show rows modified by
+            // user X" filter pattern (and any future per-modifier
+            // audit query) does a single seek. Single-column index —
+            // a composite is unnecessary because UpdatedById is
+            // already selective on its own (each user only touches a
+            // handful of products), and EF can combine the index with
+            // the PK seek if the predicate also narrows on Code.
+            entity.HasIndex(e => e.UpdatedById)
+                .HasDatabaseName("IX_LoanProducts_UpdatedById");
+
+            // FK to User. Restrict (not Cascade) mirrors
+            // LoanApplication.CreatedById — deleting a user must
+            // never silently rewrite the audit history by nulling the
+            // modifier on every row they touched. SetNull was the
+            // alternative but it would erase attribution; an admin
+            // who wants to retire a user with historical edits has to
+            // first reassign or soft-delete the affected rows.
+            entity.HasOne(e => e.UpdatedBy)
+                .WithMany()
+                .HasForeignKey(e => e.UpdatedById)
+                .OnDelete(DeleteBehavior.Restrict);
         });
     }
 }

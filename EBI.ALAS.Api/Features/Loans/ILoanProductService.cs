@@ -18,7 +18,10 @@ public record LoanProductResponse(
     decimal InsuranceFee,
     decimal AdvanceInterestRate,
     bool IsRetired,
-    DateTime LastSyncedAt);
+    DateTime LastSyncedAt,
+    DateTime UpdatedDate,
+    int? UpdatedById,
+    string? UpdatedByName);
 
 // Admin write shape. The sync service writes via the repository
 // directly; this DTO is the human-facing surface for ops to configure
@@ -54,9 +57,16 @@ public interface ILoanProductService
 
     // Returns null when the code does not exist in the mirror. The
     // endpoint layer maps that to 404.
+    //
+    // `updatedByUserId` is the caller's User.Id (resolved from the
+    // ClaimsPrincipal at the endpoint layer). It is recorded on the
+    // UpdatedById column so admin edits stay attributable. The sync
+    // path does not call this — sync writes via the repository
+    // directly and leaves UpdatedById null (system action).
     Task<LoanProductResponse?> UpdateAsync(
         string code,
         UpdateLoanProductRequest request,
+        int updatedByUserId,
         CancellationToken ct = default);
 
     // Triggers a manual sync run. Used by the admin "Sync now" button
