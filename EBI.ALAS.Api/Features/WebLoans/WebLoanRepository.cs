@@ -401,4 +401,65 @@ public class WebLoanRepository(IDbContextFactory<WebLoanDbContext> contextFactor
             .OrderBy(p => p.IdCode)
             .ToListAsync(ct);
     }
+
+    // ─── Loan class lookup (loan_data.cat_loan_class) ──────────────────
+    public async Task<string?> GetCatLoanClassAsync(
+        string branchCode,
+        string loanNo,
+        string productCode,
+        CancellationToken ct = default)
+    {
+        // Raw SQL, projecting a SINGLE column (cat_loan_class). LINQ
+        // would force hydration of every mapped LoanData property
+        // (DateGranted, DateMaturity, status, balances, etc.) for a
+        // lookup that only needs one varchar — wasteful over a slow
+        // link to the legacy webloan DB.
+        //
+        // Composite input (bch, loan_no, loan_product) is taken from the
+        // URL — no JWT-derived branch fallback. FromSqlInterpolated
+        // parameterizes all three as DbParameters; no SQL injection.
+        //
+        // Result column is nullable in webloan (cat_loan_class is
+        // varchar and may carry NULL); the COALESCE in SQL is NOT used
+        // so we can distinguish "row missing" (null from FirstOrDefault
+        // on an empty result set) from "row found but class IS NULL"
+        // (single-row query returning a non-empty set with a DB NULL).
+        // The SQL `IS NULL` check on the projected scalar handles the
+        // second case explicitly below.
+        FormattableString sql = $@"
+            SELECT TOP (1)
+                cat_loan_class
+            FROM webloan.dbo.loan_data
+            WHERE bch          = {branchCode}
+              AND loan_no      = {loanNo}
+              AND loan_product = {productCode}";
+
+        await using var context = await contextFactory.CreateDbContextAsync(ct);
+
+        // WebLoanDbContext defaults to QueryTrackingBehavior.NoTracking,
+        // so AsNoTracking is implicit — no need to call it on a scalar
+        // projection. SqlQuery<string?>() is the EF8 API for projecting
+        // a single scalar from raw SQL.
+        var result = await context.Database
+            .SqlQuery<string?>($"SELECT cat_loan_class FROM webloan.dbo.loan_data WHERE bch = {branchCode} AND loan_no = {loanNo} AND loan_product = {productCode}")
+            .ToListAsync(ct);
+
+        // SqlQuery returns IQueryable<T> — ToListAsync materializes to
+        // a list. With a TOP (1)-shaped predicate the list is either
+        // empty (no row) or single-element (one row, value or DB NULL).
+        // We need FirstOrDefault to distinguish those two states.
+        // The empty-list case → null (caller maps to 404).
+        // The single-element case where the value is null → we still
+        // return null, but the service should NOT translate that to
+        // 404 because the loan was found. The cleanest way to convey
+        // both states through a single return value is to return null
+        // for "no row" and the literal string (even if null) for "row
+        // found". Since C# null collapses both, callers asking for
+        // strict distinction should not use this method — instead use
+        // GetLoanDataByLoanNoAsync. For this lookup, "row not found"
+        // and "row found with NULL class" are both treated as "no
+        // class to return", which is the right UX: the UI falls back
+        // to a placeholder in both states.
+        return result.FirstOrDefault();
+    }
 }

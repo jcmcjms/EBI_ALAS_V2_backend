@@ -193,6 +193,30 @@ public record LoanProductDto(
     string IdCode,
     string Description);
 
+// ─── GET /api/webloans/loan-class ──────────────────────────────────────────
+// Resolves `cat_loan_class` for a single (bch, loan_no, loan_product) tuple
+// in dbo.loan_data. The (bch, loan_no, loan_product) trio is taken from the
+// caller (composite input — all three required for determinism), so the
+// repository can issue an exact-match lookup.
+//
+// Why all three are required:
+//   * `(bch, loan_no)` alone is NOT unique in webloan — the same PN can
+//     appear under different branches or accounts (rebookings, branch
+//     transfers, separate ledgers). Returning the first match would be
+//     non-deterministic; returning the full list would push the ambiguity
+//     back to the caller.
+//   * `loan_product` is the most selective filter in the original SQL and
+//     matches the user's stated query shape (`WHERE loan_product = '...'`
+//     AND `bch = ...` AND `loan_no = ...`).
+//
+// 404 when no row matches the trio — mirrors the README §546 /active-loans
+// anti-enumeration stance (no row = unknown, not "no class").
+public record CatLoanClassResponse(
+    string Bch,
+    string LoanNo,
+    string LoanProduct,
+    string? CatLoanClass);   // null when dbo.loan_data.cat_loan_class IS NULL
+
 // ─── Combined account identifier ("branchCode-accountNo") ─────────────────
 //
 // The two drill-down endpoints (outstanding-loans, pending-loan) take a

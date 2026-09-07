@@ -17,6 +17,7 @@ public class LoanData
     [Column("granted_rate")] public decimal? GrantedRate { get; set; }
     [Column("effective_rate")] public decimal? EffectiveRate { get; set; }
     [Column("cat_loan_purpose")] public string? Purpose { get; set; }
+    [Column("cat_loan_class")] public string? LoanClass { get; set; }
     [Column("principal")] public decimal? Principal { get; set; }
     [Column("applied_principal")] public decimal? AppliedPrincipal { get; set; }
 

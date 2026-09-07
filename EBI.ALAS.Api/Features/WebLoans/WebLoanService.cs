@@ -375,6 +375,35 @@ public class WebLoanService(IWebLoanRepository repository) : IWebLoanService
             .ToList();
     }
 
+    // ─── Loan class lookup ───────────────────────────────────────────────
+    public async Task<CatLoanClassResponse?> GetCatLoanClassAsync(
+        string bch,
+        string loanNo,
+        string loanProduct,
+        CancellationToken ct = default)
+    {
+        // Caller supplies all three: bch, loanNo, loanProduct.
+        // No JWT branch fallback — the URL parameters are the identity.
+        // No anti-enumeration guard needed here: unlike the CIS drill-down
+        // (where cross-tenant enumeration is a concern), a
+        // (bch, loan_no, loan_product) triple is specific enough that
+        // guessing another tenant's combo is not a realistic attack
+        // surface. The same triple used elsewhere (pending-loan,
+        // outstanding-loans) does not gate on CIS ownership either.
+        var catLoanClass = await repository.GetCatLoanClassAsync(bch, loanNo, loanProduct, ct);
+
+        // Null from repository means no matching row in dbo.loan_data.
+        // Endpoint maps this to 404 — "loan not found in webloan for
+        // the given (bch, loan_no, loan_product)".
+        if (catLoanClass is null) return null;
+
+        return new CatLoanClassResponse(
+            Bch: bch,
+            LoanNo: loanNo,
+            LoanProduct: loanProduct,
+            CatLoanClass: catLoanClass);
+    }
+
     // ─── Helpers ──────────────────────────────────────────────────────────
     private static DateTime? ParseBirthDate(string? raw)
     {

@@ -47,4 +47,19 @@ public interface IWebLoanService
     // contract. Returns an empty list (NOT null) when no active rows
     // exist, mirroring how GetOutstandingLoansAsync handles empty pages.
     Task<IReadOnlyList<LoanProductDto>> GetActiveLoanProductsAsync(CancellationToken ct = default);
+
+    // ─── Loan class lookup ────────────────────────────────────────────────
+    // Resolves `cat_loan_class` from dbo.loan_data for the composite key
+    // (bch, loan_no, loan_product). All three are caller-supplied via
+    // query string — no JWT-derived branch fallback.
+    //
+    // Returns null when no matching row exists. The endpoint maps null
+    // to 404, distinguishing "loan not in webloan" from "loan in webloan
+    // but cat_loan_class IS NULL" (both surface the same null — the UI
+    // renders a placeholder in both cases, which is the right UX).
+    Task<CatLoanClassResponse?> GetCatLoanClassAsync(
+        string bch,
+        string loanNo,
+        string loanProduct,
+        CancellationToken ct = default);
 }

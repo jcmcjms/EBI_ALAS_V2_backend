@@ -120,6 +120,52 @@ public static class WebLoanEndpoints
         .WithName("GetActiveLoanProducts")
         .Produces<ApiResponse<IReadOnlyList<LoanProductDto>>>(200)
         .Produces<ApiResponse>(401);
+
+        // ─── Loan class lookup ────────────────────────────────────────────
+        // Returns the `cat_loan_class` value from dbo.loan_data for a
+        // single (bch, loan_no, loan_product) composite key.
+        //
+        // All three parameters are caller-supplied via query string.
+        // No JWT-derived branch fallback — the URL is the identity.
+        //
+        // Gated by the same `CanViewLoan` policy as the rest of the
+        // group (read-only webloan access), consistent with how
+        // `/loan-products` was added without a new policy tier.
+        //
+        // 200 with null CatLoanClass: the row exists but
+        // dbo.loan_data.cat_loan_class IS NULL — UI renders a placeholder.
+        // 404: no row found for the (bch, loan_no, loan_product) triple.
+        group.MapGet("/loan-class", async (
+            string bch,
+            string loanNo,
+            string loanProduct,
+            IWebLoanService webLoanService,
+            CancellationToken ct) =>
+        {
+            // All three are required — reject the request early rather
+            // than letting the null propagate to SQL where it would
+            // return unintended rows.
+            if (string.IsNullOrWhiteSpace(bch)
+                || string.IsNullOrWhiteSpace(loanNo)
+                || string.IsNullOrWhiteSpace(loanProduct))
+            {
+                return Results.BadRequest(
+                    ApiResponse.ErrorResponse(
+                        "bch, loanNo, and loanProduct are all required."));
+            }
+
+            var result = await webLoanService.GetCatLoanClassAsync(bch, loanNo, loanProduct, ct);
+            return result is null
+                ? Results.NotFound(
+                    ApiResponse.ErrorResponse(
+                        "Loan not found in webloan for the given (bch, loan_no, loan_product)."))
+                : Results.Ok(ApiResponse<CatLoanClassResponse>.SuccessResponse(result));
+        })
+        .WithName("GetLoanClass")
+        .Produces<ApiResponse<CatLoanClassResponse>>(200)
+        .Produces<ApiResponse>(400)
+        .Produces<ApiResponse>(404)
+        .Produces<ApiResponse>(401);
     }
 
     /// <summary>

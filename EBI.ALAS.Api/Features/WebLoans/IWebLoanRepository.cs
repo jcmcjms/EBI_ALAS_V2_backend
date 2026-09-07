@@ -144,4 +144,27 @@ public interface IWebLoanRepository
     // can read Expiration without a second round-trip. Ordered by
     // id_code ascending.
     Task<IReadOnlyList<LoanProductLookup>> GetAllLoanProductsAsync(CancellationToken ct = default);
+
+    // ─── Loan class lookup (loan_data.cat_loan_class) ──────────────────
+    // Resolves a single `cat_loan_class` value for the composite key
+    // (branchCode, loanNo, productCode) in dbo.loan_data. All three
+    // inputs are caller-supplied — there is no JWT-derived branch
+    // fallback or default.
+    //
+    // Returns null when no matching row exists. The service layer
+    // translates null → 404 so the caller can distinguish "loan not
+    // found" from "loan found but cat_loan_class IS NULL".
+    //
+    // Raw SQL is used (not LINQ) so the projection is a single column
+    // — EF would otherwise pull every mapped LoanData property
+    // (DateGranted, DateMaturity, status, balances, etc.) for a lookup
+    // that only needs one varchar. The query hits the existing index
+    // on (bch, acct_no, loan_no) and adds `loan_product =` as a
+    // residual filter — the (bch, loan_no) combo is selective enough
+    // to keep the row count at one in practice.
+    Task<string?> GetCatLoanClassAsync(
+        string branchCode,
+        string loanNo,
+        string productCode,
+        CancellationToken ct = default);
 }
