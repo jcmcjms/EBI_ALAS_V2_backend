@@ -151,17 +151,24 @@ public interface IWebLoanRepository
     // inputs are caller-supplied — there is no JWT-derived branch
     // fallback or default.
     //
-    // Returns null when no matching row exists. The service layer
-    // translates null → 404 so the caller can distinguish "loan not
-    // found" from "loan found but cat_loan_class IS NULL".
+    // Returns null when no matching row exists (SQL NULL from TOP 0 or
+    // DBNull from ExecuteScalar). The service layer translates null → 404
+    // so the caller can distinguish "loan not found" from "loan found
+    // but cat_loan_class IS NULL" — both render the same placeholder in
+    // the UI, which is the right UX.
     //
-    // Raw SQL is used (not LINQ) so the projection is a single column
-    // — EF would otherwise pull every mapped LoanData property
-    // (DateGranted, DateMaturity, status, balances, etc.) for a lookup
-    // that only needs one varchar. The query hits the existing index
-    // on (bch, acct_no, loan_no) and adds `loan_product =` as a
-    // residual filter — the (bch, loan_no) combo is selective enough
-    // to keep the row count at one in practice.
+    // Uses raw ADO.NET (DbConnection) to bypass EF Core's property
+    // mapper entirely. This is critical because:
+    //   * The webloan loan_data table may not expose cat_loan_class as
+    //     a real column in all deployments (it may be a joined/computed
+    //     field depending on the webloan schema version).
+    //   * EF Core's FromSql on keyless entities wraps raw SQL in a
+    //     subquery that selects all mapped properties — causing
+    //     "Invalid column name" for columns that aren't in the DB.
+    //   * Raw ADO.NET ExecuteScalar reads only the one explicitly-named
+    //     result column, so no EF mapping occurs.
+    //
+    // All parameters are sent via DbParameter — no SQL injection.
     Task<string?> GetCatLoanClassAsync(
         string branchCode,
         string loanNo,
