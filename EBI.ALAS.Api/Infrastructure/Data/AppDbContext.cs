@@ -18,6 +18,9 @@ public class AppDbContext : DbContext
     public DbSet<LoanAction> LoanActions => Set<LoanAction>();
     public DbSet<OutstandingLoan> OutstandingLoans => Set<OutstandingLoan>();
     public DbSet<BuyOut> BuyOuts => Set<BuyOut>();
+    public DbSet<EbiReloan> EbiReloans => Set<EbiReloan>();
+    public DbSet<IncomingLoan> IncomingLoans => Set<IncomingLoan>();
+    public DbSet<LoanSubmissionIdempotency> LoanSubmissionIdempotencies => Set<LoanSubmissionIdempotency>();
     public DbSet<RevokedToken> RevokedTokens => Set<RevokedToken>();
     public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
     public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
@@ -127,6 +130,15 @@ public class AppDbContext : DbContext
             entity.HasIndex(e => e.FormNumber)
                 .IsUnique();
 
+            // ── Multi-loan submission: group key, per-loan PN/product ──
+            entity.Property(e => e.ApplicationGroupNo)
+                .IsRequired()
+                .HasMaxLength(30);
+            entity.HasIndex(e => e.ApplicationGroupNo)
+                .HasDatabaseName("IX_LoanApplications_ApplicationGroupNo");
+            entity.HasIndex(e => e.LoanNo)
+                .HasDatabaseName("IX_LoanApplications_LoanNo");
+
             // Composite indexes for common query patterns
             entity.HasIndex(e => new { e.Status, e.BranchCode })
                 .HasDatabaseName("IX_LoanApplications_Status_BranchCode");
@@ -141,6 +153,11 @@ public class AppDbContext : DbContext
             entity.Property(e => e.BranchCode)
                 .IsRequired()
                 .HasMaxLength(20);
+
+            // ── §1.2 branch & type ──
+            entity.Property(e => e.CreationTypeLabel).HasMaxLength(50);
+            entity.Property(e => e.RequestingOfficer).HasMaxLength(150);
+            entity.Property(e => e.Lai).HasMaxLength(30);
 
             // Client Information
             entity.Property(e => e.CisId)
@@ -157,6 +174,12 @@ public class AppDbContext : DbContext
                 .IsRequired()
                 .HasMaxLength(100);
 
+            entity.Property(e => e.Suffix).HasMaxLength(10);
+
+            entity.Property(e => e.Birthdate);
+
+            entity.Property(e => e.Address).HasMaxLength(500);
+
             entity.Property(e => e.Agency)
                 .HasMaxLength(100);
 
@@ -169,6 +192,12 @@ public class AppDbContext : DbContext
             entity.Property(e => e.NetTakeHomePay)
                 .HasColumnType("decimal(18,2)");
 
+            entity.Property(e => e.LengthOfService).HasMaxLength(50);
+            entity.Property(e => e.Region).HasMaxLength(10);
+            entity.Property(e => e.DivisionCode).HasMaxLength(10);
+            entity.Property(e => e.StationCode).HasMaxLength(10);
+            entity.Property(e => e.MisAgency).HasMaxLength(200);
+
             // Manual-entry information (School / Referrer) — length caps
             // mirror the Zod schema and FluentValidation on the create path.
             entity.Property(e => e.School)
@@ -177,7 +206,14 @@ public class AppDbContext : DbContext
             entity.Property(e => e.Referrer)
                 .HasMaxLength(100);
 
-            // Loan Parameters
+            // ── §3 per-loan parameters ──
+            entity.Property(e => e.LoanNo)
+                .IsRequired()
+                .HasMaxLength(50);
+            entity.Property(e => e.ProductCode)
+                .IsRequired()
+                .HasMaxLength(20);
+
             entity.Property(e => e.Product)
                 .IsRequired()
                 .HasMaxLength(100);
@@ -192,15 +228,67 @@ public class AppDbContext : DbContext
             entity.Property(e => e.TermDays)
                 .IsRequired();
 
+            // FIX: decimal(5,2) rounded 0.0966 → 0.10 silently on save.
+            // Match LoanProduct.AdvanceInterestRate (decimal(9,6)).
             entity.Property(e => e.InterestRate)
                 .IsRequired()
-                .HasColumnType("decimal(5,2)");
+                .HasColumnType("decimal(9,6)");
+
+            entity.Property(e => e.NthpDate);
+
+            // ── §3 bank fees (AO entry + policy snapshot) ──
+            entity.Property(e => e.NotarialFee).HasColumnType("decimal(18,2)");
+            entity.Property(e => e.DocStamps).HasColumnType("decimal(18,2)");
+            entity.Property(e => e.Insurance).HasColumnType("decimal(18,2)");
+            entity.Property(e => e.StandardNotarialFee).HasColumnType("decimal(18,2)");
+            entity.Property(e => e.StandardDocStamps).HasColumnType("decimal(18,2)");
+            entity.Property(e => e.StandardInsurance).HasColumnType("decimal(18,2)");
 
             entity.Property(e => e.ModeOfPayment)
                 .HasMaxLength(50);
 
             entity.Property(e => e.CoMaker)
                 .HasMaxLength(200);
+
+            // ── §6 / §7 verification + deviations ──
+            entity.Property(e => e.VerificationFindings).HasMaxLength(2000);
+
+            entity.Property(e => e.HasDeviations).IsRequired().HasDefaultValue(false);
+
+            // DeviationDetails: List<string> JSON column with value-comparer
+            // so EF can detect add/remove without a roundtrip.
+            var listComparer = new ValueComparer<List<string>>(
+                (c1, c2) => c1.SequenceEqual(c2),
+                c => c.Aggregate(0, (a, v) => HashCode.Combine(a, v.GetHashCode())),
+                c => c.ToList());
+
+            entity.Property(e => e.DeviationDetails)
+                .HasConversion(
+                    v => JsonSerializer.Serialize(v, (JsonSerializerOptions?)null),
+                    v => JsonSerializer.Deserialize<List<string>>(v, (JsonSerializerOptions?)null) ?? new List<string>())
+                .HasColumnType("nvarchar(max)")
+                .Metadata.SetValueComparer(listComparer);
+
+            // DeviationJustifications: Dictionary<string, string> JSON column.
+            var mapComparer = new ValueComparer<Dictionary<string, string>>(
+                (c1, c2) => c1.Count == c2.Count && !c1.Except(c2).Any(),
+                c => c.Aggregate(0, (a, kv) => HashCode.Combine(a, kv.Key.GetHashCode(), kv.Value.GetHashCode())),
+                c => new Dictionary<string, string>(c));
+
+            entity.Property(e => e.DeviationJustifications)
+                .HasConversion(
+                    v => JsonSerializer.Serialize(v, (JsonSerializerOptions?)null),
+                    v => JsonSerializer.Deserialize<Dictionary<string, string>>(v, (JsonSerializerOptions?)null) ?? new Dictionary<string, string>())
+                .HasColumnType("nvarchar(max)")
+                .Metadata.SetValueComparer(mapComparer);
+
+            entity.Property(e => e.Remarks).HasMaxLength(1000);
+            entity.Property(e => e.AoRecommendation).HasMaxLength(1000);
+            entity.Property(e => e.OtherRemarks).HasMaxLength(1000);
+            entity.Property(e => e.FeeDeviationJustification).HasMaxLength(1000);
+
+            entity.Property(e => e.PreLoanId);
+            entity.Property(e => e.PreLoanFormNumber).HasMaxLength(50);
 
             // Status & Audit
             entity.Property(e => e.Status)
@@ -223,11 +311,6 @@ public class AppDbContext : DbContext
 
             entity.Property(e => e.WebLoanBranchCode)
                 .HasMaxLength(20);
-
-            var listComparer = new ValueComparer<List<string>>(
-                (c1, c2) => c1.SequenceEqual(c2),
-                c => c.Aggregate(0, (a, v) => HashCode.Combine(a, v.GetHashCode())),
-                c => c.ToList());
 
             entity.Property(e => e.WebLoanAccountNumbers)
                 .HasConversion(
@@ -286,50 +369,104 @@ public class AppDbContext : DbContext
                 .OnDelete(DeleteBehavior.Restrict);
         });
 
-        // ─── OutstandingLoan Entity ──────────────────────────────────────
+        // ─── OutstandingLoan Entity (resized to §4 obligations shape) ──
         modelBuilder.Entity<OutstandingLoan>(entity =>
         {
             entity.HasKey(e => e.Id);
             entity.Property(e => e.Id).ValueGeneratedOnAdd();
 
-            entity.Property(e => e.CreditorName)
-                .IsRequired()
-                .HasMaxLength(200);
+            entity.Property(e => e.Pn).IsRequired().HasMaxLength(50);
 
-            entity.Property(e => e.MonthlyPayment)
-                .HasColumnType("decimal(18,2)");
+            entity.Property(e => e.PrincipalBalance).HasColumnType("decimal(18,2)");
+            entity.Property(e => e.Amortization).HasColumnType("decimal(18,2)");
+            entity.Property(e => e.OutstandingBalance).HasColumnType("decimal(18,2)");
 
-            entity.Property(e => e.Balance)
-                .HasColumnType("decimal(18,2)");
+            entity.Property(e => e.DateGranted);
+            entity.Property(e => e.DateMaturity);
 
-            // Foreign Key
+            entity.Property(e => e.Status).IsRequired().HasMaxLength(100);
+            entity.Property(e => e.ProductWithDescription).HasMaxLength(200);
+
             entity.HasOne(e => e.LoanApplication)
                 .WithMany(l => l.OutstandingLoans)
                 .HasForeignKey(e => e.LoanApplicationId)
                 .OnDelete(DeleteBehavior.Cascade);
         });
 
-        // ─── BuyOut Entity ───────────────────────────────────────────────
+        // ─── BuyOut Entity (resized to §5 shape) ─────────────────────────
         modelBuilder.Entity<BuyOut>(entity =>
         {
             entity.HasKey(e => e.Id);
             entity.Property(e => e.Id).ValueGeneratedOnAdd();
 
-            entity.Property(e => e.CreditorName)
-                .IsRequired()
-                .HasMaxLength(200);
+            entity.Property(e => e.Pn).IsRequired().HasMaxLength(50);
+            entity.Property(e => e.Name).IsRequired().HasMaxLength(200);
 
-            entity.Property(e => e.Amount)
-                .HasColumnType("decimal(18,2)");
+            entity.Property(e => e.Amortization).HasColumnType("decimal(18,2)");
+            entity.Property(e => e.OutstandingBalance).HasColumnType("decimal(18,2)");
 
-            entity.Property(e => e.MonthlyAmortization)
-                .HasColumnType("decimal(18,2)");
-
-            // Foreign Key
             entity.HasOne(e => e.LoanApplication)
                 .WithMany(l => l.BuyOuts)
                 .HasForeignKey(e => e.LoanApplicationId)
                 .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // ─── EbiReloan Entity (§5) ───────────────────────────────────────
+        modelBuilder.Entity<EbiReloan>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).ValueGeneratedOnAdd();
+
+            entity.Property(e => e.Pn).IsRequired().HasMaxLength(50);
+            entity.Property(e => e.Name).IsRequired().HasMaxLength(200);
+
+            entity.Property(e => e.ExistingDeduction).HasColumnType("decimal(18,2)");
+            entity.Property(e => e.OutstandingBalance).HasColumnType("decimal(18,2)");
+            entity.Property(e => e.PayToClose).HasColumnType("decimal(18,2)");
+
+            entity.HasOne(e => e.LoanApplication)
+                .WithMany(l => l.EbiReloans)
+                .HasForeignKey(e => e.LoanApplicationId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // ─── IncomingLoan Entity (§5) ────────────────────────────────────
+        modelBuilder.Entity<IncomingLoan>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).ValueGeneratedOnAdd();
+
+            entity.Property(e => e.Name).IsRequired().HasMaxLength(200);
+            entity.Property(e => e.Deductions).HasColumnType("decimal(18,2)");
+            entity.Property(e => e.Remarks).IsRequired().HasMaxLength(500);
+
+            entity.HasOne(e => e.LoanApplication)
+                .WithMany(l => l.IncomingLoans)
+                .HasForeignKey(e => e.LoanApplicationId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // ─── LoanSubmissionIdempotency Entity ────────────────────────────
+        // Replay guard for POST /api/loans: same (IdempotencyKey, UserId) ⇒
+        // stored response, never a second application group.
+        modelBuilder.Entity<LoanSubmissionIdempotency>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).ValueGeneratedOnAdd();
+
+            entity.Property(e => e.IdempotencyKey).IsRequired();
+            entity.Property(e => e.UserId).IsRequired();
+            entity.Property(e => e.ResponseJson).IsRequired().HasColumnType("nvarchar(max)");
+            entity.Property(e => e.CreatedAt).IsRequired();
+
+            entity.HasIndex(e => new { e.IdempotencyKey, e.UserId })
+                .IsUnique()
+                .HasDatabaseName("IX_LoanSubmissionIdempotency_Key_User");
+
+            entity.HasOne(e => e.User)
+                .WithMany()
+                .HasForeignKey(e => e.UserId)
+                .OnDelete(DeleteBehavior.Restrict);
         });
 
         // ─── RevokedToken Entity ─────────────────────────────────────────

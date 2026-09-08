@@ -60,6 +60,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<ILoanWorkflowService, LoanWorkflowService>();
         services.AddScoped<IAuditLogger, AuditLogger>();
         services.AddScoped<IFormNumberGenerator, FormNumberGenerator>();
+        services.AddScoped<ILoanSubmissionService, LoanSubmissionService>();
 
         // Loan product catalog (ALAS-owned mirror of webloan.loan_product).
         // Repository is scoped (uses AppDbContext). Service is scoped.

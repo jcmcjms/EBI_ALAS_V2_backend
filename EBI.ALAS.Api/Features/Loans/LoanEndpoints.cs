@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using EBI.ALAS.Api.Common.Exceptions;
 using EBI.ALAS.Api.Common.Extensions;
 using EBI.ALAS.Api.Common.Models;
 using EBI.ALAS.Api.Common.Time;
@@ -57,25 +58,55 @@ public static class LoanEndpoints
             {
                 Id = loan.Id,
                 FormNumber = loan.FormNumber,
+                ApplicationGroupNo = loan.ApplicationGroupNo,
                 BranchCode = loan.BranchCode,
+                LoanNo = loan.LoanNo,
+                ProductCode = loan.ProductCode,
+                Product = loan.Product,
+                CreationTypeCode = loan.CreationTypeCode,
+                CreationTypeLabel = loan.CreationTypeLabel,
+                RequestingOfficer = loan.RequestingOfficer,
+                Lai = loan.Lai,
                 CisId = loan.CisId,
                 FirstName = loan.FirstName,
                 MiddleName = loan.MiddleName,
                 LastName = loan.LastName,
+                Suffix = loan.Suffix,
+                Birthdate = loan.Birthdate,
+                Address = loan.Address,
                 Agency = loan.Agency,
                 Position = loan.Position,
                 EmployeeId = loan.EmployeeId,
                 NetTakeHomePay = loan.NetTakeHomePay,
+                LengthOfService = loan.LengthOfService,
+                Region = loan.Region,
+                DivisionCode = loan.DivisionCode,
+                StationCode = loan.StationCode,
+                MisAgency = loan.MisAgency,
                 School = loan.School,
                 Referrer = loan.Referrer,
-                Product = loan.Product,
                 Purpose = loan.Purpose,
                 ProposedAmount = loan.ProposedAmount,
                 TermDays = loan.TermDays,
                 InterestRate = loan.InterestRate,
+                NthpDate = loan.NthpDate,
+                NotarialFee = loan.NotarialFee,
+                DocStamps = loan.DocStamps,
+                Insurance = loan.Insurance,
+                StandardNotarialFee = loan.StandardNotarialFee,
+                StandardDocStamps = loan.StandardDocStamps,
+                StandardInsurance = loan.StandardInsurance,
                 ModeOfPayment = loan.ModeOfPayment,
                 DateOfFirstRelease = loan.DateOfFirstRelease,
                 CoMaker = loan.CoMaker,
+                VerificationFindings = loan.VerificationFindings,
+                HasDeviations = loan.HasDeviations,
+                DeviationDetails = loan.DeviationDetails,
+                DeviationJustifications = loan.DeviationJustifications,
+                Remarks = loan.Remarks,
+                AoRecommendation = loan.AoRecommendation,
+                OtherRemarks = loan.OtherRemarks,
+                FeeDeviationJustification = loan.FeeDeviationJustification,
                 Status = loan.Status,
                 ApplicationDate = loan.ApplicationDate,
                 LastActionDate = loan.LastActionDate,
@@ -91,11 +122,49 @@ public static class LoanEndpoints
                     ActionDate = a.ActionDate,
                     ActionByUserName = $"{a.ActionByUser.FirstName} {a.ActionByUser.LastName}"
                 }).ToList(),
+                OutstandingLoans = loan.OutstandingLoans.Select(o => new OutstandingLoanResponse
+                {
+                    Id = o.Id,
+                    Pn = o.Pn,
+                    PrincipalBalance = o.PrincipalBalance,
+                    Amortization = o.Amortization,
+                    OutstandingBalance = o.OutstandingBalance,
+                    DateGranted = o.DateGranted,
+                    DateMaturity = o.DateMaturity,
+                    Status = o.Status,
+                    ProductWithDescription = o.ProductWithDescription,
+                }).ToList(),
+                BuyOuts = loan.BuyOuts.Select(b => new BuyOutResponse
+                {
+                    Id = b.Id,
+                    Pn = b.Pn,
+                    Name = b.Name,
+                    Amortization = b.Amortization,
+                    OutstandingBalance = b.OutstandingBalance,
+                }).ToList(),
+                EbiReloans = loan.EbiReloans.Select(e => new EbiReloanResponse
+                {
+                    Id = e.Id,
+                    Pn = e.Pn,
+                    Name = e.Name,
+                    ExistingDeduction = e.ExistingDeduction,
+                    OutstandingBalance = e.OutstandingBalance,
+                    PayToClose = e.PayToClose,
+                }).ToList(),
+                IncomingLoans = loan.IncomingLoans.Select(i => new IncomingLoanResponse
+                {
+                    Id = i.Id,
+                    Name = i.Name,
+                    Deductions = i.Deductions,
+                    Remarks = i.Remarks,
+                }).ToList(),
                 WebLoanCisNo = loan.WebLoanCisNo,
                 WebLoanBranchCode = loan.WebLoanBranchCode,
                 WebLoanAccountNumbers = loan.WebLoanAccountNumbers,
                 WebLoanPnNumbers = loan.WebLoanPnNumbers,
-                WebLoanLastSyncedAt = loan.WebLoanLastSyncedAt
+                WebLoanLastSyncedAt = loan.WebLoanLastSyncedAt,
+                PreLoanId = loan.PreLoanId,
+                PreLoanFormNumber = loan.PreLoanFormNumber
             };
 
             return Results.Ok(ApiResponse<LoanResponse>.SuccessResponse(loanResponse));
@@ -105,17 +174,29 @@ public static class LoanEndpoints
         .Produces<ApiResponse>(404)
         .RequireAuthorization("CanViewLoan");
 
+        // ── POST /api/loans — multi-loan submission ───────────────────────
+        //
+        // Trust boundary: officer name + branch code are derived from the JWT /
+        // Users table. The request body's branchType.requestingOfficer and
+        // loans[].branchCode are echoed back for shape-compat only; the server
+        // overwrites them. An Idempotency-Key header (GUID) is MANDATORY: a
+        // double-click / axios 401-replay / React Query retry must never mint
+        // a second group of LAM IDs.
         group.MapPost("/", async (
-            [FromBody] CreateLoanRequest request,
-            IValidator<CreateLoanRequest> validator,
-            ILoanRepository loanRepository,
-            IFormNumberGenerator formNumberGenerator,
-            IAuditLogger auditLogger,
-            ITimeProvider timeProvider,
-            ClaimsPrincipal user) =>
+            HttpContext http,
+            [FromBody] SubmitLoanApplicationRequest request,
+            IValidator<SubmitLoanApplicationRequest> validator,
+            ILoanSubmissionService submissionService,
+            ClaimsPrincipal user,
+            CancellationToken ct) =>
         {
-            // Validate request
-            var validationResult = await validator.ValidateAsync(request);
+            if (!Guid.TryParse(http.Request.Headers["Idempotency-Key"].ToString(), out var idempotencyKey))
+            {
+                return Results.BadRequest(ApiResponse.ErrorResponse(
+                    "A valid Idempotency-Key header (GUID) is required."));
+            }
+
+            var validationResult = await validator.ValidateAsync(request, ct);
             if (!validationResult.IsValid)
             {
                 var errors = validationResult.Errors
@@ -129,84 +210,34 @@ public static class LoanEndpoints
                     errors.SelectMany(e => e.Value).ToList()));
             }
 
-            var userId = user.GetUserId();
-            var formNumber = await formNumberGenerator.GenerateFormNumberAsync();
-
-            var loan = new LoanApplication
+            try
             {
-                FormNumber = formNumber,
-                BranchCode = request.BranchCode,
-                CisId = request.CisId,
-                FirstName = request.FirstName,
-                MiddleName = request.MiddleName,
-                LastName = request.LastName,
-                Agency = request.Agency,
-                Position = request.Position,
-                EmployeeId = request.EmployeeId,
-                NetTakeHomePay = request.NetTakeHomePay,
-                School = request.School,
-                Referrer = request.Referrer,
-                Product = request.Product,
-                Purpose = request.Purpose,
-                ProposedAmount = request.ProposedAmount,
-                TermDays = request.TermDays,
-                InterestRate = request.InterestRate,
-                ModeOfPayment = request.ModeOfPayment,
-                DateOfFirstRelease = request.DateOfFirstRelease,
-                CoMaker = request.CoMaker,
-                Status = "Draft",
-                ApplicationDate = timeProvider.UtcNow,
-                LastActionDate = timeProvider.UtcNow,
-                CreatedById = userId
-            };
+                var (response, replayed) = await submissionService.SubmitAsync(
+                    request, idempotencyKey, user, ct);
 
-            var createdLoan = await loanRepository.CreateAsync(loan);
-
-            // Log the creation action
-            await auditLogger.LogActionAsync(
-                createdLoan.Id,
-                userId,
-                "Created",
-                null,
-                "Draft",
-                "Loan application created");
-
-            var response = new LoanResponse
+                return replayed
+                    ? Results.Ok(ApiResponse<LoanSubmissionResponse>.SuccessResponse(
+                        response, "Submission replayed — Idempotency-Key already used."))
+                    : Results.Created($"/api/loans/{response.Loans[0].Id}",
+                        ApiResponse<LoanSubmissionResponse>.SuccessResponse(
+                            response, "Application submitted for recommendation."));
+            }
+            catch (ForbiddenAccessException ex)
             {
-                Id = createdLoan.Id,
-                FormNumber = createdLoan.FormNumber,
-                BranchCode = createdLoan.BranchCode,
-                CisId = createdLoan.CisId,
-                FirstName = createdLoan.FirstName,
-                MiddleName = createdLoan.MiddleName,
-                LastName = createdLoan.LastName,
-                Agency = createdLoan.Agency,
-                Position = createdLoan.Position,
-                EmployeeId = createdLoan.EmployeeId,
-                NetTakeHomePay = createdLoan.NetTakeHomePay,
-                School = createdLoan.School,
-                Referrer = createdLoan.Referrer,
-                Product = createdLoan.Product,
-                Purpose = createdLoan.Purpose,
-                ProposedAmount = createdLoan.ProposedAmount,
-                TermDays = createdLoan.TermDays,
-                InterestRate = createdLoan.InterestRate,
-                ModeOfPayment = createdLoan.ModeOfPayment,
-                DateOfFirstRelease = createdLoan.DateOfFirstRelease,
-                CoMaker = createdLoan.CoMaker,
-                Status = createdLoan.Status,
-                ApplicationDate = createdLoan.ApplicationDate,
-                LastActionDate = createdLoan.LastActionDate,
-                CreatedById = createdLoan.CreatedById,
-                CreatedByName = user.GetFirstName() + " " + user.GetLastName()
-            };
-
-            return Results.Created($"/api/loans/{createdLoan.Id}",
-                ApiResponse<LoanResponse>.SuccessResponse(response, "Loan created successfully"));
+                return Results.Json(
+                    ApiResponse.ErrorResponse(ex.Message),
+                    statusCode: StatusCodes.Status403Forbidden);
+            }
+            catch (InvalidWorkflowException ex)
+            {
+                return Results.BadRequest(ApiResponse.ErrorResponse(ex.Message));
+            }
         })
-        .WithName("CreateLoan")
-        .Produces<ApiResponse<LoanResponse>>(201)
+        .WithName("CreateLoanApplication")
+        .Produces<ApiResponse<LoanSubmissionResponse>>(201)
+        .Produces<ApiResponse<LoanSubmissionResponse>>(200)
         .Produces<ApiResponse>(400)
+        .Produces<ApiResponse>(403)
         .RequireAuthorization("CanCreateLoan");
 
         group.MapPut("/{id:int}/status", async (
@@ -269,7 +300,11 @@ public static class LoanEndpoints
             {
                 Id = loan.Id,
                 FormNumber = loan.FormNumber,
+                ApplicationGroupNo = loan.ApplicationGroupNo,
                 BranchCode = loan.BranchCode,
+                LoanNo = loan.LoanNo,
+                ProductCode = loan.ProductCode,
+                Product = loan.Product,
                 CisId = loan.CisId,
                 FirstName = loan.FirstName,
                 MiddleName = loan.MiddleName,
@@ -280,7 +315,6 @@ public static class LoanEndpoints
                 NetTakeHomePay = loan.NetTakeHomePay,
                 School = loan.School,
                 Referrer = loan.Referrer,
-                Product = loan.Product,
                 Purpose = loan.Purpose,
                 ProposedAmount = loan.ProposedAmount,
                 TermDays = loan.TermDays,
@@ -308,25 +342,62 @@ public class LoanResponse
 {
     public int Id { get; set; }
     public string FormNumber { get; set; } = string.Empty;
+    public string ApplicationGroupNo { get; set; } = string.Empty;
     public string BranchCode { get; set; } = string.Empty;
+    public string LoanNo { get; set; } = string.Empty;
+    public string ProductCode { get; set; } = string.Empty;
+    public string Product { get; set; } = string.Empty;
+
+    public int? CreationTypeCode { get; set; }
+    public string? CreationTypeLabel { get; set; }
+    public string? RequestingOfficer { get; set; }
+    public string? Lai { get; set; }
+
     public string? CisId { get; set; }
     public string FirstName { get; set; } = string.Empty;
     public string? MiddleName { get; set; }
     public string LastName { get; set; } = string.Empty;
+    public string? Suffix { get; set; }
+    public DateOnly? Birthdate { get; set; }
+    public string? Address { get; set; }
     public string? Agency { get; set; }
     public string? Position { get; set; }
     public string? EmployeeId { get; set; }
     public decimal? NetTakeHomePay { get; set; }
+    public string? LengthOfService { get; set; }
+    public string? Region { get; set; }
+    public string? DivisionCode { get; set; }
+    public string? StationCode { get; set; }
+    public string? MisAgency { get; set; }
     public string? School { get; set; }
     public string? Referrer { get; set; }
-    public string Product { get; set; } = string.Empty;
+
     public string? Purpose { get; set; }
     public decimal ProposedAmount { get; set; }
     public int TermDays { get; set; }
     public decimal InterestRate { get; set; }
+    public DateOnly? NthpDate { get; set; }
+
+    public decimal NotarialFee { get; set; }
+    public decimal DocStamps { get; set; }
+    public decimal Insurance { get; set; }
+    public decimal StandardNotarialFee { get; set; }
+    public decimal StandardDocStamps { get; set; }
+    public decimal StandardInsurance { get; set; }
+
     public string? ModeOfPayment { get; set; }
     public DateTime? DateOfFirstRelease { get; set; }
     public string? CoMaker { get; set; }
+
+    public string? VerificationFindings { get; set; }
+    public bool HasDeviations { get; set; }
+    public List<string> DeviationDetails { get; set; } = new();
+    public Dictionary<string, string> DeviationJustifications { get; set; } = new();
+    public string? Remarks { get; set; }
+    public string? AoRecommendation { get; set; }
+    public string? OtherRemarks { get; set; }
+    public string? FeeDeviationJustification { get; set; }
+
     public string Status { get; set; } = string.Empty;
     public DateTime ApplicationDate { get; set; }
     public DateTime LastActionDate { get; set; }
@@ -334,12 +405,59 @@ public class LoanResponse
     public string CreatedByName { get; set; } = string.Empty;
     public List<LoanActionResponse> Actions { get; set; } = new();
 
+    public List<OutstandingLoanResponse> OutstandingLoans { get; set; } = new();
+    public List<BuyOutResponse> BuyOuts { get; set; } = new();
+    public List<EbiReloanResponse> EbiReloans { get; set; } = new();
+    public List<IncomingLoanResponse> IncomingLoans { get; set; } = new();
+
     // WebLoan Traceability
     public string? WebLoanCisNo { get; set; }
     public string? WebLoanBranchCode { get; set; }
     public List<string> WebLoanAccountNumbers { get; set; } = new();
     public List<string> WebLoanPnNumbers { get; set; } = new();
     public DateTime? WebLoanLastSyncedAt { get; set; }
+    public int? PreLoanId { get; set; }
+    public string? PreLoanFormNumber { get; set; }
+}
+
+public class OutstandingLoanResponse
+{
+    public int Id { get; set; }
+    public string Pn { get; set; } = string.Empty;
+    public decimal PrincipalBalance { get; set; }
+    public decimal Amortization { get; set; }
+    public decimal OutstandingBalance { get; set; }
+    public DateOnly? DateGranted { get; set; }
+    public DateOnly? DateMaturity { get; set; }
+    public string Status { get; set; } = string.Empty;
+    public string? ProductWithDescription { get; set; }
+}
+
+public class BuyOutResponse
+{
+    public int Id { get; set; }
+    public string Pn { get; set; } = string.Empty;
+    public string Name { get; set; } = string.Empty;
+    public decimal Amortization { get; set; }
+    public decimal OutstandingBalance { get; set; }
+}
+
+public class EbiReloanResponse
+{
+    public int Id { get; set; }
+    public string Pn { get; set; } = string.Empty;
+    public string Name { get; set; } = string.Empty;
+    public decimal ExistingDeduction { get; set; }
+    public decimal OutstandingBalance { get; set; }
+    public decimal PayToClose { get; set; }
+}
+
+public class IncomingLoanResponse
+{
+    public int Id { get; set; }
+    public string Name { get; set; } = string.Empty;
+    public decimal Deductions { get; set; }
+    public string Remarks { get; set; } = string.Empty;
 }
 
 public class LoanActionResponse
@@ -353,145 +471,10 @@ public class LoanActionResponse
     public string ActionByUserName { get; set; } = string.Empty;
 }
 
-public class CreateLoanRequest
-{
-    public string BranchCode { get; init; } = string.Empty;
-    public string? CisId { get; init; }
-    public string FirstName { get; init; } = string.Empty;
-    public string? MiddleName { get; init; }
-    public string LastName { get; init; } = string.Empty;
-    public string? Agency { get; init; }
-    public string? Position { get; init; }
-    public string? EmployeeId { get; init; }
-    public decimal? NetTakeHomePay { get; init; }
-    public string? School { get; init; }
-    public string? Referrer { get; init; }
-    public string Product { get; init; } = string.Empty;
-    public string? Purpose { get; init; }
-    public decimal ProposedAmount { get; init; }
-    public int TermDays { get; init; }
-    public decimal InterestRate { get; init; }
-    public string? ModeOfPayment { get; init; }
-    public DateTime? DateOfFirstRelease { get; init; }
-    public string? CoMaker { get; init; }
-}
-
 public class UpdateLoanStatusRequest
 {
     public string Status { get; init; } = string.Empty;
     public string? Comments { get; init; }
-}
-
-public class CreateLoanValidator : AbstractValidator<CreateLoanRequest>
-{
-    // The validator was previously parameterless. It now needs
-    // ILoanProductRepository to enforce the per-product policy
-    // bounds (min/max amount, min/max term). FluentValidation
-    // resolves validator constructors via the same DI container as
-    // everything else — AddValidatorsFromAssemblyContaining<Program>()
-    // picks this up automatically as long as the dependencies are
-    // registered (they are, in ServiceCollectionExtensions).
-    private readonly ILoanProductRepository _productRepository;
-
-    public CreateLoanValidator(ILoanProductRepository productRepository)
-    {
-        _productRepository = productRepository;
-
-        RuleFor(x => x.BranchCode)
-            .NotEmpty()
-            .WithMessage("Branch code is required")
-            .MaximumLength(20)
-            .WithMessage("Branch code must not exceed 20 characters");
-
-        RuleFor(x => x.FirstName)
-            .NotEmpty()
-            .WithMessage("First name is required")
-            .MaximumLength(100)
-            .WithMessage("First name must not exceed 100 characters");
-
-        RuleFor(x => x.LastName)
-            .NotEmpty()
-            .WithMessage("Last name is required")
-            .MaximumLength(100)
-            .WithMessage("Last name must not exceed 100 characters");
-
-        RuleFor(x => x.Product)
-            .NotEmpty()
-            .WithMessage("Product is required")
-            .MaximumLength(100)
-            .WithMessage("Product must not exceed 100 characters");
-
-        // ─── Product-mirror-aware rules ─────────────────────────────
-        // These rules are async because the bounds live in the
-        // LoanProducts mirror — fetched on demand per request. The
-        // mirror is a single-row PK lookup, so latency is the same
-        // order as a join would be.
-        //
-        // TODO(option-A lockdown): the user calling the loan-creation
-        // endpoint is typically NOT an Admin, so they cannot hit
-        // GET /api/loan-products/active (403) to populate the
-        // dropdown in the form. The form needs an alternative source
-        // for the product list — see the TODO in RolePermissions.cs
-        // for the three options. This validator still works because
-        // it reads the mirror directly (no HTTP call), but the form
-        // cannot render the product picker until one of the
-        // alternatives is in place.
-        //
-        // 1) The product code must reference a non-retired mirror
-        //    row. Encoders can never submit a loan for a product
-        //    that webloan has retired.
-        RuleFor(x => x.Product)
-            .MustAsync(async (product, ct) =>
-                await _productRepository.ExistsActiveByCodeAsync(product, ct))
-            .WithMessage("Selected product is not currently offered.");
-
-        // 2) The proposed amount must be within the product's
-        //    [MinAmount, MaxAmount] range. The async rule re-fetches
-        //    the row (cheap) so the message can interpolate the
-        //    actual bounds — better UX than a generic "out of range".
-        RuleFor(x => x.ProposedAmount)
-            .GreaterThan(0)
-            .WithMessage("Proposed amount must be greater than 0")
-            .MustAsync(async (req, amount, ct) =>
-            {
-                var product = await _productRepository.GetByCodeAsync(req.Product, ct);
-                if (product is null) return true; // rule 1 owns this case
-                return amount >= product.MinAmount && amount <= product.MaxAmount;
-            })
-            .WithMessage("Proposed amount must be within the product's allowed range.");
-
-        // 3) The term must be within the product's [MinTermDays,
-        //    MaxTermDays] range AND within the absolute 7-year
-        //    (2,555-day) business ceiling. Both checks are
-        //    independent and both must pass.
-        RuleFor(x => x.TermDays)
-            .GreaterThan(0)
-            .WithMessage("Term days must be greater than 0")
-            .LessThanOrEqualTo(LoanProductService.AbsoluteMaxTermDays)
-            .WithMessage($"Term cannot exceed {LoanProductService.AbsoluteMaxTermDays} days (7 years).")
-            .MustAsync(async (req, term, ct) =>
-            {
-                var product = await _productRepository.GetByCodeAsync(req.Product, ct);
-                if (product is null) return true; // rule 1 owns this case
-                return term >= product.MinTermDays && term <= product.MaxTermDays;
-            })
-            .WithMessage("Term must be within the product's allowed range.");
-
-        // Existing rule preserved.
-        RuleFor(x => x.InterestRate)
-            .InclusiveBetween(0, 100)
-            .WithMessage("Interest rate must be between 0 and 100");
-
-        // Manual-entry fields — first-line defense against payload bloat.
-        // Mirrors the Zod schema on the frontend so the two never drift.
-        RuleFor(x => x.School)
-            .MaximumLength(200)
-            .WithMessage("School name must not exceed 200 characters");
-
-        RuleFor(x => x.Referrer)
-            .MaximumLength(100)
-            .WithMessage("Referrer name must not exceed 100 characters");
-    }
 }
 
 public class UpdateLoanStatusValidator : AbstractValidator<UpdateLoanStatusRequest>

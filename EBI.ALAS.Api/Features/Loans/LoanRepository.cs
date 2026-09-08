@@ -25,7 +25,9 @@ public class LoanRepository : ILoanRepository
                 .Include(l => l.Actions)
                     .ThenInclude(a => a.ActionByUser)
                 .Include(l => l.OutstandingLoans)
-                .Include(l => l.BuyOuts);
+                .Include(l => l.BuyOuts)
+                .Include(l => l.EbiReloans)
+                .Include(l => l.IncomingLoans);
         }
 
         return await query.FirstOrDefaultAsync(ct);
@@ -86,7 +88,9 @@ public class LoanRepository : ILoanRepository
                 .Include(l => l.Actions)
                     .ThenInclude(a => a.ActionByUser)
                 .Include(l => l.OutstandingLoans)
-                .Include(l => l.BuyOuts);
+                .Include(l => l.BuyOuts)
+                .Include(l => l.EbiReloans)
+                .Include(l => l.IncomingLoans);
         }
         else
         {
@@ -146,5 +150,49 @@ public class LoanRepository : ILoanRepository
         }
 
         return await query.SumAsync(l => l.ProposedAmount, ct);
+    }
+
+    // ── Multi-loan submission ─────────────────────────────────────────
+
+    public async Task<string?> GetOfficerDisplayNameAsync(int userId, CancellationToken ct = default)
+    {
+        var name = await _context.Users
+            .Where(u => u.Id == userId)
+            .Select(u => new { u.FirstName, u.MiddleName, u.LastName })
+            .FirstOrDefaultAsync(ct);
+
+        if (name is null) return null;
+
+        var middle = string.IsNullOrWhiteSpace(name.MiddleName)
+            ? string.Empty
+            : $"{char.ToUpperInvariant(name.MiddleName.Trim()[0])}.";
+
+        return middle.Length == 0
+            ? $"{name.FirstName} {name.LastName}"
+            : $"{name.FirstName} {middle} {name.LastName}";
+    }
+
+    public async Task<LoanSubmissionIdempotency?> GetIdempotencyRecordAsync(
+        Guid key, int userId, CancellationToken ct = default)
+    {
+        return await _context.LoanSubmissionIdempotencies
+            .FirstOrDefaultAsync(r => r.IdempotencyKey == key && r.UserId == userId, ct);
+    }
+
+    public async Task CreateSubmissionAsync(
+        IReadOnlyList<LoanApplication> applications,
+        LoanSubmissionIdempotency idempotency,
+        CancellationToken ct = default)
+    {
+        _context.LoanApplications.AddRange(applications);
+        _context.LoanSubmissionIdempotencies.Add(idempotency);
+        await _context.SaveChangesAsync(ct);
+    }
+
+    public async Task UpdateIdempotencyResponseAsync(
+        LoanSubmissionIdempotency idempotency, CancellationToken ct = default)
+    {
+        _context.LoanSubmissionIdempotencies.Update(idempotency);
+        await _context.SaveChangesAsync(ct);
     }
 }

@@ -36,7 +36,13 @@ public static class ClaimsPrincipalExtensions
 
     public static string GetRole(this ClaimsPrincipal principal)
     {
-        return principal.FindFirst("role")?.Value ?? string.Empty;
+        // .NET 8's JwtSecurityTokenHandler remaps inbound "role" claims to
+        // ClaimTypes.Role by default. Look up both spellings so a token
+        // minted with `new Claim("role", user.Role)` resolves regardless of
+        // whether the runtime performed the remap.
+        return principal.FindFirst("role")?.Value
+            ?? principal.FindFirst(ClaimTypes.Role)?.Value
+            ?? string.Empty;
     }
 
     public static string[] GetPermissions(this ClaimsPrincipal principal)
@@ -51,7 +57,7 @@ public static class ClaimsPrincipalExtensions
         var role = principal.GetRole();
 
         // Admin wildcard check
-        if (role == "Admin")
+        if (role == Common.Constants.Roles.Admin)
             return true;
 
         return principal.GetPermissions().Contains(permission);
