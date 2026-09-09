@@ -34,6 +34,26 @@ public static class ClaimsPrincipalExtensions
         return principal.FindFirst("branchId")?.Value ?? string.Empty;
     }
 
+    /// <summary>
+    /// Returns the acting officer's branch CODE (e.g. "011", "002") — the
+    /// same value the JWT stores in the <c>branchId</c> claim. The token
+    /// pipeline writes the user's <c>User.BranchId</c> directly into the
+    /// claim (see <c>JwtTokenService</c>), and per the auth contract
+    /// <c>User.BranchId == Branch.Code</c> — i.e. the claim value already
+    /// IS the branch code, not the surrogate int id. So this helper is
+    /// just a clearly-named alias for <see cref="GetBranchId"/> so the
+    /// call sites in branch-scoped endpoints read correctly
+    /// (`ctx.User.GetBranchCode()` instead of the misleading
+    /// `ctx.User.GetBranchId()`).
+    ///
+    /// Returns an empty string when the claim is missing — endpoint code
+    /// treats empty as "no branch scoping available" (the admin branch).
+    /// </summary>
+    public static string GetBranchCode(this ClaimsPrincipal principal)
+    {
+        return principal.GetBranchId();
+    }
+
     public static string GetRole(this ClaimsPrincipal principal)
     {
         // .NET 8's JwtSecurityTokenHandler remaps inbound "role" claims to

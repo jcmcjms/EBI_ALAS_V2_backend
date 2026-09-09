@@ -483,7 +483,7 @@ All require JWT.
 
 | Method | Path | Policy | Description |
 |---|---|---|---|
-| `GET` | `/api/loans` | `CanViewLoan` | Paged, scoped by user's branch & role |
+| `GET` | `/api/loans` | `CanViewLoan` | Paged list of loan submissions; returns the same `LoanSubmissionResponse` envelope as POST (one item per `ApplicationGroupNo`, grouped from the requested page). Each `CreatedLoan` row carries list-view enrichment (`BranchCode`, `Product`, `CreationTypeCode`/`CreationTypeLabel`, `FirstName`/`MiddleName`/`LastName`/`Suffix`) — populated by GET, null on POST. Query params: `page`, `pageSize`, `search`, `status` (comma-sep), `branchCode` (admin-only), `sortBy` (`applicationdate`/`proposedamount`/`status`/`customername`), `sortDesc`. Scoped by user's branch & role. |
 | `GET` | `/api/loans/{id}` | `CanViewLoan` | Full loan detail incl. actions & WebLoan traceability |
 | `POST` | `/api/loans` | `CanCreateLoan` | Create draft loan |
 | `PUT` | `/api/loans/{id}/status` | (workflow role) | Transition status (validates role + transition) |

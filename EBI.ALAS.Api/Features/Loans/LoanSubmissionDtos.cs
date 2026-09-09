@@ -166,6 +166,38 @@ public sealed record CreatedLoan
     public string ProductCode { get; init; } = string.Empty;
     public decimal ProposedAmount { get; init; }
     public string Status { get; init; } = string.Empty;
+
+    // ── List-view enrichment (populated by GET /api/loans, null on POST) ──
+    //
+    // POST only knows what was just submitted; it doesn't read these fields
+    // back from the DB. They're nullable so a POST response deserializes
+    // cleanly on the FE without breaking the shared DTO shape. GET populates
+    // them from LoanApplication rows so the monitoring/list table renders
+    // client name + branch + loan type + product without a second call.
+
+    /// <summary>Owning branch code (e.g. "011"). Null on POST responses.</summary>
+    public string? BranchCode { get; init; }
+
+    /// <summary>Product description (e.g. "Quick Loan"). Null on POST responses.</summary>
+    public string? Product { get; init; }
+
+    /// <summary>Creation type code (0/1/2/6). Null on POST responses.</summary>
+    public int? CreationTypeCode { get; init; }
+
+    /// <summary>Creation type label (e.g. "New Loan", "Renewal"). Null on POST responses.</summary>
+    public string? CreationTypeLabel { get; init; }
+
+    /// <summary>Borrower first name (CIS snapshot). Null on POST responses.</summary>
+    public string? FirstName { get; init; }
+
+    /// <summary>Borrower middle name. Null on POST responses.</summary>
+    public string? MiddleName { get; init; }
+
+    /// <summary>Borrower last name (CIS snapshot). Null on POST responses.</summary>
+    public string? LastName { get; init; }
+
+    /// <summary>Borrower suffix. Null on POST responses.</summary>
+    public string? Suffix { get; init; }
 }
 
 // ─── GET /api/loans/{id}/history — timeline entries ─────────────────────

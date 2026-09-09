@@ -20,30 +20,175 @@ public static class LoanEndpoints
             .WithTags("Loans")
             .RequireAuthorization();
 
+        // ── GET /api/loans — paginated list of loan submissions ───────────
+        //
+        // Returns ApiResponse<PagedResult<LoanSubmissionResponse>> — the
+        // SAME response envelope POST /api/loans returns. The frontend can
+        // deserialize both list and create responses with the same
+        // `LoanSubmissionResponse` type (one DTO to maintain, no drift).
+        //
+        // Query parameters (names align with POST's SubmitLoanApplicationRequest
+        // sections so the two surfaces stay in lock-step):
+        //   • page / pageSize  — pagination (pageSize capped 1..100)
+        //   • search           — matches ApplicationGroupNo, FirstName, or LastName
+        //   • status           — comma-separated workflow statuses (e.g. "Draft,ForRecommendation")
+        //   • branchCode       — admin-only filter; non-admins are auto-scoped to their branch
+        //   • sortBy / sortDesc — whitelisted columns (applicationdate, proposedamount,
+        //                         status, customername); unknown values fall back to
+        //                         ApplicationDate DESC
         group.MapGet("/", async (
-            [AsParameters] PaginationParams pagination,
-            [FromQuery] bool? includeRelated,
-            ILoanRepository loanRepository,
-            ClaimsPrincipal user,
+            HttpContext ctx,
+            AppDbContext db,
+            int? page,
+            int? pageSize,
+            string? search,
+            string? status,
+            string? branchCode,
+            string? sortBy,
+            bool? sortDesc,
             CancellationToken ct) =>
         {
-            var userId = user.GetUserId();
-            var role = user.GetRole();
-            var branchId = user.GetBranchId();
+            // ── Pagination caps ────────────────────────────────────────
+            var p = Math.Max(page ?? 1, 1);
+            var ps = Math.Clamp(pageSize ?? 15, 1, 100);
 
-            var result = await loanRepository.GetAllAsync(
-                pagination.Page,
-                pagination.PageSize,
-                role,
-                branchId,
-                userId,
-                includeRelated ?? false,
-                ct);
+            // ── Base query (raw entity) ─────────────────────────────────
+            var query = db.LoanApplications.AsNoTracking();
 
-            return Results.Ok(ApiResponse<PagedResult<LoanApplication>>.SuccessResponse(result));
+            // ── Branch scoping (anti-enumeration) ──────────────────────
+            var userRole = ctx.User.GetRole();
+            var userBranchCode = ctx.User.GetBranchCode();
+
+            if (!string.IsNullOrEmpty(userBranchCode)
+                && !string.Equals(userRole, Roles.Admin, StringComparison.Ordinal))
+            {
+                query = query.Where(l => l.BranchCode == userBranchCode);
+            }
+
+            // ── Search ─────────────────────────────────────────────────
+            if (!string.IsNullOrWhiteSpace(search))
+            {
+                var s = search.Trim();
+                query = query.Where(l =>
+                    l.ApplicationGroupNo.Contains(s) ||
+                    l.FirstName.Contains(s) ||
+                    l.LastName.Contains(s));
+            }
+
+            // ── Status (comma-separated multi-select) ─────────────────
+            if (!string.IsNullOrWhiteSpace(status))
+            {
+                var statuses = status
+                    .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                    .ToArray();
+                if (statuses.Length > 0)
+                {
+                    query = query.Where(l => statuses.Contains(l.Status));
+                }
+            }
+
+            // ── Branch filter (admin only) ────────────────────────────
+            if (string.Equals(userRole, Roles.Admin, StringComparison.Ordinal)
+                && !string.IsNullOrWhiteSpace(branchCode)
+                && !string.Equals(branchCode, "all", StringComparison.OrdinalIgnoreCase))
+            {
+                query = query.Where(l => l.BranchCode == branchCode);
+            }
+
+            // ── Sorting (whitelist + switch) ────────────────────────────
+            // Sorting MUST happen on the raw entity — EF can translate
+            // ORDER BY on entity columns but NOT on computed DTO properties.
+            query = sortBy?.ToLower() switch
+            {
+                "applicationdate" => sortDesc == true
+                    ? query.OrderByDescending(l => l.ApplicationDate)
+                    : query.OrderBy(l => l.ApplicationDate),
+                "proposedamount" => sortDesc == true
+                    ? query.OrderByDescending(l => l.ProposedAmount)
+                    : query.OrderBy(l => l.ProposedAmount),
+                "status" => sortDesc == true
+                    ? query.OrderByDescending(l => l.Status)
+                    : query.OrderBy(l => l.Status),
+                "customername" => sortDesc == true
+                    ? query.OrderByDescending(l => l.LastName)
+                    : query.OrderBy(l => l.LastName),
+                _ => query.OrderByDescending(l => l.ApplicationDate)
+            };
+
+            // ── Project to LoanSubmissionResponse (POST-compatible) ─────
+            //
+            // Group by ApplicationGroupNo so each page item mirrors one
+            // POST response (one ApplicationGroupNo + its N Loans). The
+            // .Select() is composed to project the entity → CreatedLoan
+            // shape in a single SQL statement; the group-by happens in
+            // memory because EF cannot translate GroupBy → Dictionary
+            // grouping without an aggregate that would change the result.
+            //
+            // We materialize the page first (rows), then group in-memory.
+            // For typical banking volumes (15..100 rows/page) this is
+            // cheaper than a second DB round-trip.
+            var totalCount = await query.CountAsync(ct);
+
+            var rows = await query
+                .Select(l => new
+                {
+                    l.ApplicationGroupNo,
+                    l.Id,
+                    l.LamId,
+                    l.LoanNo,
+                    l.ProductCode,
+                    l.Product,
+                    l.ProposedAmount,
+                    l.Status,
+                    l.BranchCode,
+                    l.CreationTypeCode,
+                    l.CreationTypeLabel,
+                    l.FirstName,
+                    l.MiddleName,
+                    l.LastName,
+                    l.Suffix,
+                })
+                .Skip((p - 1) * ps)
+                .Take(ps)
+                .ToListAsync(ct);
+
+            var submissions = rows
+                .GroupBy(r => r.ApplicationGroupNo)
+                .Select(g => new LoanSubmissionResponse
+                {
+                    ApplicationGroupNo = g.Key,
+                    Loans = g
+                        .Select(r => new CreatedLoan
+                        {
+                            Id = r.Id,
+                            LamId = r.LamId,
+                            LoanNo = r.LoanNo,
+                            ProductCode = r.ProductCode,
+                            Product = r.Product,
+                            ProposedAmount = r.ProposedAmount,
+                            Status = r.Status,
+                            BranchCode = r.BranchCode,
+                            CreationTypeCode = r.CreationTypeCode,
+                            CreationTypeLabel = r.CreationTypeLabel,
+                            FirstName = r.FirstName,
+                            MiddleName = r.MiddleName,
+                            LastName = r.LastName,
+                            Suffix = r.Suffix,
+                        })
+                        .ToList(),
+                })
+                .ToList();
+
+            var pagedResult = new PagedResult<LoanSubmissionResponse>(
+                submissions, totalCount, p, ps);
+
+            return Results.Ok(ApiResponse<PagedResult<LoanSubmissionResponse>>.SuccessResponse(
+                pagedResult, "Loans retrieved successfully"));
         })
-        .WithName("ListLoans")
-        .Produces<ApiResponse<PagedResult<LoanApplication>>>(200)
+        .WithName("GetLoans")
+        .Produces<ApiResponse<PagedResult<LoanSubmissionResponse>>>(200)
+        .Produces<ApiResponse>(401)
+        .Produces<ApiResponse>(403)
         .RequireAuthorization("CanViewLoan");
 
         group.MapGet("/{id:int}", async (
