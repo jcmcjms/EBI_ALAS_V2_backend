@@ -6,6 +6,7 @@ using EBI.ALAS.Api.Features.AuditLogs;
 using EBI.ALAS.Api.Features.Branches;
 using EBI.ALAS.Api.Features.Dashboard;
 using EBI.ALAS.Api.Features.Loans;
+using EBI.ALAS.Api.Features.Notifications;
 using EBI.ALAS.Api.Features.Users;
 using EBI.ALAS.Api.Features.WebLoans;
 using EBI.ALAS.Api.Infrastructure.Data;
@@ -94,6 +95,11 @@ public static class ServiceCollectionExtensions
 
         // ─── Audit Log Services ─────────────────────────────────────────
         services.AddScoped<IAuditLogService, AuditLogService>();
+
+        // ─── Notification Services ───────────────────────────────────────
+        // Per-user inbox read by the SPA header bell (GET /api/notifications)
+        // and written by workflow handlers on status transitions.
+        services.AddScoped<INotificationService, NotificationService>();
 
         // ─── Authorization ───────────────────────────────────────────────
         services.AddScoped<IAuthorizationHandler, PermissionAuthorizationHandler>();

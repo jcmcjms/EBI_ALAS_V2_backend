@@ -16,6 +16,7 @@ using EBI.ALAS.Api.Features.AuditLogs;
 using EBI.ALAS.Api.Features.Branches;
 using EBI.ALAS.Api.Features.Dashboard;
 using EBI.ALAS.Api.Features.Loans;
+using EBI.ALAS.Api.Features.Notifications;
 using EBI.ALAS.Api.Features.RoleManagement;
 using EBI.ALAS.Api.Features.Users;
 using EBI.ALAS.Api.Features.WebLoans;
@@ -304,6 +305,7 @@ app.MapAuditLogEndpoints();
 app.MapAccountEndpoints();
 app.MapWebLoanEndpoints();
 app.MapLoanProductEndpoints();
+app.MapNotificationEndpoints();
 
 using (var scope = app.Services.CreateScope())
 {

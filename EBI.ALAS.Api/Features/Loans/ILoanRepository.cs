@@ -1,4 +1,5 @@
 using EBI.ALAS.Api.Common.Models;
+using EBI.ALAS.Api.Features.Auth;
 
 namespace EBI.ALAS.Api.Features.Loans;
 public interface ILoanRepository
@@ -31,4 +32,12 @@ public interface ILoanRepository
 
     /// <summary>Updates the serialized response on the idempotency row after the PKs are known.</summary>
     Task UpdateIdempotencyResponseAsync(LoanSubmissionIdempotency idempotency, CancellationToken ct = default);
+
+    // ── Notification routing helpers ──
+    /// <summary>
+    /// Active users in <paramref name="branchId"/> whose <c>Role</c> matches
+    /// <paramref name="role"/>. Returns an empty list when no match — the
+    /// caller treats that as "no audience to notify", not an error.
+    /// </summary>
+    Task<List<User>> GetUsersByRoleAndBranchAsync(string role, string branchId, CancellationToken ct = default);
 }

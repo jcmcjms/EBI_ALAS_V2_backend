@@ -2,6 +2,7 @@ using EBI.ALAS.Api.Features.Auth;
 using EBI.ALAS.Api.Features.AuditLogs;
 using EBI.ALAS.Api.Features.Branches;
 using EBI.ALAS.Api.Features.Loans;
+using EBI.ALAS.Api.Features.Notifications;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.ChangeTracking;
 using System.Text.Json;
@@ -25,6 +26,7 @@ public class AppDbContext : DbContext
     public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
     public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
     public DbSet<LoanProduct> LoanProducts => Set<LoanProduct>();
+    public DbSet<Notification> Notifications => Set<Notification>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -583,6 +585,55 @@ public class AppDbContext : DbContext
                 .WithMany()
                 .HasForeignKey(e => e.UserId)
                 .OnDelete(DeleteBehavior.SetNull);
+        });
+
+        // ─── Notification Entity ─────────────────────────────────────
+        // Per-user inbox surfaced by the SPA header bell. The poll query
+        // is "WHERE UserId = ? ORDER BY CreatedAt DESC LIMIT N" — covered
+        // by the composite index below so even a 100k-row inbox stays
+        // sub-millisecond.
+        modelBuilder.Entity<Notification>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).ValueGeneratedOnAdd();
+
+            // Required + indexed because every poll query filters on it.
+            entity.Property(e => e.UserId).IsRequired();
+
+            entity.Property(e => e.Title)
+                .IsRequired()
+                .HasMaxLength(200);
+
+            entity.Property(e => e.Description)
+                .IsRequired()
+                .HasMaxLength(1000);
+
+            entity.Property(e => e.Link)
+                .HasMaxLength(500);
+
+            entity.Property(e => e.IsRead)
+                .IsRequired()
+                .HasDefaultValue(false);
+
+            entity.Property(e => e.CreatedAt)
+                .IsRequired();
+
+            // Composite (UserId ASC, CreatedAt DESC) — the bell poll
+            // filters + sorts on this pair, so the index serves both
+            // clauses and eliminates the sort step entirely.
+            entity.HasIndex(e => new { e.UserId, e.CreatedAt })
+                .IsDescending(false, true)
+                .HasDatabaseName("IX_Notifications_UserId_CreatedAt");
+
+            // FK to User. Restrict (not Cascade) — deleting a user must
+            // never silently wipe their in-app inbox. The audit log uses
+            // SetNull because of its nullable FK; here the FK is
+            // non-nullable and the inbox would be lost, so we surface it
+            // as a FK violation that the admin must resolve explicitly.
+            entity.HasOne(e => e.User)
+                .WithMany()
+                .HasForeignKey(e => e.UserId)
+                .OnDelete(DeleteBehavior.Restrict);
         });
 
         // ─── LoanProduct Entity ──────────────────────────────────────

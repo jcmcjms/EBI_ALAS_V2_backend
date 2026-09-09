@@ -4,6 +4,7 @@ using EBI.ALAS.Api.Common.Exceptions;
 using EBI.ALAS.Api.Common.Extensions;
 using EBI.ALAS.Api.Common.Models;
 using EBI.ALAS.Api.Common.Time;
+using EBI.ALAS.Api.Features.Notifications;
 using EBI.ALAS.Api.Infrastructure.Data;
 using FluentValidation;
 using Microsoft.AspNetCore.Authorization;
@@ -503,8 +504,10 @@ public static class LoanEndpoints
             ILoanRepository loanRepository,
             ILoanWorkflowService workflowService,
             IAuditLogger auditLogger,
+            INotificationService notificationService,
             ClaimsPrincipal user,
-            ITimeProvider timeProvider) =>
+            ITimeProvider timeProvider,
+            CancellationToken ct) =>
         {
             // Validate request
             var validationResult = await validator.ValidateAsync(request);
@@ -551,6 +554,68 @@ public static class LoanEndpoints
                 fromStatus,
                 request.Status,
                 request.Comments);
+
+            // ── Notifications ──────────────────────────────────────────
+            // Two-tier routing:
+            //   1. The "next role in the workflow chain" (Evaluator /
+            //      Approver / Encoder) gets a specific, action-oriented
+            //      message so the bell is meaningful.
+            //   2. The original Encoder gets a generic status update so
+            //      they can see their submission moving — UNLESS they
+            //      are the actor, in which case we skip the self-ping.
+            var link = $"/loans/monitoring?id={id}";
+            var actorName = $"{user.GetFirstName()} {user.GetLastName()}";
+            var clientName = $"{loan.FirstName} {loan.LastName}";
+
+            if (request.Status == "ForChecking")
+            {
+                var evaluators = await loanRepository.GetUsersByRoleAndBranchAsync(
+                    Roles.Evaluator, loan.BranchCode, ct);
+                foreach (var e in evaluators)
+                {
+                    await notificationService.CreateAsync(
+                        e.Id,
+                        "Ready for Evaluation",
+                        $"{actorName} recommended {clientName}'s application ({loan.LamId}).",
+                        link);
+                }
+            }
+            else if (request.Status == "ForApproval")
+            {
+                var approvers = await loanRepository.GetUsersByRoleAndBranchAsync(
+                    Roles.Approver, loan.BranchCode, ct);
+                foreach (var a in approvers)
+                {
+                    await notificationService.CreateAsync(
+                        a.Id,
+                        "Ready for Approval",
+                        $"{actorName} completed evaluation for {clientName}'s application ({loan.LamId}).",
+                        link);
+                }
+            }
+            else if (request.Status == "ForRevision")
+            {
+                // Notify the original Encoder that the loan was returned.
+                // No audience lookup here — exactly one recipient.
+                await notificationService.CreateAsync(
+                    loan.CreatedById,
+                    "Application Returned",
+                    $"{actorName} returned {clientName}'s application ({loan.LamId}) for revision. Comments: {request.Comments}",
+                    link);
+            }
+
+            // "Update auth user application status" — always notify the
+            // original Encoder (if it isn't the actor themselves) so they
+            // have a timeline of their submission's progress. Skips the
+            // noisy self-ping when the encoder moves their own draft.
+            if (loan.CreatedById != userId)
+            {
+                await notificationService.CreateAsync(
+                    loan.CreatedById,
+                    $"Status Update: {request.Status}",
+                    $"Your application for {clientName} ({loan.LamId}) has been updated to {request.Status}.",
+                    link);
+            }
 
             var response = new LoanResponse
             {

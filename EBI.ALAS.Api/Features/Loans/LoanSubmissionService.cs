@@ -1,8 +1,10 @@
 using System.Security.Claims;
 using System.Text.Json;
+using EBI.ALAS.Api.Common.Constants;
 using EBI.ALAS.Api.Common.Exceptions;
 using EBI.ALAS.Api.Common.Extensions;
 using EBI.ALAS.Api.Common.Time;
+using EBI.ALAS.Api.Features.Notifications;
 using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 
@@ -18,19 +20,22 @@ public class LoanSubmissionService : ILoanSubmissionService
     private readonly ILoanWorkflowService _workflowService;
     private readonly IAuditLogger _auditLogger;
     private readonly ITimeProvider _timeProvider;
+    private readonly INotificationService _notificationService;
 
     public LoanSubmissionService(
         ILoanRepository loanRepository,
         ILamIdGenerator lamIdGenerator,
         ILoanWorkflowService workflowService,
         IAuditLogger auditLogger,
-        ITimeProvider timeProvider)
+        ITimeProvider timeProvider,
+        INotificationService notificationService)
     {
         _loanRepository = loanRepository;
         _lamIdGenerator = lamIdGenerator;
         _workflowService = workflowService;
         _auditLogger = auditLogger;
         _timeProvider = timeProvider;
+        _notificationService = notificationService;
     }
 
     public async Task<(LoanSubmissionResponse Response, bool Replayed)> SubmitAsync(
@@ -159,6 +164,23 @@ public class LoanSubmissionService : ILoanSubmissionService
                 $"Loan application created (group {groupNo})");
             await _auditLogger.LogActionAsync(application.Id, userId, "StatusChanged", "Draft", "ForRecommendation",
                 "Submitted for recommendation");
+        }
+
+        // Notify the branch's recommenders that a new application group is
+        // waiting for their review. We resolve users via the same DbContext
+        // the repo uses so the role+branch filter is consistent with the
+        // workflow authorization checks elsewhere in the slice.
+        var recommenders = await _loanRepository.GetUsersByRoleAndBranchAsync(Roles.Recommender, branchCode, ct);
+        var firstLoan = applications.First();
+        var clientName = $"{firstLoan.FirstName} {firstLoan.LastName}";
+
+        foreach (var recommender in recommenders)
+        {
+            await _notificationService.CreateAsync(
+                recommender.Id,
+                "New Loan Application Submitted",
+                $"Application group {groupNo} for {clientName} has been submitted for recommendation.",
+                "/loans/monitoring");
         }
 
         return (response, false);

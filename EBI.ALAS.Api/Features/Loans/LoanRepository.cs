@@ -1,5 +1,6 @@
 using EBI.ALAS.Api.Common.Constants;
 using EBI.ALAS.Api.Common.Models;
+using EBI.ALAS.Api.Features.Auth;
 using EBI.ALAS.Api.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 
@@ -194,5 +195,20 @@ public class LoanRepository : ILoanRepository
     {
         _context.LoanSubmissionIdempotencies.Update(idempotency);
         await _context.SaveChangesAsync(ct);
+    }
+
+    // ── Notification routing helpers ─────────────────────────────────────
+
+    public async Task<List<User>> GetUsersByRoleAndBranchAsync(
+        string role, string branchId, CancellationToken ct = default)
+    {
+        // IsActive filter — never notify suspended users. The branch
+        // match uses User.BranchId (== Branch.Code per the auth contract,
+        // see ClaimsPrincipalExtensions.GetBranchCode). Both columns are
+        // indexed via the standard Users indexes, so the lookup is a
+        // single seek even with thousands of users.
+        return await _context.Users
+            .Where(u => u.Role == role && u.BranchId == branchId && u.IsActive)
+            .ToListAsync(ct);
     }
 }
