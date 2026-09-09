@@ -33,6 +33,7 @@ public static class LoanEndpoints
         //   • search           — matches ApplicationGroupNo, FirstName, or LastName
         //   • status           — comma-separated workflow statuses (e.g. "Draft,ForRecommendation")
         //   • branchCode       — admin-only filter; non-admins are auto-scoped to their branch
+        //   • fromDate / toDate — application-date range filter (inclusive end-of-day on toDate)
         //   • sortBy / sortDesc — whitelisted columns (applicationdate, proposedamount,
         //                         status, customername); unknown values fall back to
         //                         ApplicationDate DESC
@@ -46,6 +47,8 @@ public static class LoanEndpoints
             string? branchCode,
             string? sortBy,
             bool? sortDesc,
+            DateTime? fromDate,
+            DateTime? toDate,
             CancellationToken ct) =>
         {
             // ── Pagination caps ────────────────────────────────────────
@@ -53,7 +56,20 @@ public static class LoanEndpoints
             var ps = Math.Clamp(pageSize ?? 15, 1, 100);
 
             // ── Base query (raw entity) ─────────────────────────────────
-            var query = db.LoanApplications.AsNoTracking();
+            // Include CreatedBy so the projection's `l.CreatedBy.FirstName +
+            // l.CreatedBy.LastName` resolves via a single LEFT JOIN instead of
+            // triggering an N+1 round-trip per page row.
+            //
+            // Typed as `IQueryable<LoanApplication>` (not var) because
+            // `.Include(...)` returns `IIncludableQueryable<T, P>` and
+            // subsequent `.Where()` / `.OrderBy()` calls return plain
+            // `IQueryable<T>` — without an explicit type the compiler
+            // can't reconcile the two and emits CS0266 on every chain.
+            // EF Core still emits the JOIN internally; the static type
+            // is just narrower for the benefit of subsequent assignments.
+            IQueryable<LoanApplication> query = db.LoanApplications
+                .AsNoTracking()
+                .Include(l => l.CreatedBy);
 
             // ── Branch scoping (anti-enumeration) ──────────────────────
             var userRole = ctx.User.GetRole();
@@ -93,6 +109,22 @@ public static class LoanEndpoints
                 && !string.Equals(branchCode, "all", StringComparison.OrdinalIgnoreCase))
             {
                 query = query.Where(l => l.BranchCode == branchCode);
+            }
+
+            // ── Application-date range ─────────────────────────────────
+            // Inclusive on both ends. `toDate` is treated as end-of-day
+            // so a user picking the same calendar date for from and to
+            // still gets every loan filed that day (the <input type="date">
+            // picker on the FE submits midnight on each end).
+            if (fromDate.HasValue)
+            {
+                var startDate = fromDate.Value.Date;
+                query = query.Where(l => l.ApplicationDate >= startDate);
+            }
+            if (toDate.HasValue)
+            {
+                var endDate = toDate.Value.Date.AddDays(1).AddTicks(-1);
+                query = query.Where(l => l.ApplicationDate <= endDate);
             }
 
             // ── Sorting (whitelist + switch) ────────────────────────────
@@ -147,6 +179,10 @@ public static class LoanEndpoints
                     l.MiddleName,
                     l.LastName,
                     l.Suffix,
+                    // ── Monitoring-table enrichment (NEW) ───────────────
+                    l.ApplicationDate,
+                    l.LastActionDate,
+                    CreatedByName = l.CreatedBy.FirstName + " " + l.CreatedBy.LastName,
                 })
                 .Skip((p - 1) * ps)
                 .Take(ps)
@@ -174,6 +210,10 @@ public static class LoanEndpoints
                             MiddleName = r.MiddleName,
                             LastName = r.LastName,
                             Suffix = r.Suffix,
+                            // ── Monitoring-table enrichment (NEW) ───────────
+                            ApplicationDate = r.ApplicationDate,
+                            LastActionDate = r.LastActionDate,
+                            CreatedByName = r.CreatedByName,
                         })
                         .ToList(),
                 })
