@@ -167,3 +167,17 @@ public sealed record CreatedLoan
     public decimal ProposedAmount { get; init; }
     public string Status { get; init; } = string.Empty;
 }
+
+// ─── GET /api/loans/{id}/history — timeline entries ─────────────────────
+// One row per LoanAction. ActionBy is the resolved server-side full name
+// (not a user id) so the frontend never has to perform a second lookup.
+// Nullable strings mirror LoanAction.FromStatus / ToStatus / Comments.
+public sealed record LoanHistoryEntryResponse(
+    int Id,
+    string ActionBy,
+    string Action,
+    string? FromStatus,
+    string? ToStatus,
+    string? Comments,
+    DateTime ActionDate
+);

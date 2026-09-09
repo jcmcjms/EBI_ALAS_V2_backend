@@ -1,11 +1,14 @@
 using System.Security.Claims;
+using EBI.ALAS.Api.Common.Constants;
 using EBI.ALAS.Api.Common.Exceptions;
 using EBI.ALAS.Api.Common.Extensions;
 using EBI.ALAS.Api.Common.Models;
 using EBI.ALAS.Api.Common.Time;
+using EBI.ALAS.Api.Infrastructure.Data;
 using FluentValidation;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 
 namespace EBI.ALAS.Api.Features.Loans;
 
@@ -170,6 +173,77 @@ public static class LoanEndpoints
         .Produces<ApiResponse<LoanResponse>>(200)
         .Produces<ApiResponse>(404)
         .RequireAuthorization("CanViewLoan");
+
+        // ── GET /api/loans/{id}/history — chronological audit timeline ─────
+        //
+        // Reads LoanAction rows for one loan in ActionDate-ascending order.
+        // The two-stage auth rule (permission OR ownership) is enforced
+        // in-body — a single ASP.NET policy cannot express "loans.view OR
+        // CreatedById == userId" without a custom requirement handler that
+        // loads the loan, which is overkill for one endpoint. Group-level
+        // .RequireAuthorization() at MapLoanEndpoints handles authentication;
+        // this handler enforces the finer-grained rule.
+        group.MapGet("/{id:int}/history", async (
+            int id,
+            ClaimsPrincipal principal,
+            AppDbContext db,
+            CancellationToken ct) =>
+        {
+            var userId = principal.GetUserId();
+
+            // 1 ── Existence check first (404 envelope matches the rest of the slice).
+            var loan = await db.LoanApplications
+                .AsNoTracking()
+                .Where(l => l.Id == id)
+                .Select(l => new { l.Id, l.CreatedById })
+                .FirstOrDefaultAsync(ct);
+
+            if (loan is null)
+                return Results.NotFound(ApiResponse.ErrorResponse("Loan not found"));
+
+            // 2 ── Two-stage authorization.
+            //    a) Anyone with `loans.view` (CanViewLoan) can read any loan's history.
+            //    b) Otherwise the loan's creator may read their own history.
+            var hasViewPerm = principal.HasPermission(Permissions.LoansView);
+            var isCreator = loan.CreatedById == userId;
+            if (!hasViewPerm && !isCreator)
+                // Envelope-shaped 403 (parity with ForbiddenAccessException in the rest
+                // of the slice). `Results.Forbid()` returns a bare 403 with no body,
+                // which would break the FE's ApiResponse envelope parser.
+                return Results.Json(
+                    ApiResponse.ErrorResponse("You do not have permission to view this loan's history."),
+                    statusCode: StatusCodes.Status403Forbidden);
+
+            // 3 ── Project the timeline; cap at 500 per spec §3.3.
+            //    ActionBy is resolved server-side through ActionByUser — never trust a
+            //    client-supplied name.
+            //    ThenBy(a => a.Id) gives stable ordering if two actions share a millisecond.
+            //    Note: this handler reads AppDbContext directly rather than via
+            //    ILoanRepository because ILoanRepository has no history method; a single
+            //    EF projection here is cheaper than introducing a new repository method
+            //    for one read path.
+            var history = await db.LoanActions
+                .AsNoTracking()
+                .Where(a => a.LoanApplicationId == id)
+                .OrderBy(a => a.ActionDate)
+                .ThenBy(a => a.Id)
+                .Take(500)
+                .Select(a => new LoanHistoryEntryResponse(
+                    a.Id,
+                    $"{a.ActionByUser.FirstName} {a.ActionByUser.LastName}",
+                    a.Action,
+                    a.FromStatus,
+                    a.ToStatus,
+                    a.Comments,
+                    a.ActionDate))
+                .ToListAsync(ct);
+
+            return Results.Ok(ApiResponse<List<LoanHistoryEntryResponse>>.SuccessResponse(history));
+        })
+        .WithName("GetLoanHistory")
+        .Produces<ApiResponse<List<LoanHistoryEntryResponse>>>(200)
+        .Produces<ApiResponse>(404)
+        .Produces<ApiResponse>(403);
 
         // ── POST /api/loans — multi-loan submission ───────────────────────
         //

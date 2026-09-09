@@ -33,6 +33,9 @@ public class AuditLogger : IAuditLogger
             ActionDate = _timeProvider.UtcNow
         };
 
+        // APPEND-ONLY — do not mutate. LoanAction is the source of truth for
+        // the loan audit trail (spec §2.3). Corrections are a NEW row with
+        // Action = "Comment Updated". Only Add(...) is permitted here.
         _context.LoanActions.Add(loanAction);
         await _context.SaveChangesAsync();
     }
