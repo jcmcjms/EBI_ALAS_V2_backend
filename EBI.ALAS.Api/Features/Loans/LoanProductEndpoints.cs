@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using EBI.ALAS.Api.Common.Extensions;
 using EBI.ALAS.Api.Common.Models;
+using EBI.ALAS.Api.Features.AuditLogs;
 using FluentValidation;
 using Microsoft.AspNetCore.Mvc;
 
@@ -88,6 +89,7 @@ public static class LoanProductEndpoints
             [FromBody] UpdateLoanProductRequest request,
             IValidator<UpdateLoanProductRequest> validator,
             ILoanProductService service,
+            IAuditLogService auditLogService,
             ClaimsPrincipal user,
             CancellationToken ct) =>
         {
@@ -118,6 +120,16 @@ public static class LoanProductEndpoints
                 // than silently misattribute.
                 var userId = user.GetUserId();
                 var updated = await service.UpdateAsync(code, request, userId, ct);
+                if (updated is not null)
+                {
+                    // CUD audit: capture the product-policy edit so the
+                    // admin's "Audit Logs" page reflects the change.
+                    await auditLogService.LogAsync(
+                        userId,
+                        $"{user.GetFirstName()} {user.GetLastName()}",
+                        "Update", "LoanProduct", code, updated.Description,
+                        $"Updated policy fields for loan product {code}");
+                }
                 return updated is null
                     ? Results.NotFound(
                         ApiResponse.ErrorResponse($"Loan product '{code}' not found."))

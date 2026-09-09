@@ -1,5 +1,8 @@
+using System.Security.Claims;
 using EBI.ALAS.Api.Common.Exceptions;
+using EBI.ALAS.Api.Common.Extensions;
 using EBI.ALAS.Api.Common.Models;
+using EBI.ALAS.Api.Features.AuditLogs;
 using FluentValidation;
 using Microsoft.AspNetCore.Mvc;
 
@@ -25,7 +28,7 @@ public static class UserEndpoints
                 : Results.Ok(ApiResponse<UserResponse>.SuccessResponse(user));
         }).WithName("GetUserById").RequireAuthorization("CanViewUsers");
 
-        group.MapPost("/", async ([FromBody] CreateUserRequest request, IValidator<CreateUserRequest> validator, IUserService userService) =>
+        group.MapPost("/", async ([FromBody] CreateUserRequest request, IValidator<CreateUserRequest> validator, IUserService userService, IAuditLogService auditLogService, ClaimsPrincipal principal) =>
         {
             var validationResult = await validator.ValidateAsync(request);
             if (!validationResult.IsValid)
@@ -34,6 +37,16 @@ public static class UserEndpoints
             try
             {
                 var user = await userService.CreateUserAsync(request);
+
+                // CUD audit: capture the user-creation event in the global
+                // AuditLog table so it shows up alongside loan/workflow events
+                // on the Audit Logs page.
+                await auditLogService.LogAsync(
+                    principal.GetUserId(),
+                    $"{principal.GetFirstName()} {principal.GetLastName()}",
+                    "Create", "User", user.Id.ToString(), user.Username,
+                    $"Created user {user.Username}");
+
                 return Results.Created($"/api/users/{user.Id}", ApiResponse<UserResponse>.SuccessResponse(user, "User created successfully"));
             }
             catch (InvalidOperationException ex)
@@ -42,21 +55,41 @@ public static class UserEndpoints
             }
         }).WithName("CreateUser").RequireAuthorization("CanCreateUsers");
 
-        group.MapPut("/{id:int}", async (int id, [FromBody] UpdateUserRequest request, IValidator<UpdateUserRequest> validator, IUserService userService) =>
+        group.MapPut("/{id:int}", async (int id, [FromBody] UpdateUserRequest request, IValidator<UpdateUserRequest> validator, IUserService userService, IAuditLogService auditLogService, ClaimsPrincipal principal) =>
         {
             var validationResult = await validator.ValidateAsync(request);
             if (!validationResult.IsValid)
                 return Results.BadRequest(ApiResponse.ErrorResponse("Validation failed", validationResult.Errors.Select(e => e.ErrorMessage).ToList()));
 
             var user = await userService.UpdateUserAsync(id, request);
+            if (user is not null)
+            {
+                await auditLogService.LogAsync(
+                    principal.GetUserId(),
+                    $"{principal.GetFirstName()} {principal.GetLastName()}",
+                    "Update", "User", id.ToString(), user.Username,
+                    $"Updated user details for {user.Username}");
+            }
             return user is null
                 ? Results.NotFound(ApiResponse.ErrorResponse("User not found"))
                 : Results.Ok(ApiResponse<UserResponse>.SuccessResponse(user, "User updated successfully"));
         }).WithName("UpdateUser").RequireAuthorization("CanEditUsers");
 
-        group.MapPatch("/{id:int}/status", async (int id, [FromBody] UserStatusRequest request, IUserService userService) =>
+        group.MapPatch("/{id:int}/status", async (int id, [FromBody] UserStatusRequest request, IUserService userService, IAuditLogService auditLogService, ClaimsPrincipal principal) =>
         {
+            // Resolve the user BEFORE the status flip so we can label the
+            // audit entry with the username — the username is the
+            // EntityLabel the Audit Logs page filters on.
+            var user = await userService.GetUserByIdAsync(id);
             var success = await userService.UpdateUserStatusAsync(id, request.IsActive);
+            if (success && user is not null)
+            {
+                await auditLogService.LogAsync(
+                    principal.GetUserId(),
+                    $"{principal.GetFirstName()} {principal.GetLastName()}",
+                    "StatusChange", "User", id.ToString(), user.Username,
+                    $"User status changed to {(request.IsActive ? "Active" : "Suspended")}");
+            }
             return success
                 ? Results.Ok(ApiResponse.SuccessResponse($"User status updated to {(request.IsActive ? "Active" : "Suspended")}"))
                 : Results.NotFound(ApiResponse.ErrorResponse("User not found"));
