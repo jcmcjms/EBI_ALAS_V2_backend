@@ -33,10 +33,10 @@ public class LoanRepository : ILoanRepository
         return await query.FirstOrDefaultAsync(ct);
     }
 
-    public async Task<LoanApplication?> GetByFormNumberAsync(string formNumber, CancellationToken ct = default)
+    public async Task<LoanApplication?> GetByLamIdAsync(string lamId, CancellationToken ct = default)
     {
         return await _context.LoanApplications
-            .FirstOrDefaultAsync(l => l.FormNumber == formNumber, ct);
+            .FirstOrDefaultAsync(l => l.LamId == lamId, ct);
     }
 
     public async Task<PagedResult<LoanApplication>> GetAllAsync(

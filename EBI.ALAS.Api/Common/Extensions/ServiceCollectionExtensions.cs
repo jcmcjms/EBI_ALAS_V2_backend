@@ -59,7 +59,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<ILoanRepository, LoanRepository>();
         services.AddScoped<ILoanWorkflowService, LoanWorkflowService>();
         services.AddScoped<IAuditLogger, AuditLogger>();
-        services.AddScoped<IFormNumberGenerator, FormNumberGenerator>();
+        services.AddScoped<ILamIdGenerator, LamIdGenerator>();
         services.AddScoped<ILoanSubmissionService, LoanSubmissionService>();
 
         // Loan product catalog (ALAS-owned mirror of webloan.loan_product).

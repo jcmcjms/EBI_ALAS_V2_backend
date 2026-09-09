@@ -4,6 +4,7 @@ using EBI.ALAS.Api.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -11,9 +12,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace EBI.ALAS.Api.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260909005955_RenameFormNumberToLamIdAndRemoveFields")]
+    partial class RenameFormNumberToLamIdAndRemoveFields
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -525,7 +528,8 @@ namespace EBI.ALAS.Api.Migrations
                     b.Property<string>("LamId")
                         .IsRequired()
                         .HasMaxLength(30)
-                        .HasColumnType("nvarchar(30)");
+                        .HasColumnType("nvarchar(30)")
+                        .HasColumnName("FormNumber");
 
                     b.Property<DateTime>("LastActionDate")
                         .HasColumnType("datetime2");
@@ -669,7 +673,8 @@ namespace EBI.ALAS.Api.Migrations
                         .HasDatabaseName("IX_LoanApplications_ApplicationGroupNo");
 
                     b.HasIndex("LamId")
-                        .IsUnique();
+                        .IsUnique()
+                        .HasDatabaseName("IX_LoanApplications_FormNumber");
 
                     b.HasIndex("LoanNo")
                         .HasDatabaseName("IX_LoanApplications_LoanNo");

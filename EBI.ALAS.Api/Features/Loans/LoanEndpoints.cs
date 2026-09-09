@@ -57,7 +57,7 @@ public static class LoanEndpoints
             var loanResponse = new LoanResponse
             {
                 Id = loan.Id,
-                FormNumber = loan.FormNumber,
+                LamId = loan.LamId,
                 ApplicationGroupNo = loan.ApplicationGroupNo,
                 BranchCode = loan.BranchCode,
                 LoanNo = loan.LoanNo,
@@ -96,9 +96,6 @@ public static class LoanEndpoints
                 StandardNotarialFee = loan.StandardNotarialFee,
                 StandardDocStamps = loan.StandardDocStamps,
                 StandardInsurance = loan.StandardInsurance,
-                ModeOfPayment = loan.ModeOfPayment,
-                DateOfFirstRelease = loan.DateOfFirstRelease,
-                CoMaker = loan.CoMaker,
                 VerificationFindings = loan.VerificationFindings,
                 HasDeviations = loan.HasDeviations,
                 DeviationDetails = loan.DeviationDetails,
@@ -299,7 +296,7 @@ public static class LoanEndpoints
             var response = new LoanResponse
             {
                 Id = loan.Id,
-                FormNumber = loan.FormNumber,
+                LamId = loan.LamId,
                 ApplicationGroupNo = loan.ApplicationGroupNo,
                 BranchCode = loan.BranchCode,
                 LoanNo = loan.LoanNo,
@@ -319,9 +316,6 @@ public static class LoanEndpoints
                 ProposedAmount = loan.ProposedAmount,
                 TermDays = loan.TermDays,
                 InterestRate = loan.InterestRate,
-                ModeOfPayment = loan.ModeOfPayment,
-                DateOfFirstRelease = loan.DateOfFirstRelease,
-                CoMaker = loan.CoMaker,
                 Status = loan.Status,
                 ApplicationDate = loan.ApplicationDate,
                 LastActionDate = loan.LastActionDate,
@@ -341,7 +335,7 @@ public static class LoanEndpoints
 public class LoanResponse
 {
     public int Id { get; set; }
-    public string FormNumber { get; set; } = string.Empty;
+    public string LamId { get; set; } = string.Empty;
     public string ApplicationGroupNo { get; set; } = string.Empty;
     public string BranchCode { get; set; } = string.Empty;
     public string LoanNo { get; set; } = string.Empty;
@@ -384,10 +378,6 @@ public class LoanResponse
     public decimal StandardNotarialFee { get; set; }
     public decimal StandardDocStamps { get; set; }
     public decimal StandardInsurance { get; set; }
-
-    public string? ModeOfPayment { get; set; }
-    public DateTime? DateOfFirstRelease { get; set; }
-    public string? CoMaker { get; set; }
 
     public string? VerificationFindings { get; set; }
     public bool HasDeviations { get; set; }

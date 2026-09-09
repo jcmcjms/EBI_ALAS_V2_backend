@@ -4,7 +4,7 @@ namespace EBI.ALAS.Api.Features.Loans;
 public interface ILoanRepository
 {
     Task<LoanApplication?> GetByIdAsync(int id, bool includeRelated = false, CancellationToken ct = default);
-    Task<LoanApplication?> GetByFormNumberAsync(string formNumber, CancellationToken ct = default);
+    Task<LoanApplication?> GetByLamIdAsync(string lamId, CancellationToken ct = default);
     Task<PagedResult<LoanApplication>> GetAllAsync(
         int page,
         int pageSize,

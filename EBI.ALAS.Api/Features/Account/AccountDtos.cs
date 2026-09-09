@@ -51,7 +51,7 @@ public record PagedSessionsResponse(
 
 public record ActivityResponse(
     int Id,
-    string LoanFormNumber,
+    string LamId,
     string Action,
     string? FromStatus,
     string? ToStatus,
@@ -62,7 +62,7 @@ public record ActivityResponse(
 
 public record ProcessedLoanResponse(
     int Id,
-    string FormNumber,
+    string LamId,
     string ClientName,
     string Status,
     DateTime ApplicationDate,

@@ -25,7 +25,7 @@ public sealed record BranchTypeSection
     public string CreationTypeLabel { get; init; } = string.Empty;
     public string Branch { get; init; } = string.Empty;
 
-    /// <summary>Accepted for shape-compat only; the server overwrites it from the Users table.</summary>
+    /// <summary>Requesting officer from webloan solicitor data (frontend-supplied).</summary>
     public string RequestingOfficer { get; init; } = string.Empty;
     public string? Lai { get; init; }
 }

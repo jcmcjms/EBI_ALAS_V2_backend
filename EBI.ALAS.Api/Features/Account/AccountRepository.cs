@@ -130,7 +130,7 @@ public class AccountRepository : IAccountRepository
             .Take(limit)
             .Select(a => new ActivityResponse(
                 a.Id,
-                a.LoanApplication.FormNumber,
+                a.LoanApplication.LamId,
                 a.Action,
                 a.FromStatus,
                 a.ToStatus,
@@ -149,7 +149,7 @@ public class AccountRepository : IAccountRepository
             .Take(limit)
             .Select(l => new ProcessedLoanResponse(
                 l.Id,
-                l.FormNumber,
+                l.LamId,
                 $"{l.FirstName} {l.LastName}",
                 l.Status,
                 l.ApplicationDate,

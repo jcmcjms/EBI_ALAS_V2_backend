@@ -14,20 +14,20 @@ public class LoanSubmissionService : ILoanSubmissionService
     private const string IdempotencyIndexName = "IX_LoanSubmissionIdempotency_Key_User";
 
     private readonly ILoanRepository _loanRepository;
-    private readonly IFormNumberGenerator _formNumberGenerator;
+    private readonly ILamIdGenerator _lamIdGenerator;
     private readonly ILoanWorkflowService _workflowService;
     private readonly IAuditLogger _auditLogger;
     private readonly ITimeProvider _timeProvider;
 
     public LoanSubmissionService(
         ILoanRepository loanRepository,
-        IFormNumberGenerator formNumberGenerator,
+        ILamIdGenerator lamIdGenerator,
         ILoanWorkflowService workflowService,
         IAuditLogger auditLogger,
         ITimeProvider timeProvider)
     {
         _loanRepository = loanRepository;
-        _formNumberGenerator = formNumberGenerator;
+        _lamIdGenerator = lamIdGenerator;
         _workflowService = workflowService;
         _auditLogger = auditLogger;
         _timeProvider = timeProvider;
@@ -49,10 +49,8 @@ public class LoanSubmissionService : ILoanSubmissionService
             return (replayed, true);
         }
 
-        // 2 ── Server-derived truth. The client's branch/officer values are ignored.
+        // 2 ── Server-derived branch. The client's branch value is overwritten.
         var branchCode = user.GetBranchId();
-        var officer = await _loanRepository.GetOfficerDisplayNameAsync(userId, ct)
-            ?? throw new ForbiddenAccessException("Unable to resolve the acting officer.");
 
         // Broken-access-control guard: an officer may only encode against
         // preloans of their own branch (the webloan lookup is already scoped
@@ -75,7 +73,7 @@ public class LoanSubmissionService : ILoanSubmissionService
         {
             try
             {
-                return await PersistAsync(request, idempotencyKey, userId, branchCode, officer, ct);
+                return await PersistAsync(request, idempotencyKey, userId, branchCode, ct);
             }
             catch (DbUpdateException ex) when (IsIdempotencyCollision(ex))
             {
@@ -97,15 +95,14 @@ public class LoanSubmissionService : ILoanSubmissionService
         Guid idempotencyKey,
         int userId,
         string branchCode,
-        string officer,
         CancellationToken ct)
     {
-        var groupNo = await _formNumberGenerator.GenerateGroupNumberAsync(ct);
-        var lamIds = await _formNumberGenerator.GenerateFormNumbersAsync(request.Loans.Count, ct);
+        var groupNo = await _lamIdGenerator.GenerateGroupNumberAsync(ct);
+        var lamIds = await _lamIdGenerator.GenerateLamIdsAsync(request.Loans.Count, ct);
         var now = _timeProvider.UtcNow;
 
         var applications = request.Loans
-            .Select((loan, i) => MapApplication(request, loan, groupNo, lamIds[i], branchCode, officer, userId, now))
+            .Select((loan, i) => MapApplication(request, loan, groupNo, lamIds[i], branchCode, userId, now))
             .ToList();
 
         var idempotency = new LoanSubmissionIdempotency
@@ -144,7 +141,7 @@ public class LoanSubmissionService : ILoanSubmissionService
                 .Select(a => new CreatedLoan
                 {
                     Id = a.Id,
-                    LamId = a.FormNumber,
+                    LamId = a.LamId,
                     LoanNo = a.LoanNo,
                     ProductCode = a.ProductCode,
                     ProposedAmount = a.ProposedAmount,
@@ -173,7 +170,6 @@ public class LoanSubmissionService : ILoanSubmissionService
         string groupNo,
         string lamId,
         string branchCode,
-        string officer,
         int userId,
         DateTime now)
     {
@@ -182,13 +178,13 @@ public class LoanSubmissionService : ILoanSubmissionService
 
         return new LoanApplication
         {
-            FormNumber = lamId,
+            LamId = lamId,
             ApplicationGroupNo = groupNo,
             BranchCode = branchCode,
 
             CreationTypeCode = loan.CreationTypeCode,
             CreationTypeLabel = loan.CreationTypeLabel,
-            RequestingOfficer = officer,
+            RequestingOfficer = request.BranchType.RequestingOfficer,
             Lai = request.BranchType.Lai,
 
             CisId = client.CisId,

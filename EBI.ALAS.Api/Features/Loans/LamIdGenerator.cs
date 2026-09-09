@@ -4,7 +4,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace EBI.ALAS.Api.Features.Loans;
 
-public class FormNumberGenerator : IFormNumberGenerator
+public class LamIdGenerator : ILamIdGenerator
 {
     private const string LamPrefix = "LAM-";
     private const string GroupPrefix = "APP-";
@@ -14,20 +14,20 @@ public class FormNumberGenerator : IFormNumberGenerator
     private readonly ITimeProvider _timeProvider;
 
     // Serializes allocation within this process only. The unique indexes on
-    // LoanApplications.FormNumber / ApplicationGroupNo are the cross-process
+    // LoanApplications.LamId / ApplicationGroupNo are the cross-process
     // backstop; LoanSubmissionService retries on duplicate-key violations.
     private static readonly SemaphoreSlim _semaphore = new(1, 1);
 
-    public FormNumberGenerator(AppDbContext context, ITimeProvider timeProvider)
+    public LamIdGenerator(AppDbContext context, ITimeProvider timeProvider)
     {
         _context = context;
         _timeProvider = timeProvider;
     }
 
-    public async Task<string> GenerateFormNumberAsync(CancellationToken ct = default)
+    public async Task<string> GenerateLamIdAsync(CancellationToken ct = default)
         => (await AllocateAsync(LamPrefix, 1, isGroup: false, ct))[0];
 
-    public Task<IReadOnlyList<string>> GenerateFormNumbersAsync(int count, CancellationToken ct = default)
+    public Task<IReadOnlyList<string>> GenerateLamIdsAsync(int count, CancellationToken ct = default)
         => AllocateAsync(LamPrefix, count, isGroup: false, ct);
 
     public async Task<string> GenerateGroupNumberAsync(CancellationToken ct = default)
@@ -43,7 +43,7 @@ public class FormNumberGenerator : IFormNumberGenerator
         await _semaphore.WaitAsync(ct);
         try
         {
-            // Fixed-width sequence ⇒ ordinal string ordering == numeric ordering.
+            // Fixed-width sequence => ordinal string ordering == numeric ordering.
             var last = isGroup
                 ? await _context.LoanApplications
                     .Where(l => l.ApplicationGroupNo.StartsWith(fullPrefix))
@@ -51,9 +51,9 @@ public class FormNumberGenerator : IFormNumberGenerator
                     .Select(l => l.ApplicationGroupNo)
                     .FirstOrDefaultAsync(ct)
                 : await _context.LoanApplications
-                    .Where(l => l.FormNumber.StartsWith(fullPrefix))
-                    .OrderByDescending(l => l.FormNumber)
-                    .Select(l => l.FormNumber)
+                    .Where(l => l.LamId.StartsWith(fullPrefix))
+                    .OrderByDescending(l => l.LamId)
+                    .Select(l => l.LamId)
                     .FirstOrDefaultAsync(ct);
 
             var next = 1;

@@ -123,11 +123,11 @@ public class AppDbContext : DbContext
             entity.HasKey(e => e.Id);
             entity.Property(e => e.Id).ValueGeneratedOnAdd();
 
-            entity.Property(e => e.FormNumber)
+            entity.Property(e => e.LamId)
                 .IsRequired()
                 .HasMaxLength(30);
 
-            entity.HasIndex(e => e.FormNumber)
+            entity.HasIndex(e => e.LamId)
                 .IsUnique();
 
             // ── Multi-loan submission: group key, per-loan PN/product ──
@@ -243,12 +243,6 @@ public class AppDbContext : DbContext
             entity.Property(e => e.StandardNotarialFee).HasColumnType("decimal(18,2)");
             entity.Property(e => e.StandardDocStamps).HasColumnType("decimal(18,2)");
             entity.Property(e => e.StandardInsurance).HasColumnType("decimal(18,2)");
-
-            entity.Property(e => e.ModeOfPayment)
-                .HasMaxLength(50);
-
-            entity.Property(e => e.CoMaker)
-                .HasMaxLength(200);
 
             // ── §6 / §7 verification + deviations ──
             entity.Property(e => e.VerificationFindings).HasMaxLength(2000);

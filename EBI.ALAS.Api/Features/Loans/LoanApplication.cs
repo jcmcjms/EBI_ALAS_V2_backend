@@ -5,7 +5,7 @@ namespace EBI.ALAS.Api.Features.Loans;
 /// <summary>
 /// One loan within a submitted application group. A single wizard submission
 /// with N selected preloan PNs produces N rows sharing ApplicationGroupNo;
-/// each row owns its own LAM FormNumber, workflow state and audit trail.
+/// each row owns its own LAM LamId, workflow state and audit trail.
 /// Client / obligation / verification data is snapshotted per row so every
 /// loan file is a self-contained audit unit (mirrors the printed per-loan
 /// approval sheet).
@@ -15,7 +15,7 @@ public class LoanApplication
     public int Id { get; set; }
 
     /// <summary>LAM identifier, e.g. LAM-20260908-000042. Unique.</summary>
-    public string FormNumber { get; set; } = string.Empty;
+    public string LamId { get; set; } = string.Empty;
 
     /// <summary>Groups the N loans created by one submission, e.g. APP-20260908-000017.</summary>
     public string ApplicationGroupNo { get; set; } = string.Empty;
@@ -74,10 +74,6 @@ public class LoanApplication
     public decimal StandardNotarialFee { get; set; }
     public decimal StandardDocStamps { get; set; }
     public decimal StandardInsurance { get; set; }
-
-    public string? ModeOfPayment { get; set; }
-    public DateTime? DateOfFirstRelease { get; set; }
-    public string? CoMaker { get; set; }
 
     // ── Verification & deviations (§6 / §7) ────────────────────────
     public string? VerificationFindings { get; set; }
