@@ -115,6 +115,19 @@ public class AppDbContext : DbContext
                 .HasMaxLength(500);
 
             entity.Property(e => e.PasswordChangedAt);
+
+            // JobTitle is a free-text role label (e.g. "Senior Credit
+            // Analyst"). It complements the workflow `Role` field which
+            // only carries the broad category (Encoder/Recommender/etc.).
+            entity.Property(e => e.JobTitle)
+                .HasMaxLength(100);
+
+            // ESignature is a base64-encoded PNG drawn from the signature
+            // pad. The 2MB cap matches the FluentValidation rule in
+            // UserValidators.cs so the column won't silently truncate a
+            // payload the validator accepted.
+            entity.Property(e => e.ESignature)
+                .HasMaxLength(2000000);
         });
 
         // ─── LoanApplication Entity ──────────────────────────────────────

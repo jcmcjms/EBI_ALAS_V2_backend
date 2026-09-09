@@ -15,7 +15,9 @@ public record CreateUserRequest(
     string? MiddleName,
     string LastName,
     string BranchId,
-    string Role
+    string Role,
+    string? JobTitle = null,
+    string? ESignature = null
 );
 
 public record UpdateUserRequest(
@@ -23,7 +25,12 @@ public record UpdateUserRequest(
     string? MiddleName,
     string LastName,
     string BranchId,
-    string Role
+    string Role,
+    string? JobTitle = null,
+    // null  = no change (keep current value)
+    // ""    = clear the signature
+    // value = replace with the new base64 PNG
+    string? ESignature = null
 );
 
 public record UserStatusRequest(bool IsActive);
@@ -49,5 +56,7 @@ public record UserResponse(
     string BranchId,
     string Role,
     bool IsActive,
-    DateTime CreatedAt
+    DateTime CreatedAt,
+    string? JobTitle = null,
+    string? ESignature = null
 );

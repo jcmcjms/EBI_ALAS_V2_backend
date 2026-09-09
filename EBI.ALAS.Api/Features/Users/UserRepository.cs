@@ -38,7 +38,7 @@ public class UserRepository : IUserRepository
             .Take(parameters.PageSize)
             .Select(u => new UserResponse(
                 u.Id, u.Username, u.FirstName, u.MiddleName, u.LastName,
-                u.BranchId, u.Role, u.IsActive, u.CreatedAt))
+                u.BranchId, u.Role, u.IsActive, u.CreatedAt, u.JobTitle, u.ESignature))
             .ToListAsync();
 
         return new PagedResult<UserResponse>(items, totalCount, parameters.PageNumber, parameters.PageSize);

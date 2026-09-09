@@ -29,6 +29,13 @@ public class CreateUserValidator : AbstractValidator<CreateUserRequest>
             .NotEmpty().WithMessage("Role is required")
             .Must(role => new[] { Roles.Encoder, Roles.Recommender, Roles.Evaluator, Roles.Approver, Roles.Admin }.Contains(role))
             .WithMessage("Invalid role specified");
+
+        // Profile fields (free-text role label + base64 signature).
+        // The signature cap is ~2MB of base64 which is roughly 1.5MB of
+        // raw PNG — well above the 100KB practical ceiling but still
+        // bounded so a hostile client cannot DoS the request pipeline.
+        RuleFor(x => x.JobTitle).MaximumLength(100).WithMessage("Job title must not exceed 100 characters.");
+        RuleFor(x => x.ESignature).MaximumLength(2000000).WithMessage("Signature image is too large.");
     }
 }
 
@@ -45,5 +52,8 @@ public class UpdateUserValidator : AbstractValidator<UpdateUserRequest>
             .NotEmpty().WithMessage("Role is required")
             .Must(role => new[] { Roles.Encoder, Roles.Recommender, Roles.Evaluator, Roles.Approver, Roles.Admin }.Contains(role))
             .WithMessage("Invalid role specified");
+
+        RuleFor(x => x.JobTitle).MaximumLength(100).WithMessage("Job title must not exceed 100 characters.");
+        RuleFor(x => x.ESignature).MaximumLength(2000000).WithMessage("Signature image is too large.");
     }
 }

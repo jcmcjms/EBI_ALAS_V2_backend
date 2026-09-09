@@ -19,4 +19,12 @@ public class User
     public string? EmergencyContact { get; set; }
     public string? ProfilePhotoUrl { get; set; }
     public DateTime? PasswordChangedAt { get; set; }
+
+    // Profile fields added for workflow audit context (JobTitle) and
+    // document signing (ESignature). JobTitle is a free-text role label
+    // that complements the workflow `Role` (Encoder/Recommender/etc.).
+    // ESignature is a base64-encoded PNG (small, <100KB) suitable for
+    // stamping on generated PDF documents.
+    public string? JobTitle { get; set; }
+    public string? ESignature { get; set; }
 }

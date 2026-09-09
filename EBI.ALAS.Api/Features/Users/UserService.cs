@@ -36,7 +36,7 @@ public class UserService : IUserService
     {
         var user = await _userRepository.GetUserByIdAsync(id);
         if (user == null) return null;
-        return new UserResponse(user.Id, user.Username, user.FirstName, user.MiddleName, user.LastName, user.BranchId, user.Role, user.IsActive, user.CreatedAt);
+        return new UserResponse(user.Id, user.Username, user.FirstName, user.MiddleName, user.LastName, user.BranchId, user.Role, user.IsActive, user.CreatedAt, user.JobTitle, user.ESignature);
     }
 
     public async Task<UserResponse> CreateUserAsync(CreateUserRequest request)
@@ -53,13 +53,15 @@ public class UserService : IUserService
             LastName = request.LastName,
             BranchId = request.BranchId,
             Role = request.Role,
+            JobTitle = request.JobTitle,
+            ESignature = request.ESignature,
             IsActive = true,
             MustChangePassword = true,
             CreatedAt = _timeProvider.UtcNow
         };
 
         await _userRepository.AddUserAsync(user);
-        return new UserResponse(user.Id, user.Username, user.FirstName, user.MiddleName, user.LastName, user.BranchId, user.Role, user.IsActive, user.CreatedAt);
+        return new UserResponse(user.Id, user.Username, user.FirstName, user.MiddleName, user.LastName, user.BranchId, user.Role, user.IsActive, user.CreatedAt, user.JobTitle, user.ESignature);
     }
 
     public async Task<UserResponse?> UpdateUserAsync(int id, UpdateUserRequest request)
@@ -72,9 +74,21 @@ public class UserService : IUserService
         user.LastName = request.LastName;
         user.BranchId = request.BranchId;
         user.Role = request.Role;
+        user.JobTitle = request.JobTitle;
+
+        // Only update the signature when the client explicitly provided
+        // a value. This preserves the existing base64 PNG when the user
+        // edits their name or branch without touching the signature pad.
+        // - ESignature == null  → no change, leave as-is
+        // - ESignature == ""    → clear the signature
+        // - ESignature == "..." → replace with the new payload
+        if (request.ESignature is not null)
+        {
+            user.ESignature = string.IsNullOrEmpty(request.ESignature) ? null : request.ESignature;
+        }
 
         await _userRepository.UpdateUserAsync();
-        return new UserResponse(user.Id, user.Username, user.FirstName, user.MiddleName, user.LastName, user.BranchId, user.Role, user.IsActive, user.CreatedAt);
+        return new UserResponse(user.Id, user.Username, user.FirstName, user.MiddleName, user.LastName, user.BranchId, user.Role, user.IsActive, user.CreatedAt, user.JobTitle, user.ESignature);
     }
 
     public async Task<bool> UpdateUserStatusAsync(int id, bool isActive)
