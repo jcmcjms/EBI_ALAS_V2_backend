@@ -595,12 +595,15 @@ public static class LoanEndpoints
             }
             else if (request.Status == "ForRevision")
             {
-                // Notify the original Encoder that the loan was returned.
-                // No audience lookup here — exactly one recipient.
+                // Pushback: notify the original Encoder with the reviewer's comments.
+                var pushbackRole = userRole == Roles.Recommender ? "Branch Head"
+                                 : userRole == Roles.Approver ? "Area Head"
+                                 : "Reviewer";
+                
                 await notificationService.CreateAsync(
                     loan.CreatedById,
-                    "Application Returned",
-                    $"{actorName} returned {clientName}'s application ({loan.LamId}) for revision. Comments: {request.Comments}",
+                    "Application Returned for Revision",
+                    $"{pushbackRole} {actorName} returned {clientName}'s application ({loan.LamId}). Reason: {request.Comments}",
                     link);
             }
 
@@ -800,6 +803,16 @@ public class UpdateLoanStatusValidator : AbstractValidator<UpdateLoanStatusReque
         "Disbursed", "OnGoing"
     };
 
+    /// <summary>
+    /// Statuses that require mandatory comments for audit compliance.
+    /// Pushbacks and rejections must explain WHY; advances should document conditions.
+    /// </summary>
+    private static readonly string[] RequireComments = new[]
+    {
+        "ForRevision",  // Pushback (Recommender → Encoder, or Approver → Encoder)
+        "Rejected"      // Rejection (Approver only)
+    };
+
     public UpdateLoanStatusValidator()
     {
         RuleFor(x => x.Status)
@@ -808,8 +821,19 @@ public class UpdateLoanStatusValidator : AbstractValidator<UpdateLoanStatusReque
             .Must(status => ValidStatuses.Contains(status))
             .WithMessage($"Status must be one of: {string.Join(", ", ValidStatuses)}");
 
+        // Comments are MANDATORY for pushbacks and rejections (audit trail).
+        When(x => RequireComments.Contains(x.Status), () =>
+        {
+            RuleFor(x => x.Comments)
+                .NotEmpty()
+                .WithMessage("Comments are required when pushing back or rejecting an application.")
+                .MinimumLength(10)
+                .WithMessage("Please provide a detailed explanation (at least 10 characters).");
+        });
+
+        // Max length applies to all comments regardless of whether required.
         RuleFor(x => x.Comments)
-            .MaximumLength(1000)
-            .WithMessage("Comments must not exceed 1000 characters");
+            .MaximumLength(2000)
+            .WithMessage("Comments must not exceed 2000 characters");
     }
 }
