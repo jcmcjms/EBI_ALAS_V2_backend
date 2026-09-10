@@ -20,6 +20,7 @@ A banking-grade **.NET 8 Web API** for end-to-end loan application management, b
 - [Loan Workflow](#loan-workflow)
 - [API Reference](#api-reference)
 - [Database](#database)
+- [Cache Topology & Limits](#cache-topology--limits)
 - [WebLoan Integration](#webloan-integration)
 - [Seed Data](#seed-data)
 - [Development](#development)
@@ -538,6 +539,40 @@ This DB is **accessed read-only**. The `WebLoanReadOnlyInterceptor` blocks any n
 - All times flow through `ITimeProvider` — the default implementation is `PhilippinesTimeProvider`, which produces UTC values while exposing helpers for `Asia/Manila` business logic.
 
 ---
+
+## Cache Topology & Limits
+
+The API uses `IMemoryCache` — the in-process `Microsoft.Extensions.Caching.Memory` cache — for everything that needs a hot path. There is no Redis or other out-of-process cache. This is a deliberate design choice for the current single-pod deployment.
+
+### Consumers
+
+| Consumer | Key prefix | TTL | Purpose |
+|---|---|---|---|
+| `CachingTokenRevocationRepository` | `revoked:` | ≤ remaining access-token lifetime (15 min default, 1 day max) | JTI revocation blacklist. Every authenticated request hits this. |
+| `IdempotencyMiddleware` | `idem:` | 90 s | Replayed POST / PUT / PATCH responses, so retried requests return the original response instead of re-executing the side effect. |
+| Dashboard / branch summary | (none) | 30 s | Read-mostly aggregates where 30s staleness is acceptable. |
+
+`SizeLimit = 10_000` is set on the `MemoryCacheOptions` (in `ServiceCollectionExtensions`). Every entry declares its `Size` (JTI = 1, idempotency = body-length in KB floored at 1) so the LRU eviction policy can shed entries under pressure.
+
+### Trade-offs of the in-process design
+
+**Single-pod deployment only.** `IMemoryCache` lives in the API process's memory. A multi-replica deployment would lose:
+
+- **JTI blacklist coherence.** A token revoked on pod A would still be accepted on pod B for up to 15 minutes — a real auth bypass.
+- **Idempotency replay.** A retried request landing on a different pod would re-execute the side effect (e.g. duplicate loan submission).
+
+If a future deployment scales out to multiple replicas, this layer needs to be backed by a cross-process cache (Redis or a SQL Server shared row) — the middleware is already isolated behind `IDistributedCache`-shaped seams so the swap is local.
+
+**State lost on restart.** All entries evaporate when the process recycles (deploy, crash, OOM-kill). After a restart:
+
+- A token revoked 5 seconds before the recycle would be accepted again immediately. The 15-minute JWT access-token expiry caps the exposure window.
+- An idempotency key used before the recycle could see its side effect re-executed if the retry arrives after the recycle (within the 90s window). Realistic client retry budgets (≤ 30s) make this unlikely.
+
+**No horizontal scalability for the cache itself.** Hot keys (e.g. the dashboard summary) are recomputed independently on each pod. With a single pod this is irrelevant; with multiple pods each would do the work.
+
+---
+
+
 
 ## WebLoan Integration
 

@@ -12,7 +12,6 @@ using EBI.ALAS.Api.Features.WebLoans;
 using EBI.ALAS.Api.Infrastructure.Data;
 using EBI.ALAS.Api.Infrastructure.Security;
 using Microsoft.AspNetCore.Authorization;
-using Microsoft.Extensions.Caching.Distributed;
 using Microsoft.Extensions.Caching.Memory;
 
 namespace EBI.ALAS.Api.Common.Extensions;
@@ -24,24 +23,28 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<ITimeProvider, PhilippinesTimeProvider>();
 
         // ─── In-process cache ────────────────────────────────────────────
-        // IMemoryCache backs the dashboard summary cache and the branch
-        // cache. Per-pod cache effectiveness is acceptable for these —
-        // they're read-mostly aggregates where staleness across pods is
-        // tolerable (a 30s TTL hides any consistency gap).
+        // IMemoryCache backs three consumers:
+        //   1. Dashboard summary cache and the branch cache —
+        //      read-mostly aggregates where a 30s TTL hides any
+        //      consistency gap.
+        //   2. JTI revocation blacklist (CachingTokenRevocationRepository) —
+        //      short-lived, per-request. A revoked token must be
+        //      rejected on the same pod for the rest of its 15-min
+        //      access-token window.
+        //   3. Idempotency middleware — replayed POST/PUT/PATCH
+        //      responses cached for 90s.
         //
-        // IMPORTANT: the JTI blacklist (CachingTokenRevocationRepository)
-        // is NOT in IMemoryCache. The blacklist MUST be cross-pod
-        // coherent (otherwise a token revoked on pod A is still
-        // accepted on pod B for up to 15 min — a real auth bypass on
-        // multi-replica deployments). The blacklist lives in
-        // IDistributedCache (Redis) — see the AddDistributedCache
-        // registration below.
+        // All three are per-process by design. The deployment
+        // topology is single-pod; see README §"Cache topology &
+        // limits" for the trade-off.
         //
-        // SizeLimit gives us a hard ceiling so a malicious caller can't
-        // blow up the server's working set with millions of unique
-        // cache keys. The dashboard entries declare Size=1 each; we
-        // cap at 10k entries which is well above any realistic
-        // (branch × role) combination.
+        // SizeLimit gives us a hard ceiling so a malicious caller
+        // can't blow up the server's working set with millions of
+        // unique cache keys. Each consumer declares Size on its
+        // entries (see CachingTokenRevocationRepository /
+        // IdempotencyMiddleware) so the LRU policy can evict under
+        // pressure. 10k entries is well above any realistic working
+        // set for the three combined.
         services.AddMemoryCache(options =>
         {
             options.SizeLimit = 10_000;
@@ -58,14 +61,14 @@ public static class ServiceCollectionExtensions
         // decorator (below) can resolve it without an infinite-recursion guard.
         services.AddScoped<TokenRevocationRepository>();
         // Hot-path: every authenticated request resolves the caching decorator.
-        // The decorator reads IDistributedCache (Redis) so every replica sees
-        // the same JTI blacklist. Critical: a revoked token on pod A must be
-        // rejected on pod B within milliseconds — otherwise it's a real auth
-        // bypass on multi-replica deployments.
+        // The decorator reads IMemoryCache so revoked JTIs are rejected
+        // within the same process for the rest of the access-token window.
+        // Per-process — single-pod deployment assumption documented in
+        // README §"Cache topology & limits".
         services.AddScoped<ITokenRevocationRepository>(sp =>
             new CachingTokenRevocationRepository(
                 sp.GetRequiredService<TokenRevocationRepository>(),
-                sp.GetRequiredService<IDistributedCache>(),
+                sp.GetRequiredService<IMemoryCache>(),
                 sp.GetRequiredService<ITimeProvider>(),
                 sp.GetRequiredService<ILogger<CachingTokenRevocationRepository>>()));
         services.AddScoped<IRefreshTokenRepository, RefreshTokenRepository>();

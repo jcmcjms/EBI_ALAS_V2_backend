@@ -1,56 +1,64 @@
 using EBI.ALAS.Api.Common.Time;
 using EBI.ALAS.Api.Features.Auth;
-using Microsoft.Extensions.Caching.Distributed;
+using Microsoft.Extensions.Caching.Memory;
 
 namespace EBI.ALAS.Api.Infrastructure.Security;
 
-// Cross-pod caching decorator for ITokenRevocationRepository.
+// In-process caching decorator for ITokenRevocationRepository.
 //
-// Why IDistributedCache (Redis) and not IMemoryCache:
-//   IMemoryCache lives per-pod. After a logout on pod A, only pod A
-//   learns that the JTI is revoked — pod B will happily accept the
-//   same revoked token until it expires (15 min). On a multi-replica
-//   deployment that's a real auth bypass, not just a perf issue.
-//
-//   IDistributedCache (Redis) gives every pod the same view of the
-//   blacklist. A revoke on any pod is visible to every other pod
-//   within milliseconds.
+// Why IMemoryCache (and not IDistributedCache / Redis):
+//   IMemoryCache is per-process. Trade-off accepted at design time:
+//     * Single-pod deployment only. A multi-replica deployment
+//       would need a cross-process cache (Redis or SQL Server
+//       shared row) for the JTI blacklist to stay coherent.
+//     * State is lost on restart. A token revoked 5 seconds before
+//       a deploy would be accepted again immediately after. The
+//       15-minute JWT access-token expiry caps the exposure window.
+//   Both are documented in the README §"Cache topology & limits".
 //
 // What this decorator does:
 //   * `RevokeTokenAsync` — durable DB write first (never lose a
-//     revocation), then prime the distributed cache with the
+//     revocation), then prime the in-process cache with the
 //     token's remaining lifetime so subsequent IsTokenRevokedAsync
-//     hits on any pod skip the DB.
+//     hits skip the DB.
 //   * `IsTokenRevokedAsync` — read-through cache with a sensible
 //     fallback TTL when the original expiresAt isn't known.
 //
 // Why a 1-byte payload:
-//   The stored value is just a flag (true = revoked, false = not on
-//   the blacklist at lookup time, but we don't store false). Redis
-//   SET/GET of 1 byte is the cheapest possible op.
+//   The stored value is just a flag (true = revoked). The .NET
+//   MemoryCache treats every entry as a managed allocation; using
+//   the smallest possible payload keeps working-set pressure down
+//   even at 10k entries.
 //
 // Why two TTLs:
 //   * FallbackTtl: the default we use on cache miss, because we
 //     don't always have the original expiresAt. Matches the JWT
 //     access-token window (15 min).
 //   * MaxTtl: hard ceiling so a pathological expiresAt can't pin
-//     a JTI in Redis forever.
+//     a JTI in memory forever.
 public sealed class CachingTokenRevocationRepository : ITokenRevocationRepository
 {
-    // Distributed-cache key prefix for the JTI blacklist. Kept
-    // separate from other IDistributedCache users (e.g. the
-    // idempotency middleware uses `idem:`) so we can apply a
-    // targeted maxmemory / TTL policy per use-case if we ever need
-    // to via Redis key-space notifications.
+    // In-process cache key prefix for the JTI blacklist. Kept
+    // separate from other IMemoryCache users (e.g. the
+    // idempotency middleware uses `idem:`) so we can read out
+    // just the JTI subset via `IMemoryCache` enumerations during
+    // diagnostics.
     private const string CacheKeyPrefix = "revoked:";
 
     // 1-byte payload. 0x01 == revoked. We never cache "not revoked"
-    // because that would pin a non-event in Redis for 15 min and
-    // shadow real revocations.
+    // because that would pin a non-event in the cache for 15 min
+    // and shadow real revocations.
     private static readonly byte[] RevokedTruePayload = [0x01];
 
+    // Size for IMemoryCache LRU accounting. Size=1 with
+    // MemoryCacheOptions.SizeLimit=10_000 (set in
+    // ServiceCollectionExtensions) gives us ~10k revoked-JTI
+    // entries before eviction kicks in. JTI entries are 1 byte
+    // payloads + ~250 bytes of overhead, so 10k ≈ 2.5 MB.
+    private const int EntrySize = 1;
+
     private readonly ITokenRevocationRepository _inner;
-    private readonly IDistributedCache _cache;
+    private readonly IMemoryCache _cache;
     private readonly ITimeProvider _timeProvider;
     private readonly ILogger<CachingTokenRevocationRepository> _logger;
 
@@ -65,7 +73,7 @@ public sealed class CachingTokenRevocationRepository : ITokenRevocationRepositor
 
     public CachingTokenRevocationRepository(
         ITokenRevocationRepository inner,
-        IDistributedCache cache,
+        IMemoryCache cache,
         ITimeProvider timeProvider,
         ILogger<CachingTokenRevocationRepository> logger)
     {
@@ -84,8 +92,9 @@ public sealed class CachingTokenRevocationRepository : ITokenRevocationRepositor
         // Read-through. We only cache positive revocations, so a hit
         // here is always "revoked = true". A miss falls through to
         // the durable store.
-        var cached = await _cache.GetAsync(cacheKey);
-        if (cached is { Length: 1 } && cached[0] == 0x01)
+        if (_cache.TryGetValue(cacheKey, out byte[]? cached) &&
+            cached is { Length: 1 } &&
+            cached[0] == 0x01)
         {
             _logger.LogDebug("JTI cache hit for {TokenIdPrefix} (revoked=true)",
                 Truncate(tokenId));
@@ -101,14 +110,11 @@ public sealed class CachingTokenRevocationRepository : ITokenRevocationRepositor
         // token has been validated.
         //
         // Only positive revocations are cached. Caching "not revoked"
-        // would pin a non-event in Redis and risk shadowing a later
-        // revocation if the DB write lands before our cache write.
+        // would pin a non-event in the cache and risk shadowing a
+        // later revocation if the DB write lands before our cache write.
         if (fromStore)
         {
-            await _cache.SetAsync(
-                cacheKey,
-                RevokedTruePayload,
-                BuildEntryOptions(FallbackTtl));
+            _cache.Set(cacheKey, RevokedTruePayload, BuildEntryOptions(FallbackTtl));
         }
 
         _logger.LogDebug("JTI cache miss for {TokenIdPrefix} (revoked={Revoked})",
@@ -133,10 +139,7 @@ public sealed class CachingTokenRevocationRepository : ITokenRevocationRepositor
         if (ttl > TimeSpan.Zero)
         {
             var boundedTtl = ttl > MaxTtl ? MaxTtl : ttl;
-            await _cache.SetAsync(
-                cacheKey,
-                RevokedTruePayload,
-                BuildEntryOptions(boundedTtl));
+            _cache.Set(cacheKey, RevokedTruePayload, BuildEntryOptions(boundedTtl));
         }
 
         _logger.LogInformation(
@@ -147,14 +150,20 @@ public sealed class CachingTokenRevocationRepository : ITokenRevocationRepositor
 
     public Task<int> CleanupExpiredTokensAsync() => _inner.CleanupExpiredTokensAsync();
 
-    private static DistributedCacheEntryOptions BuildEntryOptions(TimeSpan ttl) =>
+    private static MemoryCacheEntryOptions BuildEntryOptions(TimeSpan ttl) =>
         new()
         {
             // Absolute expiration so the entry expires at a fixed
             // wall-clock point regardless of access patterns. Sliding
             // expiration would let a frequently-validated revoked
-            // JTI live forever in Redis.
-            AbsoluteExpirationRelativeToNow = ttl
+            // JTI live forever in the cache.
+            AbsoluteExpirationRelativeToNow = ttl,
+
+            // Required when MemoryCacheOptions.SizeLimit is set —
+            // every entry must declare its size for the LRU eviction
+            // to function. JTI entries are 1 byte payload + ~250 B
+            // overhead; counting them as 1 slot is sufficient.
+            Size = EntrySize
         };
 
     private static string Truncate(string value) =>

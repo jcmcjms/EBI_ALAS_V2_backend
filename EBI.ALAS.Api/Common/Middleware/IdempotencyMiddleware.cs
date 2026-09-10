@@ -1,22 +1,26 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using EBI.ALAS.Api.Common.Models;
-using Microsoft.Extensions.Caching.Distributed;
+using Microsoft.Extensions.Caching.Memory;
 
 namespace EBI.ALAS.Api.Common.Middleware;
 
-// Idempotency middleware backed by IDistributedCache (Redis).
+// Idempotency middleware backed by IMemoryCache.
 //
-// Why IDistributedCache and not a process-local ConcurrentDictionary:
-//   The whole point of an idempotency key is that a retried request
-//   (after network failure, client timeout, etc.) must hit the same
-//   response that the original returned. With a process-local dict
-//   the original request might land on pod A and the retry on pod B
-//   — the retry would execute the side effect a second time. That's
-//   a duplicate side effect on a banking API, which is unacceptable.
+// Why IMemoryCache (and not IDistributedCache / Redis):
+//   IMemoryCache is per-process. Trade-off accepted at design time:
+//     * Single-pod deployment only. A multi-replica deployment
+//       would need a cross-process cache so a retried request
+//       landing on a different pod gets the original's response.
+//     * State is lost on restart. A retry that arrives after a
+//       process recycle could execute the side effect a second
+//       time. The 90s replay window (see TTL below) bounds this.
+//   Both are documented in the README §"Cache topology & limits".
 //
-//   IDistributedCache (Redis) gives every replica the same view, so
-//   a retry on any pod gets the original's response.
+// Why an in-process cache (and not a process-local ConcurrentDictionary):
+//   Same answer as before: we still need TTL eviction so a long-running
+//   process doesn't accumulate millions of idempotency entries. IMemoryCache
+//   gives us absolute expiration + Size-based LRU out of the box.
 //
 // Storage envelope:
 //   * Status code (int) — replayed as-is.
@@ -49,14 +53,15 @@ namespace EBI.ALAS.Api.Common.Middleware;
 //   realistic client retry budgets without that risk.
 //
 // Cap:
-//   5,000 entries. We rely on Redis `maxmemory-policy: allkeys-lru`
-//   for the cap (configured at the Redis server level, see
-//   appsettings.json comment). At 90s TTL and typical request
-//   volumes, the working set stays well below this.
+//   Bounded by IMemoryCache.SizeLimit (set to 10_000 in
+//   ServiceCollectionExtensions). Each idempotency entry declares
+//   its size so the LRU policy can evict under pressure. At 90s TTL
+//   and typical request volumes, the working set stays well below
+//   this.
 public class IdempotencyMiddleware
 {
     private readonly RequestDelegate _next;
-    private readonly IDistributedCache _cache;
+    private readonly IMemoryCache _cache;
     private readonly ILogger<IdempotencyMiddleware> _logger;
 
     private const string IdempotencyKeyHeader = "Idempotency-Key";
@@ -67,10 +72,9 @@ public class IdempotencyMiddleware
     // would be semantically different anyway.
     private static readonly TimeSpan CacheDuration = TimeSpan.FromSeconds(90);
 
-    // Distributed-cache key prefix. Kept separate from the JTI
-    // blacklist (`revoked:`) so we can apply a targeted maxmemory /
-    // TTL policy per use-case if we ever need to via Redis
-    // key-space notifications.
+    // In-process cache key prefix. Kept separate from the JTI
+    // blacklist (`revoked:`) so we can enumerate one without the
+    // other during diagnostics.
     private const string CacheKeyPrefix = "idem:";
 
     // Cap for body size we'll cache. 1 MiB is well above any
@@ -104,7 +108,7 @@ public class IdempotencyMiddleware
 
     public IdempotencyMiddleware(
         RequestDelegate next,
-        IDistributedCache cache,
+        IMemoryCache cache,
         ILogger<IdempotencyMiddleware> logger)
     {
         _next = next;
@@ -149,31 +153,12 @@ public class IdempotencyMiddleware
 
         var cacheKey = CacheKeyPrefix + key;
 
-        // Check distributed cache for a prior response.
-        var cachedBytes = await _cache.GetAsync(cacheKey);
-        if (cachedBytes is not null)
+        // Check in-process cache for a prior response.
+        if (_cache.TryGetValue(cacheKey, out CachedIdempotentResponse? cached) && cached is not null)
         {
-            CachedIdempotentResponse? cached = null;
-            try
-            {
-                cached = JsonSerializer.Deserialize<CachedIdempotentResponse>(cachedBytes, SerializerOptions);
-            }
-            catch (JsonException ex)
-            {
-                // Corrupt cache entry (e.g. schema change). Treat
-                // as miss and let the request proceed; the new
-                // response will overwrite the bad entry on its
-                // way out.
-                _logger.LogWarning(ex,
-                    "Discarded corrupt idempotency cache entry for key {Key}", key);
-            }
-
-            if (cached is not null)
-            {
-                _logger.LogInformation("Idempotency hit for key: {Key}", key);
-                await WriteReplayAsync(context, cached);
-                return;
-            }
+            _logger.LogInformation("Idempotency hit for key: {Key}", key);
+            await WriteReplayAsync(context, cached);
+            return;
         }
 
         // Capture the response.
@@ -199,8 +184,9 @@ public class IdempotencyMiddleware
                 // Cap body size. Larger responses (e.g. file
                 // downloads, if anyone ever wires that up) skip
                 // the cache and stream straight through. The
-                // cap protects Redis from a 100 MB payload
-                // accidentally triggering a 100 MB SET.
+                // cap protects the in-process cache from a 100 MB
+                // payload accidentally triggering a 100 MB
+                // allocation.
                 if (responseBody.Length > MaxCacheableBodyBytes)
                 {
                     _logger.LogWarning(
@@ -220,21 +206,28 @@ public class IdempotencyMiddleware
                         Headers = safeHeaders
                     };
 
-                    var payload = JsonSerializer.SerializeToUtf8Bytes(entry, SerializerOptions);
-
-                    await _cache.SetAsync(
+                    _cache.Set(
                         cacheKey,
-                        payload,
-                        new DistributedCacheEntryOptions
+                        entry,
+                        new MemoryCacheEntryOptions
                         {
                             // Absolute expiration — sliding expiration
                             // would let a hot key live forever in
-                            // Redis even though we want it gone after
-                            // the 90s replay window.
-                            AbsoluteExpirationRelativeToNow = CacheDuration
+                            // the cache even though we want it gone
+                            // after the 90s replay window.
+                            AbsoluteExpirationRelativeToNow = CacheDuration,
+
+                            // Size accounting for the IMemoryCache LRU.
+                            // Rough heuristic: body length in KB,
+                            // floored at 1 so even empty-body
+                            // responses occupy a slot. The 1 MiB
+                            // cap on body size above keeps the
+                            // worst-case contribution to 1024
+                            // size-units per entry.
+                            Size = Math.Max(1, bodyBytes.Length / 1024)
                         });
 
-                    _logger.LogDebug("Cached idempotent response for key: {Key} ({Bytes} bytes)", key, payload.Length);
+                    _logger.LogDebug("Cached idempotent response for key: {Key} ({Bytes} bytes)", key, bodyBytes.Length);
                 }
             }
 
