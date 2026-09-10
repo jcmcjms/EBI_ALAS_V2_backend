@@ -297,7 +297,42 @@ public class LoanSubmissionService : ILoanSubmissionService
                 Deductions = i.Deductions,
                 Remarks = i.Remarks,
             }).ToList(),
+
+            Deviations = BuildDeviationRows(request.Deviations),
         };
+    }
+
+    /// <summary>
+    /// Normalizes the deviation snapshot into child rows at submission time so
+    /// reviewers' remarks can key off a stable FK. Runs inside the same
+    /// SaveChanges as the application — a loan can never exist without its
+    /// deviation threads.
+    /// </summary>
+    private static List<LoanDeviation> BuildDeviationRows(DeviationsSection deviations)
+    {
+        var rows = deviations.DeviationDetails
+            .Select((reason, i) => new LoanDeviation
+            {
+                ReasonText = reason,
+                EncoderJustification = deviations.DeviationJustifications.TryGetValue(reason, out var just)
+                    ? just
+                    : string.Empty,
+                SortOrder = i,
+            })
+            .ToList();
+
+        if (!string.IsNullOrWhiteSpace(deviations.FeeDeviationJustification))
+        {
+            rows.Add(new LoanDeviation
+            {
+                ReasonText = LoanDeviation.FeeOverrideReason,
+                EncoderJustification = deviations.FeeDeviationJustification,
+                SortOrder = 999,
+                IsFeeOverride = true,
+            });
+        }
+
+        return rows;
     }
 
     private static DateOnly? ParseIsoDate(string? value) =>

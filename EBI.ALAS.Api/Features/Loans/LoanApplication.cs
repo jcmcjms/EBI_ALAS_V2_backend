@@ -109,4 +109,5 @@ public class LoanApplication
     public ICollection<BuyOut> BuyOuts { get; set; } = new List<BuyOut>();
     public ICollection<EbiReloan> EbiReloans { get; set; } = new List<EbiReloan>();
     public ICollection<IncomingLoan> IncomingLoans { get; set; } = new List<IncomingLoan>();
+    public ICollection<LoanDeviation> Deviations { get; set; } = new List<LoanDeviation>();
 }

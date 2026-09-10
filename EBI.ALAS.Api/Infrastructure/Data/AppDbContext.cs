@@ -28,6 +28,7 @@ public class AppDbContext : DbContext
     public DbSet<LoanProduct> LoanProducts => Set<LoanProduct>();
     public DbSet<Notification> Notifications => Set<Notification>();
     public DbSet<LoanAttachment> LoanAttachments => Set<LoanAttachment>();
+    public DbSet<LoanDeviation> LoanDeviations => Set<LoanDeviation>();
     public DbSet<DeviationRemark> DeviationRemarks => Set<DeviationRemark>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -792,17 +793,33 @@ public class AppDbContext : DbContext
             e.Property(x => x.Category).HasMaxLength(100);
         });
 
+        // ─── LoanDeviation Entity ────────────────────────────────────
+        modelBuilder.Entity<LoanDeviation>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).ValueGeneratedOnAdd();
+
+            e.HasIndex(x => new { x.LoanApplicationId, x.SortOrder });
+
+            e.HasOne(x => x.LoanApplication).WithMany(x => x.Deviations)
+                .HasForeignKey(x => x.LoanApplicationId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            e.Property(x => x.ReasonText).HasMaxLength(500).IsRequired();
+            e.Property(x => x.EncoderJustification).HasMaxLength(4000);
+        });
+
         // ─── DeviationRemark Entity ──────────────────────────────────
         modelBuilder.Entity<DeviationRemark>(e =>
         {
             e.HasKey(x => x.Id);
             e.Property(x => x.Id).ValueGeneratedOnAdd();
 
-            e.HasIndex(x => new { x.LoanApplicationId, x.DeviationKey });
+            e.HasIndex(x => new { x.LoanDeviationId, x.CreatedAt });
 
-            e.HasOne(x => x.LoanApplication)
-                .WithMany()
-                .HasForeignKey(x => x.LoanApplicationId)
+            e.HasOne(x => x.Deviation)
+                .WithMany(x => x.Remarks)
+                .HasForeignKey(x => x.LoanDeviationId)
                 .OnDelete(DeleteBehavior.Cascade);
 
             e.HasOne(x => x.ParentRemark)
@@ -815,7 +832,6 @@ public class AppDbContext : DbContext
                 .HasForeignKey(x => x.AuthorId)
                 .OnDelete(DeleteBehavior.Restrict);
 
-            e.Property(x => x.DeviationKey).HasMaxLength(500).IsRequired();
             e.Property(x => x.AuthorRole).HasMaxLength(50).IsRequired();
             e.Property(x => x.Body).HasMaxLength(2000).IsRequired();
         });
