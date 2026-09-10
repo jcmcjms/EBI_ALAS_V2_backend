@@ -12,6 +12,7 @@ using EBI.ALAS.Api.Features.WebLoans;
 using EBI.ALAS.Api.Infrastructure.Data;
 using EBI.ALAS.Api.Infrastructure.Security;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.Extensions.Caching.Distributed;
 using Microsoft.Extensions.Caching.Memory;
 
 namespace EBI.ALAS.Api.Common.Extensions;
@@ -23,9 +24,18 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<ITimeProvider, PhilippinesTimeProvider>();
 
         // ─── In-process cache ────────────────────────────────────────────
-        // IMemoryCache backs the JTI blacklist hot path AND the dashboard
-        // summary cache. Must be registered before any auth pipeline that
-        // resolves ITokenRevocationRepository.
+        // IMemoryCache backs the dashboard summary cache and the branch
+        // cache. Per-pod cache effectiveness is acceptable for these —
+        // they're read-mostly aggregates where staleness across pods is
+        // tolerable (a 30s TTL hides any consistency gap).
+        //
+        // IMPORTANT: the JTI blacklist (CachingTokenRevocationRepository)
+        // is NOT in IMemoryCache. The blacklist MUST be cross-pod
+        // coherent (otherwise a token revoked on pod A is still
+        // accepted on pod B for up to 15 min — a real auth bypass on
+        // multi-replica deployments). The blacklist lives in
+        // IDistributedCache (Redis) — see the AddDistributedCache
+        // registration below.
         //
         // SizeLimit gives us a hard ceiling so a malicious caller can't
         // blow up the server's working set with millions of unique
@@ -48,13 +58,24 @@ public static class ServiceCollectionExtensions
         // decorator (below) can resolve it without an infinite-recursion guard.
         services.AddScoped<TokenRevocationRepository>();
         // Hot-path: every authenticated request resolves the caching decorator.
+        // The decorator reads IDistributedCache (Redis) so every replica sees
+        // the same JTI blacklist. Critical: a revoked token on pod A must be
+        // rejected on pod B within milliseconds — otherwise it's a real auth
+        // bypass on multi-replica deployments.
         services.AddScoped<ITokenRevocationRepository>(sp =>
             new CachingTokenRevocationRepository(
                 sp.GetRequiredService<TokenRevocationRepository>(),
-                sp.GetRequiredService<Microsoft.Extensions.Caching.Memory.IMemoryCache>(),
+                sp.GetRequiredService<IDistributedCache>(),
                 sp.GetRequiredService<ITimeProvider>(),
                 sp.GetRequiredService<ILogger<CachingTokenRevocationRepository>>()));
         services.AddScoped<IRefreshTokenRepository, RefreshTokenRepository>();
+
+        // Hourly cleanup of expired refresh tokens + expired JTI
+        // revocations. Without this, both tables grow forever (one row
+        // per login, one row per logout / refresh-with-revocation /
+        // change-password). Cadence is configurable via
+        // `TokenCleanup:IntervalMinutes` in appsettings (default 60).
+        services.AddHostedService<CleanupExpiredTokensHostedService>();
 
         // ─── Loan Services ───────────────────────────────────────────────
         services.AddScoped<ILoanRepository, LoanRepository>();

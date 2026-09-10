@@ -74,16 +74,16 @@ public class RefreshTokenRepository : IRefreshTokenRepository
         }
     }
 
-    public async Task CleanupExpiredTokensAsync()
+    public async Task<int> CleanupExpiredTokensAsync()
     {
-        var expired = await _context.RefreshTokens
+        // EF Core 8 bulk DELETE — translates to a single
+        //   DELETE FROM RefreshTokens WHERE ExpiresAt < @now OR AbsoluteExpiry < @now
+        // bounded by the IX_RefreshTokens_ExpiresAt covering index. No
+        // SELECT roundtrip, no entity hydration, no change-tracker
+        // pollution. The int return is the row count deleted (informational;
+        // the hosted-service caller logs it).
+        return await _context.RefreshTokens
             .Where(t => t.ExpiresAt < _timeProvider.UtcNow || t.AbsoluteExpiry < _timeProvider.UtcNow)
-            .ToListAsync();
-
-        if (expired.Count > 0)
-        {
-            _context.RefreshTokens.RemoveRange(expired);
-            await _context.SaveChangesAsync();
-        }
+            .ExecuteDeleteAsync();
     }
 }

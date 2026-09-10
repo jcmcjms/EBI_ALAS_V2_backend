@@ -27,6 +27,8 @@ public class AppDbContext : DbContext
     public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
     public DbSet<LoanProduct> LoanProducts => Set<LoanProduct>();
     public DbSet<Notification> Notifications => Set<Notification>();
+    public DbSet<LoanAttachment> LoanAttachments => Set<LoanAttachment>();
+    public DbSet<DeviationRemark> DeviationRemarks => Set<DeviationRemark>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -493,6 +495,17 @@ public class AppDbContext : DbContext
 
             entity.Property(e => e.ExpiresAt)
                 .IsRequired();
+
+            // Covering index for the hourly bulk delete
+            // (`DELETE FROM RevokedTokens WHERE ExpiresAt < @now`).
+            // Without this, every cleanup tick would table-scan the
+            // entire RevokedTokens table — defeating the purpose of
+            // running the cleanup at all once the table grows past
+            // a few thousand rows. SQL Server can use a single
+            // nonclustered seek on ExpiresAt to find the rows to
+            // delete and the clustered index on Id for the deletes.
+            entity.HasIndex(e => e.ExpiresAt)
+                .HasDatabaseName("IX_RevokedTokens_ExpiresAt");
         });
 
         // ─── RefreshToken Entity ────────────────────────────────────────
@@ -532,6 +545,19 @@ public class AppDbContext : DbContext
                 .WithMany()
                 .HasForeignKey(e => e.UserId)
                 .OnDelete(DeleteBehavior.Cascade);
+
+            // Covering index for the hourly bulk delete
+            // (`DELETE FROM RefreshTokens WHERE ExpiresAt < @now OR AbsoluteExpiry < @now`).
+            // Without this index, the cleanup is a full table scan on
+            // a table that grows by one row per login. SQL Server uses
+            // a seek on the smallest predicate (ExpiresAt) and a
+            // residual filter on AbsoluteExpiry; AbsoluteExpiry is
+            // strictly greater than ExpiresAt so the residual filter
+            // never trips, but SQL still has to check it. A composite
+            // (ExpiresAt, AbsoluteExpiry) is not necessary — the
+            // single-column index is selective enough on its own.
+            entity.HasIndex(e => e.ExpiresAt)
+                .HasDatabaseName("IX_RefreshTokens_ExpiresAt");
         });
 
         // ─── AuditLog Entity ───────────────────────────────────────────
@@ -740,6 +766,58 @@ public class AppDbContext : DbContext
                 .WithMany()
                 .HasForeignKey(e => e.UpdatedById)
                 .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        // ─── LoanAttachment Entity ───────────────────────────────────
+        modelBuilder.Entity<LoanAttachment>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).ValueGeneratedOnAdd();
+
+            e.HasIndex(x => x.LoanApplicationId);
+
+            e.HasOne(x => x.LoanApplication)
+                .WithMany()
+                .HasForeignKey(x => x.LoanApplicationId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            e.HasOne(x => x.UploadedBy)
+                .WithMany()
+                .HasForeignKey(x => x.UploadedById)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            e.Property(x => x.FileName).HasMaxLength(255).IsRequired();
+            e.Property(x => x.StoredFileName).HasMaxLength(255).IsRequired();
+            e.Property(x => x.ContentType).HasMaxLength(100);
+            e.Property(x => x.Category).HasMaxLength(100);
+        });
+
+        // ─── DeviationRemark Entity ──────────────────────────────────
+        modelBuilder.Entity<DeviationRemark>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).ValueGeneratedOnAdd();
+
+            e.HasIndex(x => new { x.LoanApplicationId, x.DeviationKey });
+
+            e.HasOne(x => x.LoanApplication)
+                .WithMany()
+                .HasForeignKey(x => x.LoanApplicationId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            e.HasOne(x => x.ParentRemark)
+                .WithMany(x => x.Replies)
+                .HasForeignKey(x => x.ParentRemarkId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            e.HasOne(x => x.Author)
+                .WithMany()
+                .HasForeignKey(x => x.AuthorId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            e.Property(x => x.DeviationKey).HasMaxLength(500).IsRequired();
+            e.Property(x => x.AuthorRole).HasMaxLength(50).IsRequired();
+            e.Property(x => x.Body).HasMaxLength(2000).IsRequired();
         });
     }
 }

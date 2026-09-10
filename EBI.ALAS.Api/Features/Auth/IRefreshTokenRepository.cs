@@ -10,5 +10,8 @@ public interface IRefreshTokenRepository
 
     Task RevokeAllUserTokensAsync(int userId);
 
-    Task CleanupExpiredTokensAsync();
+    // Returns the number of rows deleted — informational, surfaced
+    // in the hourly cleanup hosted-service log so storage trends
+    // are visible without a separate monitoring query.
+    Task<int> CleanupExpiredTokensAsync();
 }

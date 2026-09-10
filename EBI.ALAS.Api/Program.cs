@@ -27,6 +27,8 @@ using FluentValidation;
 using FluentValidation.AspNetCore;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Distributed;
+using Microsoft.Extensions.Caching.StackExchangeRedis;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 using OpenTelemetry.Resources;
@@ -224,6 +226,50 @@ builder.Services.Configure<Microsoft.AspNetCore.Mvc.JsonOptions>(options =>
     options.JsonSerializerOptions.Converters.Add(new UtcDateTimeConverter());
 });
 
+// ─── Distributed cache (Redis) ──────────────────────────────────────
+//
+// IDistributedCache backs the JTI revocation blacklist (every
+// authenticated request) and the idempotency middleware. Both
+// MUST be cross-pod coherent on multi-replica deployments — a
+// revoked token on pod A must be rejected on pod B within
+// milliseconds.
+//
+// Production: Redis-backed. Configure `ConnectionStrings:Redis`
+// in appsettings or environment. Recommended server-side:
+//
+//   maxmemory 256mb
+//   maxmemory-policy allkeys-lru
+//
+// (allkeys-lru gives the idempotency middleware's 5,000-entry
+// cap automatically; the JTI blacklist entries are short-lived
+// anyway so eviction is dominated by the idempotency set.)
+//
+// Dev / fallback: in-process IDistributedCache. Lets local dev
+// work without a Redis container. Logs a warning so this is
+// obvious in startup logs.
+var redisConnection = configuration.GetConnectionString("Redis");
+if (!string.IsNullOrWhiteSpace(redisConnection))
+{
+    builder.Services.AddStackExchangeRedisCache(options =>
+    {
+        options.Configuration = redisConnection;
+        // Keep the connection-multiplexer alive across hot reloads
+        // (single instance per host).
+        options.InstanceName = "EBI.ALAS:";
+    });
+}
+else
+{
+    // Dev / single-process fallback. NOT safe for multi-replica
+    // production — without Redis the JTI blacklist is per-pod
+    // again, which is the very bug this registration exists to
+    // prevent. The warning below is logged once at startup.
+    builder.Services.AddDistributedMemoryCache();
+    Console.Error.WriteLine(
+        "[WARN] ConnectionStrings:Redis not configured — using in-process IDistributedCache. " +
+        "JTI blacklist and idempotency cache are per-pod; DO NOT deploy multi-replica without Redis.");
+}
+
 builder.Services.AddApplicationServices();
 builder.Services.AddFluentValidationAutoValidation();
 builder.Services.AddFluentValidationClientsideAdapters();
@@ -300,6 +346,8 @@ app.MapUserEndpoints();
 app.MapRoleEndpoints();
 app.MapBranchEndpoints();
 app.MapLoanEndpoints();
+app.MapLoanAttachmentEndpoints();
+app.MapDeviationRemarkEndpoints();
 app.MapDashboardEndpoints();
 app.MapAuditLogEndpoints();
 app.MapAccountEndpoints();

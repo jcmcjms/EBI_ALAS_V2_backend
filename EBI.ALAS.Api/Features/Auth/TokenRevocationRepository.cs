@@ -34,16 +34,16 @@ public class TokenRevocationRepository : ITokenRevocationRepository
             .AnyAsync(r => r.TokenId == tokenId);
     }
 
-    public async Task CleanupExpiredTokensAsync()
+    public async Task<int> CleanupExpiredTokensAsync()
     {
-        var expired = await _context.RevokedTokens
+        // EF Core 8 bulk DELETE — single SQL statement bounded by
+        // IX_RevokedTokens_ExpiresAt (covering index on ExpiresAt).
+        // Without the covering index, this scan would table-scan the
+        // entire RevokedTokens table, defeating the point of running
+        // hourly. The covering index is created by migration
+        // 20260910000000_AddCleanupCoveringIndexes.
+        return await _context.RevokedTokens
             .Where(r => r.ExpiresAt < _timeProvider.UtcNow)
-            .ToListAsync();
-
-        if (expired.Count > 0)
-        {
-            _context.RevokedTokens.RemoveRange(expired);
-            await _context.SaveChangesAsync();
-        }
+            .ExecuteDeleteAsync();
     }
 }

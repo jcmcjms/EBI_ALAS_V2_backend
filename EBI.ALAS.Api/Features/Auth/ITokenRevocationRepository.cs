@@ -6,5 +6,7 @@ public interface ITokenRevocationRepository
 
     Task<bool> IsTokenRevokedAsync(string tokenId);
 
-    Task CleanupExpiredTokensAsync();
+    // Returns the number of rows deleted — informational, surfaced
+    // in the hourly cleanup hosted-service log.
+    Task<int> CleanupExpiredTokensAsync();
 }
