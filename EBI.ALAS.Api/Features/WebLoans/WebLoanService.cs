@@ -262,88 +262,67 @@ public class WebLoanService(IWebLoanRepository repository) : IWebLoanService
         var belongs = await repository.AccountBelongsToCisAsync(cisNo, branchCode, accountNo, ct);
         if (!belongs) return null;
 
-        // Fan out: fetch the in-flight pre_loan_data rows AND the CIS-level
-        // NTHP row in parallel. They are independent (different tables,
-        // different key columns) so there is no benefit to sequencing.
-        var preLoansTask = repository.GetPendingLoansAsync(branchCode, accountNo, ct);
-        var nthpTask = repository.GetNthpAsync(cisNo, ct);
+        // Single round-trip: the repository's consolidated SQL joins
+        // pre_loan_data → loan_data → loan_product / loan_purpose /
+        // loan_acct_info → check_list_data in one execution and projects
+        // every field the response needs. Replaces the prior N+1
+        // fan-out (1 pre_loan_data + N loan_data + N loan_product +
+        // N loan_purpose + 1 NTHP round-trips per pending-loan
+        // response). For an account with N in-flight loans, wall-time
+        // is one DB round-trip, not 3N+2.
+        var rows = await repository.GetPendingLoansAsync(branchCode, accountNo, ct);
 
-        await Task.WhenAll(preLoansTask, nthpTask);
+        // NTHP cartesian-product caveat (see PendingLoanRow note):
+        // if check_list_data has multiple CCR07 rows for the cis_no,
+        // the SQL duplicates each pre_loan_data row. NTHP/NthpDate are
+        // CIS-level attributes and identical across duplicates, so we
+        // read them from the first row only. Per-loan fields are
+        // identical across duplicates too, so the .Distinct() below is
+        // a safety belt — in practice the unique (loan_no) tie-break
+        // collapses the duplicates.
+        var nthpRow = rows.FirstOrDefault();
 
-        var preLoans = await preLoansTask;
-        var nthp = await nthpTask;
+        var dtos = rows
+            .GroupBy(r => r.LoanNo)  // collapse CCR07 cartesian duplicates
+            .Select(g => g.First())
+            .Select(r =>
+            {
+                // Trim the trailing " - " the SQL emits when the
+                // loan_product LEFT JOIN misses (orphaned/retired
+                // product code). Same pattern as the outstanding-loans
+                // service — see WebLoanService.GetOutstandingLoansAsync.
+                var productWithDesc = (r.ProductWithDescription ?? string.Empty).TrimEnd();
+                if (productWithDesc.EndsWith(" - ", StringComparison.Ordinal))
+                {
+                    productWithDesc = productWithDesc[..^3];
+                }
 
-        // Per-row enrichment. Each pre-loan row carries its own
-        // (loan_no, account_no, branch_code) tuple, so each loan_data
-        // lookup is independent. We start them all in parallel rather
-        // than sequentially — even for N rows the total wall time is one
-        // round-trip, not N. (branchCode, accountNo) is the URL bch/act —
-        // we use the URL's branch (not the row's pre_loan_data.bch) so
-        // the loan_data lookup is consistent with the pre_loan_data
-        // filter above.
-        var loanDataTasks = preLoans
-            .Select(p => repository.GetLoanDataByLoanNoAsync(
-                p.LoanNo, branchCode, accountNo, ct))
-            .ToArray();
-
-        var loanDatas = await Task.WhenAll(loanDataTasks);
-
-        // Sequential follow-up per row: loan_product + loan_purpose keys
-        // come from the corresponding loan_data, so we can't fan those
-        // out in parallel with the loan_data row. We do start the
-        // lookups for all rows in parallel with each other though —
-        // each row's product/purpose fetch is independent of every
-        // other row's.
-        var productTasks = loanDatas
-            .Select(ld => !string.IsNullOrWhiteSpace(ld?.ProductCode)
-                ? repository.GetLoanProductByIdCodeAsync(ld!.ProductCode!, ct)
-                : Task.FromResult<LoanProductLookup?>(null))
-            .ToArray();
-
-        var purposeTasks = loanDatas
-            .Select(ld => !string.IsNullOrWhiteSpace(ld?.Purpose)
-                ? repository.GetLoanPurposeByPathAsync(ld!.Purpose!, ct)
-                : Task.FromResult<LoanPurpose?>(null))
-            .ToArray();
-
-        await Task.WhenAll(productTasks);
-        await Task.WhenAll(purposeTasks);
-        var products = productTasks
-            .Select(t => t.IsCompletedSuccessfully ? t.Result : null)
-            .ToArray();
-        var purposes = purposeTasks
-            .Select(t => t.IsCompletedSuccessfully ? t.Result : null)
-            .ToArray();
-
-        // Build DTOs in a parallel-indexed loop so the indices stay clear.
-        var dtos = new List<PendingLoanDto>(preLoans.Count);
-        for (var i = 0; i < preLoans.Count; i++)
-        {
-            var pre = preLoans[i];
-            var ld = loanDatas[i];
-            var product = products[i];
-            var purpose = purposes[i];
-
-            // Underwriter-facing fields sourced from loan_data, not
-            // pre_loan_data — see PreLoanData entity note.
-            var productCode = ld?.ProductCode ?? string.Empty;
-            var productDescription = product?.Description ?? string.Empty;
-            var productWithDescription = string.IsNullOrEmpty(productDescription)
-                ? productCode
-                : $"{productCode} - {productDescription}";
-
-            dtos.Add(new PendingLoanDto(
-                LoanNo: pre.LoanNo,
-                Principal: ld?.Principal,
-                GrantedRate: ld?.GrantedRate,
-                TotalTermDays: ld?.TotalAmortization is int term
-                    ? term * 30
-                    : null,
-                ProductWithDescription: productWithDescription,
-                LoanPurpose: purpose?.Description,
-                CreationType: ld?.CreationType,
-                CreationTypeLabel: WebLoanRegions.CreationTypeLabel(ld?.CreationType)));
-        }
+                return new PendingLoanDto(
+                    LoanNo: r.LoanNo,
+                    Principal: r.Principal,
+                    GrantedRate: r.GrantedRate,
+                    // Exact day count from SQL's DATEDIFF(DAY, …).
+                    // Replaces the legacy `total_amortization * 30`
+                    // approximation, which drifted by up to ±1 day
+                    // per period — material for short-term products.
+                    // NULL when either loan_data date is missing.
+                    TotalTermDays: r.TotalTermDays,
+                    // Policy term from loan_data.total_amortization,
+                    // surfaced verbatim under the more descriptive name
+                    // PolicyTermMonths — distinguishes it from the
+                    // exact-day count above and matches the SQL
+                    // comment in WebLoanRepository.GetPendingLoansAsync
+                    // that labels this field "-- policy months".
+                    // NULL when no loan_data row exists (LEFT JOIN miss).
+                    PolicyTermMonths: r.TotalAmortization,
+                    ProductWithDescription: productWithDesc,
+                    LoanPurpose: r.LoanPurpose,
+                    CreationType: r.CreationType,
+                    CreationTypeLabel: string.IsNullOrEmpty(r.CreationTypeLabel)
+                        ? WebLoanRegions.CreationTypeLabel(r.CreationType)
+                        : r.CreationTypeLabel);
+            })
+            .ToList();
 
         return new PendingLoanResponse(
             CisNo: cisNo,
@@ -351,8 +330,8 @@ public class WebLoanService(IWebLoanRepository repository) : IWebLoanService
             BranchCode: branchCode,
             AccountNo: accountNo,
             Loans: dtos,
-            Nthp: nthp?.Description,
-            NthpDate: nthp?.Expiration);
+            Nthp: nthpRow?.Nthp,
+            NthpDate: nthpRow?.NthpDate);
     }
 
     // ─── Active loan products ────────────────────────────────────────────

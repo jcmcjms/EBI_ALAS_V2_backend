@@ -199,11 +199,11 @@ public class WebLoanRepository(IDbContextFactory<WebLoanDbContext> contextFactor
         // on (ld.loan_product = lp.id_code) enriches each row with a
         // human-readable description, producing
         //   ld.loan_product + ' - ' + lp.description
-        // for the UI ("C35 - Quick Loan", etc.). This avoids the
-        // N+1 round-trips the pending-loan endpoint pays through
-        // GetLoanProductByIdCodeAsync — the join is cheap (small
-        // reference table, primary key on id_code) and lets the
-        // outstanding-loans list be returned in a single SQL execution.
+        // for the UI ("C35 - Quick Loan", etc.). The pending-loan
+        // endpoint uses the same join shape (see
+        // GetPendingLoansAsync) so the same product_with_desc string
+        // surfaces from both endpoints without a separate
+        // per-row repository lookup.
         //
         // ISNULL(lp.description, ''): the LEFT JOIN can miss when an
         // open loan carries a product code that no longer exists in
@@ -256,110 +256,124 @@ public class WebLoanRepository(IDbContextFactory<WebLoanDbContext> contextFactor
     }
 
     // ─── Pending loans (pre_loan_data) ─────────────────────────────────
-    public async Task<IReadOnlyList<PreLoanData>> GetPendingLoansAsync(
+    public async Task<IReadOnlyList<PendingLoanRow>> GetPendingLoansAsync(
         string branchCode,
         string accountNo,
         CancellationToken ct = default)
     {
-        // Same shape as GetOutstandingLoansAsync: (bch, acct_no) is an
-        // exact match from the URL's combined `accountId` parameter.
-        // All four workflow dates NULL → "in flight" (prepared, not yet
-        // approved/released/voided). No UDF here; this is plain
-        // LINQ-renderable SQL.
+        // Consolidated five-table LEFT JOIN against the original sample
+        // SQL. (bch, acct_no) is an exact match from the URL's combined
+        // `accountId` parameter; all four workflow dates NULL means
+        // "in flight" (prepared, not yet approved/released/voided).
         //
-        // Project ONLY identifiers + workflow dates. Underwriter-facing
-        // columns (principal, granted_rate, total_amortization,
-        // loan_product, cat_loan_purpose) live on loan_data, not
-        // pre_loan_data — projecting them here would raise
-        // "Invalid column name" from SQL Server. The service layer
-        // composes those via GetLoanDataByLoanNoAsync using LoanNo
-        // returned from each row.
+        // One execution returns everything the service needs to render
+        // the pending-loan response:
+        //   * pre_loan_data identifiers + workflow gate
+        //   * loan_data scalars via (loan_no, acct_no, bch) join
+        //     (principal, granted_rate, total_amortization, dates,
+        //     creation_type)
+        //   * loan_product description via (loan_product = id_code) join
+        //     — assembled into "<code> - <description>" in SQL
+        //   * loan_purpose description via (cat_loan_purpose = path)
+        //     join
+        //   * loan_acct_info.cis_no hop on (acct_no, bch) — the
+        //     authoritative CIS for the (bch, acct_no) pair
+        //   * check_list_data CCR07 row on (cis_no, item='CCR07') —
+        //     NTHP amount + NTHP date
         //
-        // Ordered deterministically by (BranchCode, AccountNo, LoanNo)
-        // so the same set comes back in the same order on repeat calls
-        // — the schema permits duplicates for (bch, acct_no) and
-        // "FirstOrDefault" would silently pick a different one each call.
+        // Replaces the previous N+1 fan-out (1 pre_loan_data + N
+        // loan_data + N loan_product + N loan_purpose + 1 NTHP
+        // round-trips). For an account with 3 in-flight rows, the old
+        // shape issued 1 + 3 + 3 + 3 + 1 = 11 round-trips; this query
+        // issues 1.
+        //
+        // Derived expressions computed in SQL:
+        //   * `creation_type_label` — the original CASE block
+        //     (0=New Loan, 1=Reloan, 2=Restructured, 6=Additional Loan,
+        //     ELSE 'Unknown'). Mirrored in WebLoanRegions.CreationTypeLabel
+        //     for type-safe consumer code; the SQL label is used as the
+        //     authoritative source here because it ships with the row.
+        //   * `total_term_days` — DATEDIFF(DAY, date_granted,
+        //     date_maturity). Replaces the legacy approximation of
+        //     `total_amortization * 30`, which drifted by up to ±1 day
+        //     per period. NULL when either date is NULL.
+        //   * `product_with_desc` — ISNULL-wrapped concat to keep "<code> - "
+        //     instead of NULL when the product row is missing.
+        //
+        // Cartesian-product caveat (CCR07): the LEFT JOIN against
+        // check_list_data is a true cartesian match — if there are
+        // multiple CCR07 rows for the same cis_no (different vintages),
+        // each pre_loan_data row is duplicated. The service layer
+        // de-duplicates NTHP by reading from the first result row only
+        // (per-loan fields are identical across duplicates). To
+        // suppress duplicates at the SQL level, wrap the check_list_data
+        // join in a subquery with TOP 1 ordered by expiration DESC.
+        //
+        // Ordered deterministically by (bch, acct_no, loan_no) so
+        // repeat calls return the same shape — the schema permits
+        // duplicates for (bch, acct_no) and "FirstOrDefault" would
+        // silently pick a different one each call.
+        //
+        // All inputs are parameterized via FromSqlInterpolated → no SQL
+        // injection. The `USE webloan;` preamble from the original
+        // sample SQL is omitted: the connection string already targets
+        // the webloan database, so the statement is redundant.
         FormattableString sql = $@"
             SELECT
-                bk, bch, acct_no, loan_no,
-                prepared_date, approved_date, released_date, void_date
-            FROM webloan.dbo.pre_loan_data
-            WHERE acct_no = {accountNo}
-              AND bch     = {branchCode}
-              AND approved_date IS NULL
-              AND prepared_date IS NULL
-              AND released_date IS NULL
-              AND void_date IS NULL
-            ORDER BY bch, acct_no, loan_no";
+                pld.bch,
+                pld.acct_no,
+                pld.loan_no,
+                ld.principal,
+                ld.granted_rate,
+                ld.total_amortization,
+                ld.date_granted,
+                ld.date_maturity,
+                ld.creation_type,
+                CASE ld.creation_type
+                    WHEN 0 THEN 'New Loan'
+                    WHEN 1 THEN 'Reloan'
+                    WHEN 2 THEN 'Restructured'
+                    WHEN 6 THEN 'Additional Loan'
+                    ELSE 'Unknown'
+                END AS creation_type_label,
+                DATEDIFF(DAY, ld.date_granted, ld.date_maturity) AS total_term_days,
+                ISNULL(ld.loan_product, '') + ' - ' + ISNULL(lp.description, '') AS product_with_desc,
+                lp2.description AS loan_purpose,
+                cld.description AS nthp,
+                cld.expiration AS nthp_date
+            FROM webloan.dbo.pre_loan_data AS pld
+            LEFT JOIN webloan.dbo.loan_data AS ld
+                ON pld.loan_no = ld.loan_no
+               AND pld.acct_no = ld.acct_no
+               AND pld.bch     = ld.bch
+            LEFT JOIN webloan.dbo.loan_product AS lp
+                ON ld.loan_product = lp.id_code
+            LEFT JOIN webloan.dbo.loan_purpose AS lp2
+                ON ld.cat_loan_purpose = lp2.path
+            LEFT JOIN webloan.dbo.loan_acct_info AS la
+                ON pld.acct_no = la.acct_no
+               AND pld.bch     = la.bch
+            LEFT JOIN webloan.dbo.check_list_data AS cld
+                ON la.cis_no        = cld.cis_no
+               AND cld.check_list_item = 'CCR07'
+            WHERE pld.approved_date IS NULL
+              AND pld.prepared_date IS NULL
+              AND pld.released_date IS NULL
+              AND pld.void_date     IS NULL
+              AND pld.bch           = {branchCode}
+              AND pld.acct_no       = {accountNo}
+            ORDER BY pld.bch, pld.acct_no, pld.loan_no";
 
         await using var context = await contextFactory.CreateDbContextAsync(ct);
 
-        return await context.PreLoanDatas
+        // Materialize via the dedicated projection entity
+        // (PendingLoanRow). AsNoTracking is implied by the context's
+        // default (QueryTrackingBehavior.NoTracking is set on the
+        // WebLoanDbContext); set explicitly for clarity.
+        return await context.PendingLoanRows
             .FromSqlInterpolated(sql)
             .AsNoTracking()
             .ToListAsync(ct);
-    }
-
-    public async Task<LoanData?> GetLoanDataByLoanNoAsync(
-        string loanNo,
-        string branchCode,
-        string accountNo,
-        CancellationToken ct = default)
-    {
-        // Matches the pre_loan_data → loan_data JOIN keys from the
-        // original sample SQL: (loan_no, acct_no, bch). All three are
-        // taken from the URL (bch via the combined accountId split).
-        //
-        // No TOP(1) needed — (loan_no, acct_no, bch) is a near-unique
-        // combination in webloan (one ledger row per PN). But we still
-        // use FirstOrDefaultAsync because the schema allows duplicates
-        // in theory (e.g. a rebooked account); determinism beats
-        // surprise.
-        FormattableString sql = $@"
-            SELECT TOP (1)
-                bk, bch, acct_no, loan_no,
-                loan_product, payment_interval, total_amortization,
-                granted_rate, effective_rate, cat_loan_purpose,
-                principal, applied_principal,
-                principal_bal, amort_amount, over_bal,
-                date_granted, date_maturity, loan_status,
-                close_date, creation_type
-            FROM webloan.dbo.loan_data
-            WHERE loan_no   = {loanNo}
-              AND acct_no   = {accountNo}
-              AND bch       = {branchCode}";
-
-        await using var context = await contextFactory.CreateDbContextAsync(ct);
-        return await context.LoanDatas
-            .FromSqlInterpolated(sql)
-            .AsNoTracking()
-            .FirstOrDefaultAsync(ct);
-    }
-
-    public async Task<LoanProductLookup?> GetLoanProductByIdCodeAsync(string idCode, CancellationToken ct = default)
-    {
-        await using var context = await contextFactory.CreateDbContextAsync(ct);
-        return await context.LoanProducts
-            .AsNoTracking()
-            .FirstOrDefaultAsync(p => p.IdCode == idCode, ct);
-    }
-
-    public async Task<LoanPurpose?> GetLoanPurposeByPathAsync(string path, CancellationToken ct = default)
-    {
-        await using var context = await contextFactory.CreateDbContextAsync(ct);
-        return await context.LoanPurposes
-            .AsNoTracking()
-            .FirstOrDefaultAsync(p => p.Path == path, ct);
-    }
-
-    public async Task<CheckListData?> GetNthpAsync(string cisNo, CancellationToken ct = default)
-    {
-        await using var context = await contextFactory.CreateDbContextAsync(ct);
-        return await context.CheckListDatas
-            .AsNoTracking()
-            .FirstOrDefaultAsync(
-                c => c.CisNo == cisNo && c.CheckListItem == CheckListData.NthpItem,
-                ct);
     }
 
     public async Task<IReadOnlyList<LoanProductLookup>> GetActiveLoanProductsAsync(CancellationToken ct = default)

@@ -18,9 +18,12 @@ public class PreLoanData
     [Column("released_date")] public DateTime? ReleasedDate { get; set; }
     [Column("void_date")] public DateTime? VoidDate { get; set; }
 
-    // NOTE: underwriter-facing fields (principal, granted_rate,
-    // total_amortization, loan_product, cat_loan_purpose) live on
-    // loan_data, NOT pre_loan_data. The original SQL joins
-    // pre_loan_data → loan_data to surface them. The service layer
-    // composes those via GetLoanDataByLoanNoAsync.
+// NOTE: underwriter-facing fields (principal, granted_rate,
+// total_amortization, loan_product, cat_loan_purpose) live on
+// loan_data, NOT pre_loan_data. The original SQL joins
+// pre_loan_data → loan_data to surface them. The repository's
+// consolidated GetPendingLoansAsync query does this join in SQL.
+// PreLoanData remains mapped in the DbContext as historical
+// scaffolding — the entity no longer has any active readers after the
+// consolidated-query refactor.
 }

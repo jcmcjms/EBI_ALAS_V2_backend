@@ -175,7 +175,21 @@ public record PendingLoanDto(
     string LoanNo,
     decimal? Principal,
     decimal? GrantedRate,
-    int? TotalTermDays,       // total_amortization * 30 (per original SQL)
+    // Exact day count from SQL's DATEDIFF(DAY, date_granted, date_maturity).
+    // NULL when either loan_data date is missing (LEFT JOIN miss).
+    // Replaces the legacy `total_amortization * 30` approximation, which
+    // drifted by up to ±1 day per period.
+    int? TotalTermDays,
+    // Policy term in months from loan_data.total_amortization — the
+    // "amortization months" the loan was set up against. Distinct from
+    // TotalTermDays (which is the day-count derived from the grant /
+    // maturity dates): the policy term is the authoritative input to
+    // amortization calculations and stays stable across calendar
+    // boundary edge cases, whereas TotalTermDays can drift by a day or
+    // two for short-term products. NULL when no loan_data row exists
+    // for the (bch, acct_no, loan_no) tuple — i.e. the pre_loan_data
+    // row was created but the ledger row has not been written yet.
+    int? PolicyTermMonths,
     string ProductWithDescription,  // "<loan_product> - <description>"
     string? LoanPurpose,
     byte? CreationType,           // raw code from loan_data.creation_type

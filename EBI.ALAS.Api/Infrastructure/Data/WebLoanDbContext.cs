@@ -22,6 +22,14 @@ public class WebLoanDbContext : DbContext
     // by GetOutstandingLoansAsync. See OutstandingLoanRow.cs for the
     // rationale (EF rejects derived columns on real-table entities).
     public DbSet<OutstandingLoanRow> OutstandingLoanRows => Set<OutstandingLoanRow>();
+    // PendingLoanRow — keyless projection entity carrying every column
+    // the consolidated pending-loan SQL projects. The query LEFT JOINs
+    // pre_loan_data → loan_data → loan_product / loan_purpose /
+    // loan_acct_info → check_list_data, so the entity surfaces columns
+    // from six tables plus three derived expressions (CASE creation_type,
+    // DATEDIFF day count, product+description concat). See
+    // PendingLoanRow.cs for the full column-by-column rationale.
+    public DbSet<PendingLoanRow> PendingLoanRows => Set<PendingLoanRow>();
     public DbSet<LoanStatusLookup> LoanStatuses => Set<LoanStatusLookup>();
     // loan_product — the existing LoanProductLookup entity, mapped to
     // dbo.loan_product. Reused for the pending-loan join so no separate
@@ -84,6 +92,15 @@ public class WebLoanDbContext : DbContext
         // bound via [Column] attributes on the entity properties. EF's
         // materializer populates them positionally from the raw query.
         modelBuilder.Entity<OutstandingLoanRow>(entity =>
+        {
+            entity.HasNoKey();
+        });
+
+        // ─── PendingLoanRow ─────────────────────────────────────────────
+        // Keyless projection shape for the consolidated pending-loan
+        // raw SQL (pre_loan_data LEFT JOIN × 5 lookup tables + 3 derived
+        // expressions). Same pattern as OutstandingLoanRow above.
+        modelBuilder.Entity<PendingLoanRow>(entity =>
         {
             entity.HasNoKey();
         });

@@ -85,46 +85,36 @@ public interface IWebLoanRepository
     // prepared but not yet approved/released/voided. (branchCode,
     // accountNo) is taken from the URL's combined `accountId` parameter.
     //
+    // The single SQL execution LEFT JOINs against five lookup tables
+    // (loan_data, loan_product, loan_purpose, loan_acct_info,
+    // check_list_data) and projects three derived expressions
+    // (creation_type_label, total_term_days, product_with_desc). The
+    // returned `PendingLoanRow` is a keyless projection entity — see
+    // PendingLoanRow.cs for the column-by-column rationale.
+    //
     // Returns an empty list (NOT null) when no in-flight rows exist —
     // the service distinguishes "no pending loan" from "account not
     // found" via AccountBelongsToCisAsync. Ordered deterministically by
-    // (BranchCode, AccountNo, LoanNo) so repeated calls return rows in
-    // the same order — the schema permits duplicates for the same
-    // (bch, acct_no) and "FirstOrDefault" would silently pick a
-    // different one each call.
-    Task<IReadOnlyList<PreLoanData>> GetPendingLoansAsync(
+    // (bch, acct_no, loan_no) so repeated calls return rows in the same
+    // order — the schema permits duplicates for the same (bch,
+    // acct_no) and "FirstOrDefault" would silently pick a different one
+    // each call.
+    //
+    // Replaces the previous N+1 fan-out (1 pre_loan_data + N loan_data
+    // + N loan_product + N loan_purpose + 1 NTHP round-trips per
+    // pending-loan response). For an account with N in-flight loans,
+    // wall-time is one DB round-trip, not 3N+2.
+    Task<IReadOnlyList<PendingLoanRow>> GetPendingLoansAsync(
         string branchCode,
         string accountNo,
         CancellationToken ct = default);
-
-    // The original SQL joins pre_loan_data → loan_data on
-    // (loan_no, acct_no, bch) to surface underwriter-facing fields:
-    // principal, granted_rate, total_amortization, loan_product,
-    // cat_loan_purpose. Returns null if no matching loan_data row
-    // exists (LEFT JOIN semantics — fields stay null in that case).
-    Task<LoanData?> GetLoanDataByLoanNoAsync(
-        string loanNo,
-        string branchCode,
-        string accountNo,
-        CancellationToken ct = default);
-
-    // ─── Pending-loan enrichment lookups ──────────────────────────────
-    // Single-row lookups keyed by the join columns in the pending-loan
-    // query. Service composes them in parallel after fetching the
-    // pre_loan_data row.
-    Task<LoanProductLookup?> GetLoanProductByIdCodeAsync(string idCode, CancellationToken ct = default);
-    Task<LoanPurpose?> GetLoanPurposeByPathAsync(string path, CancellationToken ct = default);
-
-    // CCR07 row for the loan_acct_info.cis_no — carries NTHP amount
-    // (description) and NTHP date (expiration).
-    Task<CheckListData?> GetNthpAsync(string cisNo, CancellationToken ct = default);
 
     // ─── Active loan products (lookup) ─────────────────────────────────
     // Returns every row in dbo.loan_product WHERE expiration IS NULL —
     // i.e. products that have not been retired. Projects only id_code
-    // and description (per spec); the full entity stays available via
-    // GetLoanProductByIdCodeAsync for the pending-loan join, which needs
-    // the same data regardless of the retirement flag.
+    // and description (per spec). The pending-loan flow no longer uses
+    // GetLoanProductByIdCodeAsync — it gets the product description via
+    // a SQL LEFT JOIN inside the consolidated pending-loan query.
     //
     // Ordered by id_code ascending so the response is deterministic and
     // dropdowns render in a stable order across calls.
