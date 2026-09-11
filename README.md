@@ -502,7 +502,7 @@ All require JWT.
 
 | Method | Path | Description |
 |---|---|---|
-| `GET` | `/api/dashboard/summary` | Aggregated counts, branch- & role-scoped |
+| `GET` | `/api/dashboard/overview` | One cached (15s TTL, per-branch) aggregate payload powering the whole dashboard page: KPIs + pending queue + now-serving + pushbacks + approved loans + 7-day trend. Branch-scoped for non-admins; admin sees all. |
 
 ---
 

@@ -1,9 +1,9 @@
 using System.Security.Claims;
 using EBI.ALAS.Api.Common.Extensions;
 using EBI.ALAS.Api.Common.Models;
-using Microsoft.AspNetCore.Authorization;
 
 namespace EBI.ALAS.Api.Features.Dashboard;
+
 public static class DashboardEndpoints
 {
     public static void MapDashboardEndpoints(this WebApplication app)
@@ -12,19 +12,21 @@ public static class DashboardEndpoints
             .WithTags("Dashboard")
             .RequireAuthorization();
 
-        // GET /api/dashboard/summary
-        group.MapGet("/summary", async (
+        // GET /api/dashboard/overview — the entire dashboard page in one call.
+        // CanViewLoan: the payload is loan aggregates, branch-scoped in-service
+        // (non-admins only ever see their own branch; Admin sees all).
+        group.MapGet("/overview", async (
             IDashboardService dashboardService,
-            ClaimsPrincipal user) =>
+            ClaimsPrincipal user,
+            CancellationToken ct) =>
         {
-            var branchId = user.GetBranchId();
-            var role = user.GetRole();
-
-            var summary = await dashboardService.GetSummaryAsync(branchId, role);
-
-            return Results.Ok(ApiResponse<DashboardSummaryResponse>.SuccessResponse(summary));
+            var overview = await dashboardService.GetOverviewAsync(
+                user.GetBranchId(), user.GetRole(), ct);
+            return Results.Ok(ApiResponse<DashboardOverviewResponse>.SuccessResponse(overview));
         })
-        .WithName("GetDashboardSummary")
-        .Produces<ApiResponse<DashboardSummaryResponse>>(200);
+        .WithName("GetDashboardOverview")
+        .Produces<ApiResponse<DashboardOverviewResponse>>(200)
+        .Produces<ApiResponse>(401)
+        .RequireAuthorization("CanViewLoan");
     }
 }
