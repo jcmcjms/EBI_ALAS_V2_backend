@@ -27,7 +27,7 @@ public class UpdateLoanProductValidator : AbstractValidator<UpdateLoanProductReq
             .GreaterThanOrEqualTo(x => x.MinTermDays)
             .WithMessage("MaxTermDays must be greater than or equal to MinTermDays.")
             .LessThanOrEqualTo(LoanProductService.AbsoluteMaxTermDays)
-            .WithMessage($"MaxTermDays cannot exceed the absolute ceiling of {LoanProductService.AbsoluteMaxTermDays} days (7 years).");
+            .WithMessage($"MaxTermDays cannot exceed the absolute ceiling of {LoanProductService.AbsoluteMaxTermDays} days (7 years + 2 months grace period).");
 
         RuleFor(x => x.NotarialFee)
             .GreaterThanOrEqualTo(0)

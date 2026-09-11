@@ -8,9 +8,12 @@ public class LoanProductService(
     ITimeProvider timeProvider) : ILoanProductService
 {
     // Hard business ceiling: no product may offer more than 7 years
-    // (2,555 days) of term. Enforced here AND in the validator so the
-    // CreateLoan and admin-update paths both reject violations.
-    public const int AbsoluteMaxTermDays = 2555;
+    // + 2 months grace period (2,617 days). Buy-Now-Pay-Later products
+    // allow 84 months to pay plus a 2-month grace period before the
+    // first amortization, which can yield terms up to 2,587 days.
+    // Enforced here AND in the validator so the CreateLoan and
+    // admin-update paths both reject violations.
+    public const int AbsoluteMaxTermDays = 2617;
 
     public async Task<IReadOnlyList<LoanProductResponse>> GetAllAsync(CancellationToken ct = default)
     {
