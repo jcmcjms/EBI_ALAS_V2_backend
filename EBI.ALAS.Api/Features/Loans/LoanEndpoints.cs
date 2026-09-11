@@ -180,10 +180,25 @@ public static class LoanEndpoints
                     l.MiddleName,
                     l.LastName,
                     l.Suffix,
-                    // ── Monitoring-table enrichment (NEW) ───────────────
+                    // ── Monitoring-table enrichment ─────────────────────
                     l.ApplicationDate,
                     l.LastActionDate,
                     CreatedByName = l.CreatedBy.FirstName + " " + l.CreatedBy.LastName,
+
+                    // ── Last handler: latest audit action per loan ─────
+                    // Resolved in-SQL (OUTER APPLY … ORDER BY … OFFSET 0)
+                    // so the page costs ONE round-trip; OrderBy(ActionDate,
+                    // Id) matches the write order used by AuditLogger, so
+                    // ties break deterministically.
+                    LastActionInfo = l.Actions
+                        .OrderByDescending(a => a.ActionDate)
+                        .ThenByDescending(a => a.Id)
+                        .Select(a => new
+                        {
+                            Name = a.ActionByUser.FirstName + " " + a.ActionByUser.LastName,
+                            a.Action,
+                        })
+                        .FirstOrDefault(),
                 })
                 .Skip((p - 1) * ps)
                 .Take(ps)
@@ -211,10 +226,12 @@ public static class LoanEndpoints
                             MiddleName = r.MiddleName,
                             LastName = r.LastName,
                             Suffix = r.Suffix,
-                            // ── Monitoring-table enrichment (NEW) ───────────
+                            // ── Monitoring-table enrichment ───────────────
                             ApplicationDate = r.ApplicationDate,
                             LastActionDate = r.LastActionDate,
                             CreatedByName = r.CreatedByName,
+                            LastActionByName = r.LastActionInfo != null ? r.LastActionInfo.Name : r.CreatedByName,
+                            LastAction = r.LastActionInfo != null ? r.LastActionInfo.Action : null,
                         })
                         .ToList(),
                 })
@@ -242,6 +259,12 @@ public static class LoanEndpoints
             {
                 return Results.NotFound(ApiResponse.ErrorResponse("Loan not found"));
             }
+
+            // Derive last handler from the already-loaded Actions collection
+            // (no extra query — includeRelated: true fetches them).
+            var lastAction = loan.Actions
+                .OrderByDescending(a => a.ActionDate).ThenByDescending(a => a.Id)
+                .FirstOrDefault();
 
             var loanResponse = new LoanResponse
             {
@@ -298,6 +321,10 @@ public static class LoanEndpoints
                 LastActionDate = loan.LastActionDate,
                 CreatedById = loan.CreatedById,
                 CreatedByName = $"{loan.CreatedBy.FirstName} {loan.CreatedBy.LastName}",
+                LastActionByName = lastAction is not null
+                    ? $"{lastAction.ActionByUser.FirstName} {lastAction.ActionByUser.LastName}"
+                    : $"{loan.CreatedBy.FirstName} {loan.CreatedBy.LastName}",
+                LastAction = lastAction?.Action,
                 Actions = loan.Actions.Select(a => new LoanActionResponse
                 {
                     Id = a.Id,
@@ -752,6 +779,14 @@ public class LoanResponse
     public int CreatedById { get; set; }
     public string CreatedByName { get; set; } = string.Empty;
     public List<LoanActionResponse> Actions { get; set; } = new();
+
+    /// <summary>Officer the application last flowed through (resolved from
+    /// the latest LoanAction). Falls back to creator when no action exists.</summary>
+    public string? LastActionByName { get; set; }
+
+    /// <summary>Verb of the latest workflow action (Created, StatusChanged,
+    /// PushedBack, EvaluatedRecommended, EvaluatedNotRecommended…).</summary>
+    public string? LastAction { get; set; }
 
     /// <summary>Latest evaluation verdict projected from the audit trail.
     /// Values: "EvaluatedRecommended" | "EvaluatedNotRecommended" | null.</summary>

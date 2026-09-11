@@ -201,10 +201,12 @@ public sealed record CreatedLoan
 
     // ── Monitoring-table enrichment (populated by GET /api/loans) ─────────
     //
-    // These three fields are what the loan monitoring table renders:
+    // These fields are what the loan monitoring table renders:
     //   • ApplicationDate   → "App. Date" column
     //   • LastActionDate    → "Time Lapsed" computation + sorting
-    //   • CreatedByName     → "Last Approver" column
+    //   • CreatedByName     → creator fallback when no audit actions exist
+    //   • LastActionByName  → "Last Action By" column (from audit trail)
+    //   • LastAction        → verb subtext (Created, PushedBack, …)
     //
     // They are nullable because POST /api/loans doesn't read them back —
     // it only knows what was just submitted. GET populates them from
@@ -218,6 +220,16 @@ public sealed record CreatedLoan
 
     /// <summary>Full name of the officer who created the loan. Null on POST responses.</summary>
     public string? CreatedByName { get; init; }
+
+    /// <summary>Officer the application last flowed through (Encoder →
+    /// Recommender → Evaluator → Approver), resolved from the latest LoanAction.
+    /// Falls back to the creator server-side when no action exists yet.
+    /// Null on POST responses (nothing has happened since minting).</summary>
+    public string? LastActionByName { get; init; }
+
+    /// <summary>Verb of the latest workflow action (Created, StatusChanged,
+    /// PushedBack, EvaluatedRecommended, EvaluatedNotRecommended…).</summary>
+    public string? LastAction { get; init; }
 }
 
 // ─── GET /api/loans/{id}/history — timeline entries ─────────────────────
