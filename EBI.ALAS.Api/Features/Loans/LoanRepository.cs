@@ -21,7 +21,17 @@ public class LoanRepository : ILoanRepository
 
         if (includeRelated)
         {
+            // Read-only aggregate load:
+            //  • AsSplitQuery — without it EF emits ONE statement whose row count
+            //    is the PRODUCT of the five collection sizes (cartesian explosion);
+            //    split mode runs one indexed query per Include instead.
+            //  • AsNoTracking — this path never mutates; skip change-tracker
+            //    materialization + relationship fix-up for the whole graph.
+            // Mutation callers (status/cancel) never pass includeRelated, so
+            // their tracking behavior is untouched.
             query = query
+                .AsNoTracking()
+                .AsSplitQuery()
                 .Include(l => l.CreatedBy)
                 .Include(l => l.Actions)
                     .ThenInclude(a => a.ActionByUser)
@@ -84,7 +94,12 @@ public class LoanRepository : ILoanRepository
         // etc.).
         if (includeRelated)
         {
+            // Same split-query + no-tracking pattern as GetByIdAsync.
+            // Prevents cartesian explosion on the list endpoint when
+            // callers request the full aggregate.
             query = query
+                .AsNoTracking()
+                .AsSplitQuery()
                 .Include(l => l.CreatedBy)
                 .Include(l => l.Actions)
                     .ThenInclude(a => a.ActionByUser)
