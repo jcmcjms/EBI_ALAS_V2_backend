@@ -87,6 +87,9 @@ public static class ServiceCollectionExtensions
         services.AddScoped<ILamIdGenerator, LamIdGenerator>();
         services.AddScoped<ILoanSubmissionService, LoanSubmissionService>();
 
+        // Checklist documents from BPB_BINARY_SERVER (read-only integration).
+        services.AddScoped<IChecklistDocumentRepository, ChecklistDocumentRepository>();
+
         // Loan product catalog (ALAS-owned mirror of webloan.loan_product).
         // Repository is scoped (uses AppDbContext). Service is scoped.
         // Sync service is scoped — depends on the scoped repository.
