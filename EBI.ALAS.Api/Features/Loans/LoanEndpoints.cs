@@ -195,6 +195,7 @@ public static class LoanEndpoints
                     // ── Monitoring-table enrichment ─────────────────────
                     l.ApplicationDate,
                     l.LastActionDate,
+                    l.CreatedById,
                     CreatedByName = l.CreatedBy.FirstName + " " + l.CreatedBy.LastName,
 
                     // ── Last handler: latest audit action per loan ─────
@@ -241,6 +242,7 @@ public static class LoanEndpoints
                             // ── Monitoring-table enrichment ───────────────
                             ApplicationDate = r.ApplicationDate,
                             LastActionDate = r.LastActionDate,
+                            CreatedById = r.CreatedById,
                             CreatedByName = r.CreatedByName,
                             LastActionByName = r.LastActionInfo != null ? r.LastActionInfo.Name : r.CreatedByName,
                             LastAction = r.LastActionInfo != null ? r.LastActionInfo.Action : null,
@@ -759,6 +761,103 @@ public static class LoanEndpoints
         .Produces<ApiResponse<LoanResponse>>(200)
         .Produces<ApiResponse>(400)
         .Produces<ApiResponse>(404);
+
+        // ── POST /api/loans/{id}/cancel — client-withdrawn by the owning Encoder ──
+        //
+        // This is a terminal action distinct from reviewer "Rejected" (the reviewer
+        // found fault) or "ForRevision" (the reviewer needs more info). The audit
+        // verb is ApplicationCancelled so reports can cleanly answer "how many did
+        // clients withdraw?". Ownership is enforced: only the original encoder may
+        // cancel their own application, and only while it is in an in-flight state.
+        group.MapPost("/{id:int}/cancel", async (
+            int id,
+            [FromBody] CancelLoanApplicationRequest request,
+            IValidator<CancelLoanApplicationRequest> validator,
+            ILoanRepository loanRepository,
+            ILoanWorkflowService workflowService,
+            IAuditLogger auditLogger,
+            INotificationService notificationService,
+            ClaimsPrincipal user,
+            ITimeProvider timeProvider,
+            CancellationToken ct) =>
+        {
+            var validation = await validator.ValidateAsync(request, ct);
+            if (!validation.IsValid)
+                return Results.BadRequest(ApiResponse.ErrorResponse("Validation failed",
+                    validation.Errors.Select(e => e.ErrorMessage).ToList()));
+
+            var loan = await loanRepository.GetByIdAsync(id);
+            if (loan is null) return Results.NotFound(ApiResponse.ErrorResponse("Loan not found"));
+
+            var userId = user.GetUserId();
+            var userRole = user.GetRole();
+
+            // ── Ownership: the encoder who minted the LAM is the only one who can
+            //     cancel it. Admins get a bypass for recovery scenarios.
+            var isAdmin = string.Equals(userRole, Roles.Admin, StringComparison.Ordinal);
+            if (loan.CreatedById != userId && !isAdmin)
+                return Results.Json(ApiResponse.ErrorResponse(
+                    "Only the encoder who created this application can cancel it."),
+                    statusCode: StatusCodes.Status403Forbidden);
+
+            // ── Transition rule ───────────────────────────────────────────────
+            if (!workflowService.IsValidTransition(loan.Status, "Cancelled", userRole))
+                return Results.BadRequest(ApiResponse.ErrorResponse(
+                    $"This application is {loan.Status} and cannot be cancelled. " +
+                    "Cancellation is only allowed from Draft, ForRecommendation, " +
+                    "ForChecking, ForApproval, or ForRevision."));
+
+            var fromStatus = loan.Status;
+            loan.Status = "Cancelled";
+            loan.LastActionDate = timeProvider.UtcNow;
+            await loanRepository.UpdateAsync(loan);
+
+            await auditLogger.LogActionAsync(id, userId, "ApplicationCancelled",
+                fromStatus, "Cancelled", request.Reason);
+
+            // ── Notify whoever was next to act (so the queue doesn't show a ghost
+            //     item) and the encoder themselves if an admin cancelled on their behalf.
+            var actorName = $"{user.GetFirstName()} {user.GetLastName()}";
+            var clientName = $"{loan.FirstName} {loan.LastName}";
+            var link = $"/loans/monitoring?id={id}";
+
+            string? notifyRole = fromStatus switch
+            {
+                "ForRecommendation" => Roles.Recommender,
+                "ForChecking"       => Roles.Evaluator,
+                "ForApproval"       => Roles.Approver,
+                _                   => null,
+            };
+
+            if (notifyRole is not null)
+            {
+                var recipients = await loanRepository.GetUsersByRoleAndBranchAsync(notifyRole, loan.BranchCode, ct);
+                foreach (var r in recipients)
+                {
+                    await notificationService.CreateAsync(r.Id,
+                        "Application Cancelled",
+                        $"{actorName} cancelled {clientName}'s application ({loan.LamId}). Reason: {request.Reason}",
+                        link);
+                }
+            }
+
+            if (loan.CreatedById != userId)
+            {
+                await notificationService.CreateAsync(loan.CreatedById,
+                    "Application Cancelled",
+                    $"An administrator cancelled your application for {clientName} ({loan.LamId}). Reason: {request.Reason}",
+                    link);
+            }
+
+            return Results.Ok(ApiResponse.SuccessResponse(
+                $"Application cancelled. The {clientName} file has been closed."));
+        })
+        .WithName("CancelLoanApplication")
+        .Produces<ApiResponse>(200)
+        .Produces<ApiResponse>(400)
+        .Produces<ApiResponse>(403)
+        .Produces<ApiResponse>(404)
+        .RequireAuthorization("CanViewLoan");
     }
 }
 
@@ -920,7 +1019,8 @@ public class UpdateLoanStatusValidator : AbstractValidator<UpdateLoanStatusReque
     {
         "Draft", "ForRecommendation", "ForChecking", "ForApproval",
         "Approved", "Rejected", "ForRevision", "ForDisbursement",
-        "Disbursed", "OnGoing"
+        "Disbursed", "OnGoing",
+        "Cancelled"   // ← new terminal status
     };
 
     public UpdateLoanStatusValidator()
@@ -947,5 +1047,23 @@ public class UpdateLoanStatusValidator : AbstractValidator<UpdateLoanStatusReque
 
         RuleFor(x => x.Comments).MaximumLength(2000)
             .WithMessage("Comments must not exceed 2000 characters");
+    }
+}
+
+// ── Cancel loan application (client-withdrawn by the owning Encoder) ──────
+
+public sealed record CancelLoanApplicationRequest
+{
+    public string Reason { get; init; } = string.Empty;
+}
+
+public sealed class CancelLoanApplicationValidator : AbstractValidator<CancelLoanApplicationRequest>
+{
+    public CancelLoanApplicationValidator()
+    {
+        RuleFor(x => x.Reason)
+            .NotEmpty().WithMessage("A reason for cancellation is required.")
+            .MinimumLength(10).WithMessage("Reason must be at least 10 characters.")
+            .MaximumLength(2000).WithMessage("Reason must not exceed 2000 characters.");
     }
 }

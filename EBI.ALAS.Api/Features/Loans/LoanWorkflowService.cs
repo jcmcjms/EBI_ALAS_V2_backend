@@ -5,6 +5,15 @@ public class LoanWorkflowService : ILoanWorkflowService
 {
     private static readonly Dictionary<(string From, string To), string> ValidTransitions = new()
     {
+        // ── Encoder cancellation — owns every in-flight status for their own loans.
+        // Ownership is enforced in the endpoint, not the transition map.
+        [("Draft", "Cancelled")] = Roles.Encoder,
+        [("ForRecommendation", "Cancelled")] = Roles.Encoder,
+        [("ForChecking", "Cancelled")] = Roles.Encoder,
+        [("ForApproval", "Cancelled")] = Roles.Encoder,
+        [("ForRevision", "Cancelled")] = Roles.Encoder,
+
+        // ── Existing transitions (unchanged) ──────────────────────────────────
         [("Draft", "ForRecommendation")] = Roles.Encoder,
         [("ForRecommendation", "ForChecking")] = Roles.Recommender,
         [("ForRecommendation", "ForRevision")] = Roles.Recommender,  // Pushback to encoder

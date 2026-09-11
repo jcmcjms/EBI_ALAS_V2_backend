@@ -230,6 +230,10 @@ public sealed record CreatedLoan
     /// <summary>Verb of the latest workflow action (Created, StatusChanged,
     /// PushedBack, EvaluatedRecommended, EvaluatedNotRecommended…).</summary>
     public string? LastAction { get; init; }
+
+    /// <summary>User ID of the encoder who created this application.
+    /// Populated by GET /api/loans; null on POST responses.</summary>
+    public int? CreatedById { get; init; }
 }
 
 // ─── GET /api/loans/{id}/history — timeline entries ─────────────────────
