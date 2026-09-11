@@ -9,6 +9,7 @@ public class LoanWorkflowService : ILoanWorkflowService
         [("ForRecommendation", "ForChecking")] = Roles.Recommender,
         [("ForRecommendation", "ForRevision")] = Roles.Recommender,  // Pushback to encoder
         [("ForChecking", "ForApproval")] = Roles.Evaluator,
+        [("ForChecking", "ForRevision")] = Roles.Evaluator,  // Evaluator pushback to encoder
         [("ForApproval", "Approved")] = Roles.Approver,
         [("ForApproval", "Rejected")] = Roles.Approver,
         [("ForApproval", "ForRevision")] = Roles.Approver,
