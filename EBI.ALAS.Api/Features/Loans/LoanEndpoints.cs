@@ -344,6 +344,11 @@ public static class LoanEndpoints
                     Deductions = i.Deductions,
                     Remarks = i.Remarks,
                 }).ToList(),
+                EvaluationVerdict = loan.Actions
+                    .Where(a => a.Action == "EvaluatedRecommended" || a.Action == "EvaluatedNotRecommended")
+                    .OrderByDescending(a => a.ActionDate).ThenByDescending(a => a.Id)
+                    .Select(a => a.Action)
+                    .FirstOrDefault(),
                 WebLoanCisNo = loan.WebLoanCisNo,
                 WebLoanBranchCode = loan.WebLoanBranchCode,
                 WebLoanAccountNumbers = loan.WebLoanAccountNumbers,
@@ -541,19 +546,39 @@ public static class LoanEndpoints
             }
 
             var fromStatus = loan.Status;
+
+            // ── Verdict rules for the evaluation step ─────────────────────────
+            var verdict = request.Verdict;
+            if (fromStatus == "ForChecking" && request.Status == "ForApproval"
+                && userRole == Roles.Evaluator)
+            {
+                if (verdict is not ("Recommended" or "NotRecommended"))
+                    return Results.BadRequest(ApiResponse.ErrorResponse(
+                        "An evaluation verdict ('Recommended' or 'NotRecommended') is required for this transition."));
+            }
+            else if (verdict is not null)
+            {
+                return Results.BadRequest(ApiResponse.ErrorResponse(
+                    "A verdict is only accepted on the evaluator's ForChecking → ForApproval transition."));
+            }
+
+            // Structured audit verb: queryable, visible in the timeline, and lets the
+            // approver see the evaluator's stance without a new column/migration.
+            var actionName = (fromStatus, request.Status, verdict) switch
+            {
+                ("ForChecking", "ForApproval", "NotRecommended") => "EvaluatedNotRecommended",
+                ("ForChecking", "ForApproval", "Recommended")    => "EvaluatedRecommended",
+                (_, "ForRevision", _)                            => "PushedBack",
+                _                                                => "StatusChanged",
+            };
+
             loan.Status = request.Status;
             loan.LastActionDate = timeProvider.UtcNow;
 
             await loanRepository.UpdateAsync(loan);
 
-            // Log the status change
             await auditLogger.LogActionAsync(
-                id,
-                userId,
-                "StatusChanged",
-                fromStatus,
-                request.Status,
-                request.Comments);
+                id, userId, actionName, fromStatus, request.Status, request.Comments);
 
             // ── Notifications ──────────────────────────────────────────
             // Two-tier routing:
@@ -584,12 +609,16 @@ public static class LoanEndpoints
             {
                 var approvers = await loanRepository.GetUsersByRoleAndBranchAsync(
                     Roles.Approver, loan.BranchCode, ct);
+                var stance = verdict == "NotRecommended" ? "NOT RECOMMENDED" : "RECOMMENDED";
+                var extra = verdict == "NotRecommended"
+                    ? $" Evaluator remarks: {request.Comments}"
+                    : string.Empty;
                 foreach (var a in approvers)
                 {
                     await notificationService.CreateAsync(
                         a.Id,
-                        "Ready for Approval",
-                        $"{actorName} completed evaluation for {clientName}'s application ({loan.LamId}).",
+                        verdict == "NotRecommended" ? "Evaluation: NOT Recommended" : "Ready for Approval",
+                        $"{actorName} evaluated {clientName}'s application ({loan.LamId}) as {stance}.{extra}",
                         link);
                 }
             }
@@ -647,7 +676,9 @@ public static class LoanEndpoints
                 ApplicationDate = loan.ApplicationDate,
                 LastActionDate = loan.LastActionDate,
                 CreatedById = loan.CreatedById,
-                CreatedByName = user.GetFirstName() + " " + user.GetLastName()
+                CreatedByName = user.GetFirstName() + " " + user.GetLastName(),
+                EvaluationVerdict = actionName.StartsWith("Evaluated", StringComparison.Ordinal)
+                    ? actionName : null,
             };
 
             return Results.Ok(ApiResponse<LoanResponse>.SuccessResponse(response, "Loan status updated successfully"));
@@ -722,6 +753,10 @@ public class LoanResponse
     public string CreatedByName { get; set; } = string.Empty;
     public List<LoanActionResponse> Actions { get; set; } = new();
 
+    /// <summary>Latest evaluation verdict projected from the audit trail.
+    /// Values: "EvaluatedRecommended" | "EvaluatedNotRecommended" | null.</summary>
+    public string? EvaluationVerdict { get; set; }
+
     public List<OutstandingLoanResponse> OutstandingLoans { get; set; } = new();
     public List<BuyOutResponse> BuyOuts { get; set; } = new();
     public List<EbiReloanResponse> EbiReloans { get; set; } = new();
@@ -792,6 +827,11 @@ public class UpdateLoanStatusRequest
 {
     public string Status { get; init; } = string.Empty;
     public string? Comments { get; init; }
+
+    /// <summary>Evaluator-only verdict for ForChecking → ForApproval.
+    /// Persisted as the audit action name so the approver sees the stance
+    /// without a schema migration.</summary>
+    public string? Verdict { get; init; }
 }
 
 public class UpdateLoanStatusValidator : AbstractValidator<UpdateLoanStatusRequest>
@@ -803,37 +843,29 @@ public class UpdateLoanStatusValidator : AbstractValidator<UpdateLoanStatusReque
         "Disbursed", "OnGoing"
     };
 
-    /// <summary>
-    /// Statuses that require mandatory comments for audit compliance.
-    /// Pushbacks and rejections must explain WHY; advances should document conditions.
-    /// </summary>
-    private static readonly string[] RequireComments = new[]
-    {
-        "ForRevision",  // Pushback (Recommender → Encoder, or Approver → Encoder)
-        "Rejected"      // Rejection (Approver only)
-    };
-
     public UpdateLoanStatusValidator()
     {
         RuleFor(x => x.Status)
-            .NotEmpty()
-            .WithMessage("Status is required")
-            .Must(status => ValidStatuses.Contains(status))
+            .NotEmpty().WithMessage("Status is required")
+            .Must(s => ValidStatuses.Contains(s))
             .WithMessage($"Status must be one of: {string.Join(", ", ValidStatuses)}");
 
-        // Comments are MANDATORY for pushbacks and rejections (audit trail).
-        When(x => RequireComments.Contains(x.Status), () =>
+        RuleFor(x => x.Verdict)
+            .Must(v => v is null or "Recommended" or "NotRecommended")
+            .WithMessage("Verdict must be 'Recommended' or 'NotRecommended'.");
+
+        // Negative decisions must carry a reason: pushbacks, rejection,
+        // and a Not Recommended evaluation.
+        When(x => x.Verdict == "NotRecommended"
+                  || x.Status == "ForRevision"
+                  || x.Status == "Rejected", () =>
         {
             RuleFor(x => x.Comments)
-                .NotEmpty()
-                .WithMessage("Comments are required when pushing back or rejecting an application.")
-                .MinimumLength(10)
-                .WithMessage("Please provide a detailed explanation (at least 10 characters).");
+                .NotEmpty().MinimumLength(10)
+                .WithMessage("Comments (min 10 characters) are required for pushbacks, rejections, and a Not Recommended evaluation.");
         });
 
-        // Max length applies to all comments regardless of whether required.
-        RuleFor(x => x.Comments)
-            .MaximumLength(2000)
+        RuleFor(x => x.Comments).MaximumLength(2000)
             .WithMessage("Comments must not exceed 2000 characters");
     }
 }
