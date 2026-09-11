@@ -1,8 +1,12 @@
 using System.Security.Claims;
 using EBI.ALAS.Api.Common.Extensions;
 using EBI.ALAS.Api.Common.Models;
+using Microsoft.Extensions.Caching.Memory;
 
 namespace EBI.ALAS.Api.Features.WebLoans;
+
+/// <summary>Wrapper so "not found" is cacheable — TryGetValue cannot store null.</summary>
+public sealed record LoanClassCacheEntry(CatLoanClassResponse? Value);
 
 public static class WebLoanEndpoints
 {
@@ -140,6 +144,7 @@ public static class WebLoanEndpoints
             string loanNo,
             string loanProduct,
             IWebLoanService webLoanService,
+            IMemoryCache cache,
             CancellationToken ct) =>
         {
             // All three are required — reject the request early rather
@@ -154,11 +159,31 @@ public static class WebLoanEndpoints
                         "bch, loanNo, and loanProduct are all required."));
             }
 
-            var result = await webLoanService.GetCatLoanClassAsync(bch, loanNo, loanProduct, ct);
-            return result is null
-                ? Results.NotFound(
-                    ApiResponse.ErrorResponse(
+            // Static reference data: 12h positive TTL, 5min negative TTL so a
+            // mis-keyed lookup self-heals quickly without re-hitting the legacy DB
+            // on every page load. Keeps the review page's render path off the
+            // legacy core entirely once warm.
+            var cacheKey = $"webloan:loan-class:{bch}:{loanNo}:{loanProduct}";
+            if (cache.TryGetValue(cacheKey, out LoanClassCacheEntry? entry) && entry is not null)
+            {
+                return entry.Value is null
+                    ? Results.NotFound(ApiResponse.ErrorResponse(
                         "Loan not found in webloan for the given (bch, loan_no, loan_product)."))
+                    : Results.Ok(ApiResponse<CatLoanClassResponse>.SuccessResponse(entry.Value));
+            }
+
+            var result = await webLoanService.GetCatLoanClassAsync(bch, loanNo, loanProduct, ct);
+
+            cache.Set(cacheKey, new LoanClassCacheEntry(result), new MemoryCacheEntryOptions
+            {
+                AbsoluteExpirationRelativeToNow = result is null
+                    ? TimeSpan.FromMinutes(5)
+                    : TimeSpan.FromHours(12),
+            });
+
+            return result is null
+                ? Results.NotFound(ApiResponse.ErrorResponse(
+                    "Loan not found in webloan for the given (bch, loan_no, loan_product)."))
                 : Results.Ok(ApiResponse<CatLoanClassResponse>.SuccessResponse(result));
         })
         .WithName("GetLoanClass")
