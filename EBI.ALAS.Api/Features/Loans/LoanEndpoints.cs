@@ -15,6 +15,18 @@ namespace EBI.ALAS.Api.Features.Loans;
 
 public static class LoanEndpoints
 {
+    /// <summary>Default handling SLAs (hours) per workflow stage. Overridable via
+    /// appsettings "WorkflowSlaHours". Terminal stages intentionally absent —
+    /// they carry no handling SLA because no one "owes" an action.</summary>
+    public static readonly Dictionary<string, double> DefaultSlaHours = new()
+    {
+        ["ForRecommendation"] = 4,    // Branch Head should recommend same-day
+        ["ForChecking"]       = 8,    // Credit check within one business day
+        ["ForApproval"]       = 8,    // Area Head decision within one business day
+        ["ForRevision"]       = 24,   // Encoder fixes and resubmits next day
+        ["ForDisbursement"]   = 24,   // Proceeds release next day
+    };
+
     public static void MapLoanEndpoints(this WebApplication app)
     {
         var group = app.MapGroup("/api/loans")
@@ -462,6 +474,26 @@ public static class LoanEndpoints
         .Produces<ApiResponse<List<LoanHistoryEntryResponse>>>(200)
         .Produces<ApiResponse>(404)
         .Produces<ApiResponse>(403);
+
+        // ── GET /api/loans/sla-policy — handling-SLA hours per workflow stage ─────
+        //
+        // The Monitoring "Time Lapsed" column and the dashboard "Aging" badge color
+        // themselves from this policy. Ops can retune thresholds in appsettings
+        // ("WorkflowSlaHours") without a frontend release. Stages absent from the
+        // policy (terminal ones) carry no SLA.
+        group.MapGet("/sla-policy", (IConfiguration config) =>
+        {
+            var configured = config.GetSection("WorkflowSlaHours").Get<Dictionary<string, double>>();
+            var policy = DefaultSlaHours
+                .Select(kv => (kv.Key,
+                    Hours: configured != null && configured.TryGetValue(kv.Key, out var v) ? v : kv.Value))
+                .ToDictionary(x => x.Key, x => x.Hours);
+
+            return Results.Ok(ApiResponse<Dictionary<string, double>>.SuccessResponse(policy));
+        })
+        .WithName("GetLoanSlaPolicy")
+        .Produces<ApiResponse<Dictionary<string, double>>>(200)
+        .RequireAuthorization("CanViewLoan");
 
         // ── POST /api/loans — multi-loan submission ───────────────────────
         //
