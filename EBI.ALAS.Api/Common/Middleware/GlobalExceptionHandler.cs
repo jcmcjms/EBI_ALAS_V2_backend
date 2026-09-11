@@ -10,6 +10,7 @@ public sealed class GlobalExceptionHandler
 {
     private readonly RequestDelegate _next;
     private readonly ILogger<GlobalExceptionHandler> _logger;
+    private readonly IHostEnvironment _environment;
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -17,10 +18,11 @@ public sealed class GlobalExceptionHandler
         DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull
     };
 
-    public GlobalExceptionHandler(RequestDelegate next, ILogger<GlobalExceptionHandler> logger)
+    public GlobalExceptionHandler(RequestDelegate next, ILogger<GlobalExceptionHandler> logger, IHostEnvironment environment)
     {
         _next = next;
         _logger = logger;
+        _environment = environment;
     }
 
     public async Task InvokeAsync(HttpContext context)
@@ -40,7 +42,7 @@ public sealed class GlobalExceptionHandler
             UnauthorizedAccessException unauthorizedEx => (HttpStatusCode.Unauthorized, ApiResponse.ErrorResponse(unauthorizedEx.Message)),
             ArgumentException argEx => (HttpStatusCode.BadRequest, ApiResponse.ErrorResponse(argEx.Message)),
             InvalidOperationException opEx => (HttpStatusCode.BadRequest, ApiResponse.ErrorResponse(opEx.Message)),
-            _ => (HttpStatusCode.InternalServerError, ApiResponse.ErrorResponse("An unexpected error occurred. Please try again later."))
+            _ => HandleUnhandledException(exception)
         };
 
         if (statusCode >= HttpStatusCode.InternalServerError)
@@ -52,6 +54,22 @@ public sealed class GlobalExceptionHandler
         context.Response.ContentType = "application/json; charset=utf-8";
         var payload = JsonSerializer.Serialize(response, JsonOptions);
         await context.Response.WriteAsync(payload);
+    }
+
+    private (HttpStatusCode statusCode, ApiResponse response) HandleUnhandledException(Exception exception)
+    {
+        // In development, include the actual error message for debugging
+        if (_environment.IsDevelopment())
+        {
+            var errorMessage = $"{exception.Message}";
+            if (exception.InnerException != null)
+                errorMessage += $" | Inner: {exception.InnerException.Message}";
+
+            return (HttpStatusCode.InternalServerError, ApiResponse.ErrorResponse(errorMessage));
+        }
+
+        // In production, return generic message
+        return (HttpStatusCode.InternalServerError, ApiResponse.ErrorResponse("An unexpected error occurred. Please try again later."));
     }
 
     private static ApiResponse BuildValidationResponse(ValidationException validationException)
