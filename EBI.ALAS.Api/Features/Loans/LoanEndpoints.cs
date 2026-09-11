@@ -495,6 +495,19 @@ public static class LoanEndpoints
         .Produces<ApiResponse<Dictionary<string, double>>>(200)
         .RequireAuthorization("CanViewLoan");
 
+        // ── GET /api/loans/queue-default — the caller's role-based default filter ──
+        //
+        // The Monitoring page seeds its status filter from this so each role lands
+        // on its own work queue (Recommender → ForRecommendation, etc.). Pure claim
+        // lookup: zero DB cost, cached forever client-side. Widening to "all"
+        // remains a single click — this endpoint changes no authorization rules.
+        group.MapGet("/queue-default", (ClaimsPrincipal user) =>
+            Results.Ok(ApiResponse<List<string>>.SuccessResponse(
+                RoleQueues.DefaultStatusesFor(user.GetRole()).ToList())))
+        .WithName("GetQueueDefault")
+        .Produces<ApiResponse<List<string>>>(200)
+        .RequireAuthorization("CanViewLoan");
+
         // ── POST /api/loans — multi-loan submission ───────────────────────
         //
         // Trust boundary: officer name + branch code are derived from the JWT /
