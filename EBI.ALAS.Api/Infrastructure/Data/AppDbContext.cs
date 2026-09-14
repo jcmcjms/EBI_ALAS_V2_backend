@@ -27,7 +27,6 @@ public class AppDbContext : DbContext
     public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
     public DbSet<LoanProduct> LoanProducts => Set<LoanProduct>();
     public DbSet<Notification> Notifications => Set<Notification>();
-    public DbSet<LoanAttachment> LoanAttachments => Set<LoanAttachment>();
     public DbSet<LoanDeviation> LoanDeviations => Set<LoanDeviation>();
     public DbSet<DeviationRemark> DeviationRemarks => Set<DeviationRemark>();
 
@@ -767,30 +766,6 @@ public class AppDbContext : DbContext
                 .WithMany()
                 .HasForeignKey(e => e.UpdatedById)
                 .OnDelete(DeleteBehavior.Restrict);
-        });
-
-        // ─── LoanAttachment Entity ───────────────────────────────────
-        modelBuilder.Entity<LoanAttachment>(e =>
-        {
-            e.HasKey(x => x.Id);
-            e.Property(x => x.Id).ValueGeneratedOnAdd();
-
-            e.HasIndex(x => x.LoanApplicationId);
-
-            e.HasOne(x => x.LoanApplication)
-                .WithMany()
-                .HasForeignKey(x => x.LoanApplicationId)
-                .OnDelete(DeleteBehavior.Cascade);
-
-            e.HasOne(x => x.UploadedBy)
-                .WithMany()
-                .HasForeignKey(x => x.UploadedById)
-                .OnDelete(DeleteBehavior.Restrict);
-
-            e.Property(x => x.FileName).HasMaxLength(255).IsRequired();
-            e.Property(x => x.StoredFileName).HasMaxLength(255).IsRequired();
-            e.Property(x => x.ContentType).HasMaxLength(100);
-            e.Property(x => x.Category).HasMaxLength(100);
         });
 
         // ─── LoanDeviation Entity ────────────────────────────────────

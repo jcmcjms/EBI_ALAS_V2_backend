@@ -322,7 +322,7 @@ app.MapUserEndpoints();
 app.MapRoleEndpoints();
 app.MapBranchEndpoints();
 app.MapLoanEndpoints();
-app.MapLoanAttachmentEndpoints();
+app.MapChecklistDocumentEndpoints();
 app.MapLoanDeviationEndpoints();
 app.MapDashboardEndpoints();
 app.MapAuditLogEndpoints();
