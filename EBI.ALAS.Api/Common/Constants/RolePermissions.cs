@@ -63,7 +63,9 @@ public static class RolePermissions
             Permissions.RoleManage,
             Permissions.RoleView,
             // Audit log permissions
-            Permissions.AuditLogsView
+            Permissions.AuditLogsView,
+            // Workflow administration permissions
+            Permissions.WorkflowManage
         }
     };
     public static string[] GetPermissionsForRole(string role)

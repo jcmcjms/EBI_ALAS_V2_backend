@@ -7,6 +7,7 @@ using EBI.ALAS.Api.Features.Branches;
 using EBI.ALAS.Api.Features.Dashboard;
 using EBI.ALAS.Api.Features.Loans;
 using EBI.ALAS.Api.Features.Notifications;
+using EBI.ALAS.Api.Features.SystemSettings;
 using EBI.ALAS.Api.Features.Users;
 using EBI.ALAS.Api.Features.WebLoans;
 using EBI.ALAS.Api.Infrastructure.Data;
@@ -101,6 +102,15 @@ public static class ServiceCollectionExtensions
         // Background job that runs the sync on a configurable interval.
         // Hosted services are singletons by ASP.NET Core convention.
         services.AddHostedService<LoanProductSyncHostedService>();
+
+        // ─── System Settings (DB-backed workflow flags) ───────────────
+        // Scoped store — uses AppDbContext. The hosted service (singleton)
+        // creates a scope per tick so it never captures a captive context.
+        services.AddScoped<ISystemSettingsStore, SystemSettingsStore>();
+
+        // Propagates DB overrides written by OTHER instances within 30s.
+        // Same pattern as LoanProductSyncHostedService.
+        services.AddHostedService<WorkflowSettingsRefreshHostedService>();
 
         // ─── Dashboard Services ──────────────────────────────────────────
         services.AddScoped<IDashboardService, DashboardService>();

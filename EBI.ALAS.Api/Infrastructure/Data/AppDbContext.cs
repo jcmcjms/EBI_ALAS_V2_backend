@@ -3,6 +3,7 @@ using EBI.ALAS.Api.Features.AuditLogs;
 using EBI.ALAS.Api.Features.Branches;
 using EBI.ALAS.Api.Features.Loans;
 using EBI.ALAS.Api.Features.Notifications;
+using EBI.ALAS.Api.Features.SystemSettings;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.ChangeTracking;
 using System.Text.Json;
@@ -30,6 +31,7 @@ public class AppDbContext : DbContext
     public DbSet<LoanDeviation> LoanDeviations => Set<LoanDeviation>();
     public DbSet<DeviationRemark> DeviationRemarks => Set<DeviationRemark>();
     public DbSet<DocumentRemark> DocumentRemarks => Set<DocumentRemark>();
+    public DbSet<SystemSetting> SystemSettings => Set<SystemSetting>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -841,6 +843,37 @@ public class AppDbContext : DbContext
             e.Property(x => x.ChecklistIdCode).HasMaxLength(50).IsRequired();
             e.Property(x => x.AuthorRole).HasMaxLength(50).IsRequired();
             e.Property(x => x.Body).HasMaxLength(2000).IsRequired();
+        });
+
+        // ─── SystemSetting Entity ──────────────────────────────────────
+        // Generic key/value store for system-wide settings (workflow flags,
+        // thresholds…). PK is the string key; Value is stored as string so
+        // the table never needs schema changes for new settings.
+        modelBuilder.Entity<SystemSetting>(entity =>
+        {
+            entity.HasKey(e => e.Key);
+
+            entity.Property(e => e.Key)
+                .IsRequired()
+                .HasMaxLength(100);
+
+            entity.Property(e => e.Value)
+                .IsRequired()
+                .HasMaxLength(500);
+
+            entity.Property(e => e.UpdatedAt)
+                .IsRequired();
+
+            entity.Property(e => e.UpdatedById)
+                .IsRequired();
+
+            // FK to User. Restrict (not Cascade) — deleting a user must
+            // never silently erase the audit trail of who changed a
+            // system setting.
+            entity.HasOne(e => e.UpdatedBy)
+                .WithMany()
+                .HasForeignKey(e => e.UpdatedById)
+                .OnDelete(DeleteBehavior.Restrict);
         });
     }
 }

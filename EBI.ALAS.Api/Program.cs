@@ -142,6 +142,7 @@ builder.Services.AddAuthorization(options =>
     options.AddPolicy("CanViewAuditLogs", policy => policy.Requirements.Add(new PermissionRequirement(Permissions.AuditLogsView)));
     options.AddPolicy("CanViewLoanProduct", policy => policy.Requirements.Add(new PermissionRequirement(Permissions.LoanProductView)));
     options.AddPolicy("CanManageLoanProduct", policy => policy.Requirements.Add(new PermissionRequirement(Permissions.LoanProductManage)));
+    options.AddPolicy("CanManageWorkflow", policy => policy.Requirements.Add(new PermissionRequirement(Permissions.WorkflowManage)));
 });
 
 builder.Services.AddCors(options =>

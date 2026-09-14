@@ -25,6 +25,10 @@ public static class Permissions
 
     // Audit log permissions
     public const string AuditLogsView = "auditLogs.view";
+
+    // Workflow administration permissions
+    public const string WorkflowManage = "workflow.manage";
+
     public static readonly string[] All = new[]
     {
         LoansCreate,
@@ -41,6 +45,7 @@ public static class Permissions
         UserSuspend,
         RoleManage,
         RoleView,
-        AuditLogsView
+        AuditLogsView,
+        WorkflowManage
     };
 }
