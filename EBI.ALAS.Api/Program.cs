@@ -324,6 +324,7 @@ app.MapBranchEndpoints();
 app.MapLoanEndpoints();
 app.MapChecklistDocumentEndpoints();
 app.MapLoanDeviationEndpoints();
+app.MapDocumentRemarkEndpoints();
 app.MapDashboardEndpoints();
 app.MapAuditLogEndpoints();
 app.MapAccountEndpoints();

@@ -29,6 +29,7 @@ public class AppDbContext : DbContext
     public DbSet<Notification> Notifications => Set<Notification>();
     public DbSet<LoanDeviation> LoanDeviations => Set<LoanDeviation>();
     public DbSet<DeviationRemark> DeviationRemarks => Set<DeviationRemark>();
+    public DbSet<DocumentRemark> DocumentRemarks => Set<DocumentRemark>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -807,6 +808,37 @@ public class AppDbContext : DbContext
                 .HasForeignKey(x => x.AuthorId)
                 .OnDelete(DeleteBehavior.Restrict);
 
+            e.Property(x => x.AuthorRole).HasMaxLength(50).IsRequired();
+            e.Property(x => x.Body).HasMaxLength(2000).IsRequired();
+        });
+
+        // ─── DocumentRemark Entity ──────────────────────────────────
+        // Keyed by (LoanApplicationId, ChecklistIdCode) — the stable
+        // checklist requirement code, NOT the binary docId. DocId is
+        // snapshotted at write time for audit ("which version was reviewed").
+        modelBuilder.Entity<DocumentRemark>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).ValueGeneratedOnAdd();
+
+            e.HasIndex(x => new { x.LoanApplicationId, x.ChecklistIdCode, x.CreatedAt });
+
+            e.HasOne(x => x.LoanApplication)
+                .WithMany()
+                .HasForeignKey(x => x.LoanApplicationId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            e.HasOne(x => x.ParentRemark)
+                .WithMany(x => x.Replies)
+                .HasForeignKey(x => x.ParentRemarkId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            e.HasOne(x => x.Author)
+                .WithMany()
+                .HasForeignKey(x => x.AuthorId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            e.Property(x => x.ChecklistIdCode).HasMaxLength(50).IsRequired();
             e.Property(x => x.AuthorRole).HasMaxLength(50).IsRequired();
             e.Property(x => x.Body).HasMaxLength(2000).IsRequired();
         });
