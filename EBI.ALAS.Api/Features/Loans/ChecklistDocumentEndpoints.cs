@@ -9,6 +9,14 @@ namespace EBI.ALAS.Api.Features.Loans;
 
 public static class ChecklistDocumentEndpoints
 {
+    /// <summary>Content types browsers render natively. Anything else stays
+    /// `attachment` regardless of the request — XSS guard against a binary
+    /// row carrying script-ish content.</summary>
+    private static readonly HashSet<string> InlineSafeTypes = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "application/pdf", "image/png", "image/jpeg", "image/jpg", "image/gif",
+    };
+
     public static void MapChecklistDocumentEndpoints(this WebApplication app)
     {
         var group = app.MapGroup("/api/loans")
@@ -47,10 +55,9 @@ public static class ChecklistDocumentEndpoints
         // ── GET /api/loans/checklist-documents/{docId}/view ──────────────
         // Fetches the actual document content from BPB_BINARY_SERVER for viewing.
         group.MapGet("/checklist-documents/{docId:int}/view", async (
-            int docId, ClaimsPrincipal user, AppDbContext db,
+            int docId, string? disposition, ClaimsPrincipal user, AppDbContext db,
             IChecklistDocumentRepository checklistRepo, CancellationToken ct) =>
         {
-            // Verify user has permission to view loans
             if (!user.HasPermission(Permissions.LoansView))
                 return Results.Json(
                     ApiResponse.ErrorResponse("You do not have permission to view documents."),
@@ -61,7 +68,15 @@ public static class ChecklistDocumentEndpoints
             if (document is null || document.Content.Length == 0)
                 return Results.NotFound(ApiResponse.ErrorResponse("Document not found or empty."));
 
-            return Results.File(document.Content, document.ContentType, document.FileName);
+            // `disposition=inline` + renderable type  → no fileDownloadName → inline.
+            // Everything else keeps the filename → attachment (current behavior).
+            var wantsInline = string.Equals(disposition, "inline", StringComparison.OrdinalIgnoreCase);
+            var inlineSafe = wantsInline
+                && InlineSafeTypes.Contains(document.ContentType);
+
+            return inlineSafe
+                ? Results.File(document.Content, document.ContentType)
+                : Results.File(document.Content, document.ContentType, document.FileName);
         })
         .WithName("ViewChecklistDocument")
         .RequireAuthorization("CanViewLoan");
