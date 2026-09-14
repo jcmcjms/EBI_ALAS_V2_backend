@@ -467,7 +467,8 @@ public static class LoanEndpoints
                     a.FromStatus,
                     a.ToStatus,
                     a.Comments,
-                    a.ActionDate))
+                    a.ActionDate,
+                    a.ActionByUser.Role))
                 .ToListAsync(ct);
 
             return Results.Ok(ApiResponse<List<LoanHistoryEntryResponse>>.SuccessResponse(history));

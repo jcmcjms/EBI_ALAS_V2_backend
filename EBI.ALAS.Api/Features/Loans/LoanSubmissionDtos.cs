@@ -247,5 +247,6 @@ public sealed record LoanHistoryEntryResponse(
     string? FromStatus,
     string? ToStatus,
     string? Comments,
-    DateTime ActionDate
+    DateTime ActionDate,
+    string ActionByRole
 );
