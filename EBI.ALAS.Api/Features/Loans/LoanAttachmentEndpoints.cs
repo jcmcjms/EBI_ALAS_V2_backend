@@ -12,6 +12,20 @@ public static class LoanAttachmentEndpoints
     private static readonly string[] AllowedExtensions =
         [".pdf", ".png", ".jpg", ".jpeg", ".doc", ".docx", ".xls", ".xlsx"];
 
+    /// <summary>
+    /// Content types browsers render natively. Anything else stays as <c>attachment</c>
+    /// regardless of the caller's request — defense in depth against a malicious upload
+    /// masquerading as an image.
+    /// </summary>
+    private static readonly HashSet<string> InlineSafeContentTypes = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "application/pdf",
+        "image/png",
+        "image/jpeg",
+        "image/jpg",
+        "image/gif",
+    };
+
     /// <summary>Workflow states after which the file set is frozen.</summary>
     private static readonly string[] TerminalStatuses =
         ["Approved", "Rejected", "Disbursed", "OnGoing"];
@@ -193,9 +207,20 @@ public static class LoanAttachmentEndpoints
         .RequireAuthorization("CanViewLoan");
 
         // ── GET /api/loans/attachments/{attachmentId}/download ──────────
+        // Serves the attachment bytes. The same endpoint supports both download
+        // (default, Content-Disposition: attachment) and preview/embedding
+        // (Content-Disposition: inline) flows — same auth, same bytes, different
+        // browser behavior. `disposition=inline` lets the FE's preview surface
+        // render the file in-place instead of forcing a save dialog.
         group.MapGet("/attachments/{attachmentId:int}/download", async (
-            int attachmentId, ClaimsPrincipal user, AppDbContext db,
-            IConfiguration config, IWebHostEnvironment env, CancellationToken ct) =>
+            int attachmentId,
+            string? disposition,
+            ClaimsPrincipal user,
+            AppDbContext db,
+            IConfiguration config,
+            IWebHostEnvironment env,
+            HttpContext httpCtx,
+            CancellationToken ct) =>
         {
             var att = await db.LoanAttachments.AsNoTracking()
                 .Include(a => a.LoanApplication)
@@ -209,7 +234,27 @@ public static class LoanAttachmentEndpoints
             if (!File.Exists(path))
                 return Results.NotFound(ApiResponse.ErrorResponse("File is missing from storage."));
 
-            return Results.File(File.OpenRead(path), att.ContentType, att.FileName);
+            // Inline only when explicitly requested AND the content type is one the
+            // browser will actually render. Anything else stays as `attachment` —
+            // this is the bank's XSS defense: an attacker who uploads script.js
+            // cannot trick the browser into executing it via the preview surface.
+            var wantsInline = string.Equals(disposition, "inline", StringComparison.OrdinalIgnoreCase);
+            var inlineSafe = wantsInline && InlineSafeContentTypes.Contains(att.ContentType.ToLowerInvariant());
+
+            // Results.File in .NET 8 does not have an `inline` parameter on the
+            // Stream overload, so we write the Content-Disposition header manually.
+            httpCtx.Response.ContentType = att.ContentType;
+            httpCtx.Response.Headers.ContentDisposition = inlineSafe
+                ? $"inline; filename=\"{att.FileName}\""
+                : $"attachment; filename=\"{att.FileName}\"";
+
+            await using (var stream = new FileStream(path, FileMode.Open, FileAccess.Read,
+                             FileShare.Read, 64 * 1024, FileOptions.Asynchronous))
+            {
+                await stream.CopyToAsync(httpCtx.Response.Body, ct);
+            }
+
+            return Results.Empty;
         })
         .WithName("DownloadLoanAttachment")
         .RequireAuthorization("CanViewLoan");
