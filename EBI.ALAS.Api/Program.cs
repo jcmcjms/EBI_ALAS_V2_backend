@@ -247,6 +247,8 @@ builder.Services.Configure<Microsoft.AspNetCore.Mvc.JsonOptions>(options =>
 // & limits" for the trade-off.
 
 builder.Services.AddApplicationServices();
+builder.Services.Configure<WorkflowOptions>(
+    configuration.GetSection(WorkflowOptions.SectionName));
 builder.Services.AddFluentValidationAutoValidation();
 builder.Services.AddFluentValidationClientsideAdapters();
 builder.Services.AddValidatorsFromAssemblyContaining<Program>();
@@ -322,6 +324,7 @@ app.MapUserEndpoints();
 app.MapRoleEndpoints();
 app.MapBranchEndpoints();
 app.MapLoanEndpoints();
+app.MapWorkflowConfigurationEndpoints();
 app.MapChecklistDocumentEndpoints();
 app.MapLoanDeviationEndpoints();
 app.MapDocumentRemarkEndpoints();

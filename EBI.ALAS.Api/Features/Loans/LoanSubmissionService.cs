@@ -66,11 +66,12 @@ public class LoanSubmissionService : ILoanSubmissionService
             throw new ForbiddenAccessException("Loan branch does not match the acting officer's branch.");
         }
 
-        // 3 ── Workflow gate: role must be allowed to move Draft → ForRecommendation.
+        // 3 ── Workflow gate: role must be allowed to move Draft → initial status.
         var role = user.GetRole();
-        if (!_workflowService.IsValidTransition("Draft", "ForRecommendation", role))
+        var initialStatus = _workflowService.InitialStatus;
+        if (!_workflowService.IsValidTransition("Draft", initialStatus, role))
         {
-            throw new InvalidWorkflowException("Draft", "ForRecommendation", role);
+            throw new InvalidWorkflowException("Draft", initialStatus, role);
         }
 
         // 4 ── Persist, retrying only on LAM/group sequence collisions.
@@ -162,25 +163,44 @@ public class LoanSubmissionService : ILoanSubmissionService
         {
             await _auditLogger.LogActionAsync(application.Id, userId, "Created", null, "Draft",
                 $"Loan application created (group {groupNo})");
-            await _auditLogger.LogActionAsync(application.Id, userId, "StatusChanged", "Draft", "ForRecommendation",
-                "Submitted for recommendation");
+            await _auditLogger.LogActionAsync(application.Id, userId, "StatusChanged", "Draft", _workflowService.InitialStatus,
+                _workflowService.InitialStatus == "ForRecommendation"
+                    ? "Submitted for recommendation"
+                    : "Submitted for evaluation");
         }
 
-        // Notify the branch's recommenders that a new application group is
-        // waiting for their review. We resolve users via the same DbContext
-        // the repo uses so the role+branch filter is consistent with the
-        // workflow authorization checks elsewhere in the slice.
-        var recommenders = await _loanRepository.GetUsersByRoleAndBranchAsync(Roles.Recommender, branchCode, ct);
-        var firstLoan = applications.First();
-        var clientName = $"{firstLoan.FirstName} {firstLoan.LastName}";
-
-        foreach (var recommender in recommenders)
+        // Notify the branch's recommenders (or evaluators when recommender
+        // step is skipped) that a new application group is waiting for
+        // their review.
+        if (_workflowService.RequireRecommendation)
         {
-            await _notificationService.CreateAsync(
-                recommender.Id,
-                "New Loan Application Submitted",
-                $"Application group {groupNo} for {clientName} has been submitted for recommendation.",
-                "/loans/monitoring");
+            var recommenders = await _loanRepository.GetUsersByRoleAndBranchAsync(Roles.Recommender, branchCode, ct);
+            var firstLoan = applications.First();
+            var clientName = $"{firstLoan.FirstName} {firstLoan.LastName}";
+
+            foreach (var recommender in recommenders)
+            {
+                await _notificationService.CreateAsync(
+                    recommender.Id,
+                    "New Loan Application Submitted",
+                    $"Application group {groupNo} for {clientName} has been submitted for recommendation.",
+                    "/loans/monitoring");
+            }
+        }
+        else
+        {
+            var evaluators = await _loanRepository.GetUsersByRoleAndBranchAsync(Roles.Evaluator, branchCode, ct);
+            var firstLoan = applications.First();
+            var clientName = $"{firstLoan.FirstName} {firstLoan.LastName}";
+
+            foreach (var evaluator in evaluators)
+            {
+                await _notificationService.CreateAsync(
+                    evaluator.Id,
+                    "New Loan Application Submitted",
+                    $"Application group {groupNo} for {clientName} has been submitted for evaluation.",
+                    "/loans/monitoring");
+            }
         }
 
         return (response, false);
@@ -252,7 +272,7 @@ public class LoanSubmissionService : ILoanSubmissionService
             OtherRemarks = request.Deviations.OtherRemarks,
             FeeDeviationJustification = request.Deviations.FeeDeviationJustification,
 
-            Status = "ForRecommendation",
+            Status = _workflowService.InitialStatus,
             ApplicationDate = now,
             LastActionDate = now,
             CreatedById = userId,

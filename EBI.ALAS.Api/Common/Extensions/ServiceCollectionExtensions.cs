@@ -81,6 +81,7 @@ public static class ServiceCollectionExtensions
         services.AddHostedService<CleanupExpiredTokensHostedService>();
 
         // ─── Loan Services ───────────────────────────────────────────────
+        services.AddSingleton<IWorkflowConfiguration, WorkflowConfiguration>();
         services.AddScoped<ILoanRepository, LoanRepository>();
         services.AddScoped<ILoanWorkflowService, LoanWorkflowService>();
         services.AddScoped<IAuditLogger, AuditLogger>();
