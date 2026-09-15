@@ -2,6 +2,7 @@ using System.Security.Claims;
 using EBI.ALAS.Api.Common.Constants;
 using EBI.ALAS.Api.Common.Extensions;
 using EBI.ALAS.Api.Common.Models;
+using EBI.ALAS.Api.Features.Notifications;
 using EBI.ALAS.Api.Infrastructure.Data;
 using FluentValidation;
 using Microsoft.EntityFrameworkCore;
@@ -10,10 +11,12 @@ namespace EBI.ALAS.Api.Features.Loans;
 
 public static class DocumentRemarkEndpoints
 {
+    // Aligned with the FE TERMINAL list (Cancelled was missing here).
     private static readonly string[] TerminalStatuses =
-        ["Approved", "Rejected", "Disbursed", "OnGoing"];
+        ["Approved", "Rejected", "Disbursed", "OnGoing", "Cancelled"];
 
-    /// <summary>The only roles that may write document remarks.</summary>
+    /// <summary>Reviewer roles that may write remarks on any loan they can read.
+    /// Encoders get write access separately, scoped to their own submissions.</summary>
     private static readonly string[] WriterRoles =
         [Roles.Recommender, Roles.Evaluator, Roles.Approver, Roles.Admin];
 
@@ -24,16 +27,15 @@ public static class DocumentRemarkEndpoints
             .RequireAuthorization();
 
         // ── GET /api/loans/{id}/document-remarks ────────────────────────
-        // Flat, chronological list; the FE groups by checklistIdCode.
-        // One indexed query — no per-document round-trips.
         group.MapGet("/{id:int}/document-remarks", async (
             int id, ClaimsPrincipal user, AppDbContext db, CancellationToken ct) =>
         {
             var loan = await db.LoanApplications.AsNoTracking()
-                .Where(l => l.Id == id).Select(l => new { l.Id, l.CreatedById })
+                .Where(l => l.Id == id)
+                .Select(l => new { l.Id, l.BranchCode, l.CreatedById })
                 .FirstOrDefaultAsync(ct);
             if (loan is null) return Results.NotFound(ApiResponse.ErrorResponse("Loan not found"));
-            if (!CanRead(user, loan.CreatedById))
+            if (!CanRead(user, loan.BranchCode, loan.CreatedById))
                 return Results.Json(ApiResponse.ErrorResponse(
                     "You do not have permission to view this loan's document remarks."),
                     statusCode: StatusCodes.Status403Forbidden);
@@ -53,14 +55,16 @@ public static class DocumentRemarkEndpoints
         .RequireAuthorization("CanViewLoan");
 
         // ── POST /api/loans/{id}/document-remarks ───────────────────────
-        // Recommender / Evaluator / Approver (+Admin) remark on ONE specific
-        // checklist document. Encoder reads only. Closed at terminal states.
+        // Reviewers remark on ONE specific checklist document; the submitting
+        // Encoder may also add/reply on their OWN applications (ownership
+        // enforced below, not in the UI). Closed at terminal states.
         group.MapPost("/{id:int}/document-remarks", async (
             int id, AddDocumentRemarkRequest request,
             IValidator<AddDocumentRemarkRequest> validator,
             ClaimsPrincipal user, AppDbContext db,
             IChecklistDocumentRepository checklistRepo,
-            IAuditLogger auditLogger, CancellationToken ct) =>
+            IAuditLogger auditLogger,
+            INotificationService notificationService, CancellationToken ct) =>
         {
             var validation = await validator.ValidateAsync(request, ct);
             if (!validation.IsValid)
@@ -69,53 +73,55 @@ public static class DocumentRemarkEndpoints
 
             var loan = await db.LoanApplications.AsNoTracking()
                 .Where(l => l.Id == id)
-                .Select(l => new { l.Id, l.LoanNo, l.CreatedById, l.Status })
+                .Select(l => new { l.Id, l.LoanNo, l.LamId, l.BranchCode, l.CreatedById, l.Status })
                 .FirstOrDefaultAsync(ct);
             if (loan is null) return Results.NotFound(ApiResponse.ErrorResponse("Loan not found"));
-            if (!CanRead(user, loan.CreatedById))
+            if (!CanRead(user, loan.BranchCode, loan.CreatedById))
                 return Results.Json(ApiResponse.ErrorResponse(
                     "You do not have permission to view this loan's document remarks."),
                     statusCode: StatusCodes.Status403Forbidden);
 
+            var userId = user.GetUserId();
             var role = user.GetRole();
-            if (!WriterRoles.Contains(role))
+
+            // ── Write gate ──────────────────────────────────────────────
+            // Reviewers: any loan they can read. Encoder: own submissions only.
+            var isReviewer = WriterRoles.Contains(role);
+            var isOwningEncoder = role == Roles.Encoder && loan.CreatedById == userId;
+            if (!isReviewer && !isOwningEncoder)
                 return Results.Json(ApiResponse.ErrorResponse(
-                    "Only the Recommender, Evaluator, or Approver may add document remarks."),
+                    "Only the Recommender, Evaluator, Approver, or the submitting Encoder may add document remarks."),
                     statusCode: StatusCodes.Status403Forbidden);
 
             if (TerminalStatuses.Contains(loan.Status))
                 return Results.BadRequest(ApiResponse.ErrorResponse(
                     $"Remarks are closed once the application is {loan.Status}."));
 
-            // Referential integrity against the document server: the code must
-            // be a real checklist requirement for this loan's product. Writes
-            // are rare, so one OPENQUERY here is cheap insurance against
-            // orphan remarks on invented codes.
             var checklist = await checklistRepo.GetChecklistDocumentsAsync(loan.LoanNo, ct);
             var item = checklist.FirstOrDefault(c => c.IdCode == request.ChecklistIdCode);
             if (item is null)
                 return Results.BadRequest(ApiResponse.ErrorResponse(
                     "Unknown checklist document for this loan."));
 
-            if (request.ParentRemarkId is { } parentId)
+            var parentId = request.ParentRemarkId;
+            if (parentId.HasValue)
             {
                 var parentOk = await db.DocumentRemarks.AnyAsync(r =>
-                    r.Id == parentId && r.LoanApplicationId == id
+                    r.Id == parentId.Value && r.LoanApplicationId == id
                     && r.ChecklistIdCode == request.ChecklistIdCode, ct);
                 if (!parentOk)
                     return Results.BadRequest(ApiResponse.ErrorResponse(
                         "The remark you are replying to no longer belongs to this document."));
             }
 
-            var userId = user.GetUserId();
             var remark = new DocumentRemark
             {
                 LoanApplicationId = id,
                 ChecklistIdCode = request.ChecklistIdCode,
                 DocId = request.DocId ?? item.DocId,   // snapshot the reviewed version
-                ParentRemarkId = request.ParentRemarkId,
+                ParentRemarkId = parentId,
                 AuthorId = userId,
-                AuthorRole = role,
+                AuthorRole = role,                     // "Encoder" snapshots correctly
                 Body = request.Body.Trim(),
             };
             db.DocumentRemarks.Add(remark);
@@ -124,18 +130,55 @@ public static class DocumentRemarkEndpoints
             await auditLogger.LogActionAsync(id, userId, "DocumentRemarkAdded", null, null,
                 $"Remark on document '{item.ChecklistDescription ?? request.ChecklistIdCode}'");
 
+            // ── Counterparty notification (bell inbox) ──────────────────
+            // reply            → author of the parent remark
+            // top-level remark → submitting Encoder (reviewer feedback loop,
+            //                     e.g. "Wrong attachment, pls update")
+            var docLabel = item.ChecklistDescription ?? request.ChecklistIdCode;
+            var actorName = $"{user.GetFirstName()} {user.GetLastName()}";
+            var link = $"/loans/approval/{id}";
+
+            if (parentId is { } replyToId)
+            {
+                var parentAuthorId = await db.DocumentRemarks.AsNoTracking()
+                    .Where(r => r.Id == replyToId)
+                    .Select(r => r.AuthorId)
+                    .FirstOrDefaultAsync(ct);
+
+                if (parentAuthorId != default && parentAuthorId != userId)
+                    await notificationService.CreateAsync(parentAuthorId,
+                        "New reply to your remark",
+                        $"{actorName} replied to your remark on '{docLabel}' ({loan.LamId}).",
+                        link);
+            }
+            else if (loan.CreatedById != userId)
+            {
+                await notificationService.CreateAsync(loan.CreatedById,
+                    "New document remark",
+                    $"{actorName} remarked on '{docLabel}' of your application {loan.LamId}.",
+                    link);
+            }
+
             return Results.Created($"/api/loans/{id}/document-remarks",
                 ApiResponse<DocumentRemarkResponse>.SuccessResponse(new(
                     remark.Id, remark.ChecklistIdCode, remark.DocId, remark.ParentRemarkId,
-                    user.GetFirstName() + " " + user.GetLastName(), role,
+                    actorName, role,
                     remark.Body, remark.CreatedAt), "Remark added."));
         })
         .WithName("AddDocumentRemark")
         .RequireAuthorization("CanViewLoan");
     }
 
-    private static bool CanRead(ClaimsPrincipal user, int createdById) =>
-        user.HasPermission(Permissions.LoansView) || user.GetUserId() == createdById;
+    /// <summary>Owner and Admin always read. Reviewers: same-branch only —
+    /// mirrors the branch scoping in LoanRepository.GetAllAsync so a reviewer
+    /// cannot probe other branches' threads by id (IDOR).</summary>
+    private static bool CanRead(ClaimsPrincipal user, string branchCode, int createdById)
+    {
+        if (user.GetUserId() == createdById) return true;
+        if (user.GetRole() == Roles.Admin) return true;
+        return user.HasPermission(Permissions.LoansView)
+            && string.Equals(user.GetBranchCode(), branchCode, StringComparison.Ordinal);
+    }
 }
 
 public sealed record AddDocumentRemarkRequest
