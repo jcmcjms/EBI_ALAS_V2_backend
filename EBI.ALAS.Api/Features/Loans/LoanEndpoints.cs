@@ -322,6 +322,22 @@ public static class LoanEndpoints
                 StandardNotarialFee = loan.StandardNotarialFee,
                 StandardDocStamps = loan.StandardDocStamps,
                 StandardInsurance = loan.StandardInsurance,
+                StandardApplicationCharge = loan.StandardApplicationCharge,
+                StandardAdvanceInterest = loan.StandardAdvanceInterest,
+                TotalDeductions = loan.TotalDeductions,
+                DeductionRate = loan.DeductionRate,
+                GrossProceeds = loan.GrossProceeds,
+                NetProceedsOnDS = loan.NetProceedsOnDS,
+                NetProceedsToClient = loan.NetProceedsToClient,
+                TotalExposure = loan.TotalExposure,
+                MonthlyAmortization = loan.MonthlyAmortization,
+                NetPayAfterDeduction = loan.NetPayAfterDeduction,
+                GrossDisposableIncome = loan.GrossDisposableIncome,
+                CapacityDeductions = loan.CapacityDeductions,
+                NetDisposableIncome = loan.NetDisposableIncome,
+                MaximumLoanableAmount = loan.MaximumLoanableAmount,
+                AmortizationExceedsDisposable = loan.AmortizationExceedsDisposable,
+                NthpBelowMinimum = loan.NthpBelowMinimum,
                 VerificationFindings = loan.VerificationFindings,
                 HasDeviations = loan.HasDeviations,
                 DeviationDetails = loan.DeviationDetails,
@@ -568,6 +584,13 @@ public static class LoanEndpoints
             catch (InvalidWorkflowException ex)
             {
                 return Results.BadRequest(ApiResponse.ErrorResponse(ex.Message));
+            }
+            catch (CapacityGateException ex)
+            {
+                var errors = ex.Errors
+                    .SelectMany(e => e.Value)
+                    .ToList();
+                return Results.BadRequest(ApiResponse.ErrorResponse(ex.Message, errors));
             }
         })
         .WithName("CreateLoanApplication")
@@ -968,6 +991,24 @@ public class LoanResponse
     public decimal StandardNotarialFee { get; set; }
     public decimal StandardDocStamps { get; set; }
     public decimal StandardInsurance { get; set; }
+    public decimal StandardApplicationCharge { get; set; }
+    public decimal StandardAdvanceInterest { get; set; }
+
+    // ── Computed snapshot (server-authoritative) ───────────────────────
+    public decimal TotalDeductions { get; set; }
+    public decimal DeductionRate { get; set; }
+    public decimal GrossProceeds { get; set; }
+    public decimal NetProceedsOnDS { get; set; }
+    public decimal NetProceedsToClient { get; set; }
+    public decimal TotalExposure { get; set; }
+    public decimal? MonthlyAmortization { get; set; }
+    public decimal NetPayAfterDeduction { get; set; }
+    public decimal GrossDisposableIncome { get; set; }
+    public decimal CapacityDeductions { get; set; }
+    public decimal NetDisposableIncome { get; set; }
+    public decimal MaximumLoanableAmount { get; set; }
+    public bool AmortizationExceedsDisposable { get; set; }
+    public bool NthpBelowMinimum { get; set; }
 
     public string? VerificationFindings { get; set; }
     public bool HasDeviations { get; set; }

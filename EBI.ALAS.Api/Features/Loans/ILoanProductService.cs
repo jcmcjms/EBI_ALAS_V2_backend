@@ -17,6 +17,9 @@ public record LoanProductResponse(
     decimal DocStampFee,
     decimal InsuranceFee,
     decimal AdvanceInterestRate,
+    decimal ApplicationChargeRate,
+    string AmortizationMode,
+    bool ChargeAdvanceInterest,
     bool IsRetired,
     DateTime LastSyncedAt,
     DateTime UpdatedDate,
@@ -35,7 +38,10 @@ public record UpdateLoanProductRequest(
     decimal NotarialFee,
     decimal DocStampFee,
     decimal InsuranceFee,
-    decimal AdvanceInterestRate);
+    decimal AdvanceInterestRate,
+    decimal ApplicationChargeRate,
+    string AmortizationMode,
+    bool ChargeAdvanceInterest);
 
 // Sync summary returned to the manual `/sync` endpoint so ops can see
 // what the run did without grepping logs. `Added` is a brand-new row

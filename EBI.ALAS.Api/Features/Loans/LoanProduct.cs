@@ -79,13 +79,33 @@ public class LoanProduct
     // banking means interest is deducted from proceeds at disbursement
     // (the borrower receives Principal - Interest - Fees). The
     // disbursement service multiplies this by principal and
-    // (termDays / 365) to compute the deduction. 0.120000 = 12% p.a.
+    // (termDays / 360) to compute the deduction. 0.120000 = 12% p.a.
     //
     // We do NOT store a per-term rate table; products with rate
     // brackets need a separate child table (out of scope for this
     // slice).
     [Column("AdvanceInterestRate")]
     public decimal AdvanceInterestRate { get; set; }
+
+    // ── Computation model (ALAS-owned) ────────────────────────────────
+    // Application charge rate as a decimal fraction of proposed amount.
+    // 0.0600 = 6% (A16 default), 0.0750 = 7.5% (C35). Product-dependent;
+    // config-driven so policy changes need no redeploy.
+    [Column("ApplicationChargeRate")]
+    public decimal ApplicationChargeRate { get; set; }
+
+    // Amortization computation mode:
+    //   "DIM" = Diminishing balance (standard annuity formula)
+    //   "MIC" = Minimum Installment Check (max of DIM and tiered minimum)
+    // Stored as string to avoid enum-migration fragility.
+    [Column("AmortizationMode")]
+    public string AmortizationMode { get; set; } = "DIM";
+
+    // Whether this product charges advance interest at disbursement.
+    // True for add-on/MIC products (e.g. C35 @ 18%), false for standard
+    // diminishing-balance products (e.g. A16 @ 7%).
+    [Column("ChargeAdvanceInterest")]
+    public bool ChargeAdvanceInterest { get; set; }
 
     // ── Sync state (ALAS-owned) ───────────────────────────────────────
     // Mirrored from webloan.loan_product.expiration IS NOT NULL at sync

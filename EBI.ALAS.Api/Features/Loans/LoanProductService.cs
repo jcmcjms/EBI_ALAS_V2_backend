@@ -67,6 +67,9 @@ public class LoanProductService(
         existing.DocStampFee = request.DocStampFee;
         existing.InsuranceFee = request.InsuranceFee;
         existing.AdvanceInterestRate = request.AdvanceInterestRate;
+        existing.ApplicationChargeRate = request.ApplicationChargeRate;
+        existing.AmortizationMode = request.AmortizationMode;
+        existing.ChargeAdvanceInterest = request.ChargeAdvanceInterest;
 
         // UpsertAsync with preservePolicyFields=false is what writes
         // the updated row — the merge helper keeps the logic in one
@@ -101,6 +104,9 @@ public class LoanProductService(
         p.DocStampFee,
         p.InsuranceFee,
         p.AdvanceInterestRate,
+        p.ApplicationChargeRate,
+        p.AmortizationMode,
+        p.ChargeAdvanceInterest,
         p.IsRetired,
         p.LastSyncedAt,
         p.UpdatedDate,
@@ -135,5 +141,11 @@ public class LoanProductService(
         if (r.AdvanceInterestRate < 0 || r.AdvanceInterestRate > 1m)
             throw new ArgumentException(
                 "AdvanceInterestRate must be between 0 and 1 (e.g. 0.12 for 12% p.a.).", nameof(r));
+        if (r.ApplicationChargeRate < 0 || r.ApplicationChargeRate > 1m)
+            throw new ArgumentException(
+                "ApplicationChargeRate must be between 0 and 1 (e.g. 0.06 for 6%).", nameof(r));
+        if (r.AmortizationMode is not ("DIM" or "MIC"))
+            throw new ArgumentException(
+                "AmortizationMode must be 'DIM' or 'MIC'.", nameof(r));
     }
 }

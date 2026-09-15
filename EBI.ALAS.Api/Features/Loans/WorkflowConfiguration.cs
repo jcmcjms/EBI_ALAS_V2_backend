@@ -28,11 +28,21 @@ public sealed class WorkflowOptions
     /// Loans ALREADY in ForRecommendation remain actionable either way.
     /// </summary>
     public bool RequireRecommendation { get; set; } = true;
+
+    /// <summary>
+    /// Minimum Net Take-Home Pay (NTHP) required for loan approval.
+    /// Used by the computation engine's capacity-to-pay gate.
+    /// Configurable via appsettings or admin override (SystemSettings).
+    /// </summary>
+    public decimal MinimumNthp { get; set; } = 5_800m;
 }
 
 public interface IWorkflowConfiguration
 {
     bool RequireRecommendation { get; }
+
+    /// <summary>Minimum NTHP required for loan approval (PHP).</summary>
+    decimal MinimumNthp { get; }
 
     /// <summary>Status a brand-new submission lands in.</summary>
     string InitialStatus { get; }
@@ -61,6 +71,9 @@ public sealed class WorkflowConfiguration : IWorkflowConfiguration
 
     public bool RequireRecommendation =>
         _override.Value ?? _options.CurrentValue.RequireRecommendation;
+
+    public decimal MinimumNthp =>
+        _options.CurrentValue.MinimumNthp; // TODO: add SystemSettings override for MinimumNthp
 
     public string InitialStatus =>
         RequireRecommendation ? "ForRecommendation" : "ForChecking";

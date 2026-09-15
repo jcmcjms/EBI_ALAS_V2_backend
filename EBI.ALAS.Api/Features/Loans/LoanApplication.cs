@@ -74,6 +74,57 @@ public class LoanApplication
     public decimal StandardNotarialFee { get; set; }
     public decimal StandardDocStamps { get; set; }
     public decimal StandardInsurance { get; set; }
+    public decimal StandardApplicationCharge { get; set; }
+    public decimal StandardAdvanceInterest { get; set; }
+
+    // ── Computed snapshot (server-authoritative, never client-supplied) ──
+    // These columns are written from LoanComputationService.ComputeLoanMetrics
+    // at submission time. The frontend recomputes them for preview/gating,
+    // but the backend is the source of truth for the persisted record.
+    // A tampered payload cannot inject ledger values because these are
+    // always overwritten server-side.
+
+    /// <summary>Sum of all upfront deductions (app charge + doc stamp + notarial + insurance + advance interest).</summary>
+    public decimal TotalDeductions { get; set; }
+
+    /// <summary>Total deductions as a fraction of proposed amount (e.g. 0.06 = 6%).</summary>
+    public decimal DeductionRate { get; set; }
+
+    /// <summary>Proposed amount minus total deductions.</summary>
+    public decimal GrossProceeds { get; set; }
+
+    /// <summary>Gross proceeds minus EBI reloan outstanding balances.</summary>
+    public decimal NetProceedsOnDS { get; set; }
+
+    /// <summary>Net proceeds on DS minus buy-out outstanding balances.</summary>
+    public decimal NetProceedsToClient { get; set; }
+
+    /// <summary>Proposed amount plus sum of outstanding loan principal balances.</summary>
+    public decimal TotalExposure { get; set; }
+
+    /// <summary>Monthly amortization computed from the annuity formula (DIM) or max(DIM, tiered minimum) (MIC).</summary>
+    public decimal? MonthlyAmortization { get; set; }
+
+    /// <summary>NTHP minus monthly amortization plus released deductions from reloans/buyouts.</summary>
+    public decimal NetPayAfterDeduction { get; set; }
+
+    /// <summary>NTHP plus released deductions from reloans/buyouts (gross).</summary>
+    public decimal GrossDisposableIncome { get; set; }
+
+    /// <summary>Minimum NTHP plus sum of incoming loan deductions.</summary>
+    public decimal CapacityDeductions { get; set; }
+
+    /// <summary>Gross disposable income minus capacity deductions.</summary>
+    public decimal NetDisposableIncome { get; set; }
+
+    /// <summary>Maximum loanable amount: netDisposable / annuityFactor. Closed-form O(1).</summary>
+    public decimal MaximumLoanableAmount { get; set; }
+
+    /// <summary>True when monthly amortization exceeds net disposable income (capacity gate failed).</summary>
+    public bool AmortizationExceedsDisposable { get; set; }
+
+    /// <summary>True when NTHP is below the required minimum.</summary>
+    public bool NthpBelowMinimum { get; set; }
 
     // ── Verification & deviations (§6 / §7) ────────────────────────
     public string? VerificationFindings { get; set; }

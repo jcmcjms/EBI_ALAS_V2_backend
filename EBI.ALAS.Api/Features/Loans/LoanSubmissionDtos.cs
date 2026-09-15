@@ -84,6 +84,8 @@ public sealed record FeeSnapshotSection
     public decimal NotarialFee { get; init; }
     public decimal DocStamps { get; init; }
     public decimal Insurance { get; init; }
+    public decimal ApplicationCharge { get; init; }
+    public decimal AdvanceInterest { get; init; }
 }
 
 public sealed record OutstandingLoanSection

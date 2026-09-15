@@ -6,6 +6,7 @@ using EBI.ALAS.Api.Features.AuditLogs;
 using EBI.ALAS.Api.Features.Branches;
 using EBI.ALAS.Api.Features.Dashboard;
 using EBI.ALAS.Api.Features.Loans;
+using EBI.ALAS.Api.Features.Loans.Computation;
 using EBI.ALAS.Api.Features.Notifications;
 using EBI.ALAS.Api.Features.SystemSettings;
 using EBI.ALAS.Api.Features.Users;
@@ -83,6 +84,9 @@ public static class ServiceCollectionExtensions
 
         // ─── Loan Services ───────────────────────────────────────────────
         services.AddSingleton<IWorkflowConfiguration, WorkflowConfiguration>();
+        // Pure math engine — stateless, no I/O. Singleton keeps one instance
+        // for the app lifetime. Product configs come from the cached catalog.
+        services.AddSingleton<ILoanComputationService, LoanComputationService>();
         services.AddScoped<ILoanRepository, LoanRepository>();
         services.AddScoped<ILoanWorkflowService, LoanWorkflowService>();
         services.AddScoped<IAuditLogger, AuditLogger>();

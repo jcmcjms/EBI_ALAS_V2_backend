@@ -4,6 +4,7 @@ using EBI.ALAS.Api.Common.Constants;
 using EBI.ALAS.Api.Common.Exceptions;
 using EBI.ALAS.Api.Common.Extensions;
 using EBI.ALAS.Api.Common.Time;
+using EBI.ALAS.Api.Features.Loans.Computation;
 using EBI.ALAS.Api.Features.Notifications;
 using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
@@ -22,6 +23,9 @@ public class LoanSubmissionService : ILoanSubmissionService
     private readonly ITimeProvider _timeProvider;
     private readonly INotificationService _notificationService;
     private readonly IRealtimeNotificationService _realtimeService;
+    private readonly ILoanComputationService _computationService;
+    private readonly ILoanProductRepository _productRepository;
+    private readonly IWorkflowConfiguration _workflowConfig;
 
     public LoanSubmissionService(
         ILoanRepository loanRepository,
@@ -30,7 +34,10 @@ public class LoanSubmissionService : ILoanSubmissionService
         IAuditLogger auditLogger,
         ITimeProvider timeProvider,
         INotificationService notificationService,
-        IRealtimeNotificationService realtimeService)
+        IRealtimeNotificationService realtimeService,
+        ILoanComputationService computationService,
+        ILoanProductRepository productRepository,
+        IWorkflowConfiguration workflowConfig)
     {
         _loanRepository = loanRepository;
         _lamIdGenerator = lamIdGenerator;
@@ -39,6 +46,9 @@ public class LoanSubmissionService : ILoanSubmissionService
         _timeProvider = timeProvider;
         _notificationService = notificationService;
         _realtimeService = realtimeService;
+        _computationService = computationService;
+        _productRepository = productRepository;
+        _workflowConfig = workflowConfig;
     }
 
     public async Task<(LoanSubmissionResponse Response, bool Replayed)> SubmitAsync(
@@ -110,9 +120,85 @@ public class LoanSubmissionService : ILoanSubmissionService
         var lamIds = await _lamIdGenerator.GenerateLamIdsAsync(request.Loans.Count, ct);
         var now = _timeProvider.UtcNow;
 
-        var applications = request.Loans
-            .Select((loan, i) => MapApplication(request, loan, groupNo, lamIds[i], branchCode, userId, now))
-            .ToList();
+        // ── Compute metrics and gate each loan before persisting ──────
+        var applications = new List<LoanApplication>();
+        var validationErrors = new Dictionary<string, string[]>();
+
+        foreach (var (loan, i) in request.Loans.Select((l, i) => (l, i)))
+        {
+            var application = MapApplication(request, loan, groupNo, lamIds[i], branchCode, userId, now);
+
+            // Recompute all metrics server-side (never trust the client).
+            var product = await _productRepository.GetByCodeAsync(loan.ProductCode, ct);
+            if (product is not null)
+            {
+                var productConfig = LoanProductComputationConfig.FromEntity(
+                    product, loan.Parameters.InterestRate, loan.Parameters.Term);
+
+                // Compute policy-default fees, then apply AO overrides.
+                var defaultFees = _computationService.ComputeExpectedFees(productConfig, loan.Parameters.ProposedAmount);
+                var appliedFees = new LoanFees(
+                    ApplicationCharge: defaultFees.ApplicationCharge, // not AO-overridable
+                    DocStamp: loan.Parameters.DocStamps,
+                    NotarialFee: loan.Parameters.NotarialFee,
+                    Insurance: loan.Parameters.Insurance,
+                    AdvanceInterest: defaultFees.AdvanceInterest); // not AO-overridable
+
+                var results = _computationService.ComputeLoanMetrics(new LoanComputationInput(
+                    ProposedAmount: loan.Parameters.ProposedAmount,
+                    Product: productConfig,
+                    Fees: appliedFees,
+                    NetTakeHomePay: request.Client.NetTakeHomePay ?? 0m,
+                    MinimumNthp: _workflowConfig.MinimumNthp,
+                    OutstandingPrincipalBalances: request.OutstandingLoans.Select(o => o.PrincipalBalance).ToList(),
+                    Reloans: request.EbiReloans.Select(e => new ObligationRow(e.ExistingDeduction, e.OutstandingBalance)).ToList(),
+                    BuyOuts: request.BuyOuts.Select(b => new ObligationRow(b.Amortization, b.OutstandingBalance)).ToList(),
+                    IncomingDeductions: request.IncomingLoans.Select(i => i.Deductions).ToList()));
+
+                // Persist computed snapshot (authoritative — overwrites any client values).
+                application.TotalDeductions = results.TotalDeductions;
+                application.DeductionRate = results.DeductionRate;
+                application.GrossProceeds = results.GrossProceeds;
+                application.NetProceedsOnDS = results.NetProceedsOnDS;
+                application.NetProceedsToClient = results.NetProceedsToClient;
+                application.TotalExposure = results.TotalExposure;
+                application.MonthlyAmortization = results.MonthlyAmortization;
+                application.NetPayAfterDeduction = results.NetPayAfterDeduction;
+                application.GrossDisposableIncome = results.GrossDisposableIncome;
+                application.CapacityDeductions = results.CapacityDeductions;
+                application.NetDisposableIncome = results.NetDisposableIncome;
+                application.MaximumLoanableAmount = results.MaximumLoanableAmount;
+                application.AmortizationExceedsDisposable = results.AmortizationExceedsDisposable;
+                application.NthpBelowMinimum = results.NthpBelowMinimum;
+
+                // ── Capacity gates ────────────────────────────────────
+                if (results.AmortizationExceedsDisposable)
+                {
+                    validationErrors[$"loans[{i}].capacityToPay"] =
+                    [
+                        $"Monthly amortization {results.MonthlyAmortization:N2} exceeds net disposable income {results.NetDisposableIncome:N2}."
+                    ];
+                }
+
+                if (results.NthpBelowMinimum)
+                {
+                    validationErrors[$"loans[{i}].netTakeHomePay"] =
+                    [
+                        $"NTHP is below the required minimum of {_workflowConfig.MinimumNthp:N2}."
+                    ];
+                }
+            }
+
+            applications.Add(application);
+        }
+
+        // If any loan failed the capacity gate, reject the entire submission.
+        if (validationErrors.Count > 0)
+        {
+            throw new CapacityGateException(
+                "Capacity-to-pay gate failed. The borrower cannot afford the proposed amortization.",
+                validationErrors);
+        }
 
         var idempotency = new LoanSubmissionIdempotency
         {
@@ -279,6 +365,8 @@ public class LoanSubmissionService : ILoanSubmissionService
             StandardNotarialFee = p.StandardFeesSnapshot.NotarialFee,
             StandardDocStamps = p.StandardFeesSnapshot.DocStamps,
             StandardInsurance = p.StandardFeesSnapshot.Insurance,
+            StandardApplicationCharge = p.StandardFeesSnapshot.ApplicationCharge,
+            StandardAdvanceInterest = p.StandardFeesSnapshot.AdvanceInterest,
 
             VerificationFindings = request.Verification.Findings,
             HasDeviations = request.Deviations.HasDeviations,
