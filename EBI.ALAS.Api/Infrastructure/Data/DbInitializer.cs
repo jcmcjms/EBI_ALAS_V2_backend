@@ -52,9 +52,6 @@ public static class DbInitializer
         // Seed admin user
         await SeedAdminUserAsync(context, timeProvider);
 
-        // Seed test users for each role
-        await SeedTestUsersAsync(context, timeProvider);
-
         // Seed loan product checklist requirements
         await SeedLoanProductChecklistAsync(context);
     }
@@ -110,9 +107,9 @@ public static class DbInitializer
         {
             Username = "admin",
             PasswordHash = BCrypt.Net.BCrypt.HashPassword("admin123"),
-            FirstName = "System",
-            MiddleName = null,
-            LastName = "Administrator",
+            FirstName = "James",
+            MiddleName = "Jecemeco A.",
+            LastName = "Tabilog",
             BranchId = "011", // Head Office Branch
             Role = "Admin",
             IsActive = true,
@@ -120,65 +117,6 @@ public static class DbInitializer
         };
 
         context.Users.Add(adminUser);
-        await context.SaveChangesAsync();
-    }
-
-    private static async Task SeedTestUsersAsync(AppDbContext context, ITimeProvider timeProvider)
-    {
-        var now = timeProvider.UtcNow;
-        var testUsers = new List<User>
-        {
-            new User
-            {
-                Username = "encoder1",
-                PasswordHash = BCrypt.Net.BCrypt.HashPassword("encoder123"),
-                FirstName = "Juan",
-                MiddleName = "D.",
-                LastName = "Cruz",
-                BranchId = "007", // Tandag Branch
-                Role = "Encoder",
-                IsActive = true,
-                CreatedAt = now
-            },
-            new User
-            {
-                Username = "recommender1",
-                PasswordHash = BCrypt.Net.BCrypt.HashPassword("recommender123"),
-                FirstName = "Maria",
-                MiddleName = "S.",
-                LastName = "Santos",
-                BranchId = "007", // Tandag Branch
-                Role = "Recommender",
-                IsActive = true,
-                CreatedAt = now
-            },
-            new User
-            {
-                Username = "evaluator1",
-                PasswordHash = BCrypt.Net.BCrypt.HashPassword("evaluator123"),
-                FirstName = "Pedro",
-                MiddleName = "M.",
-                LastName = "Garcia",
-                BranchId = "007", // Tandag Branch
-                Role = "Evaluator",
-                IsActive = true,
-                CreatedAt = now
-            },
-            new User
-            {
-                Username = "approver1",
-                PasswordHash = BCrypt.Net.BCrypt.HashPassword("approver123"),
-                FirstName = "Ana",
-                MiddleName = "L.",
-                LastName = "Reyes",
-                BranchId = "007", // Tandag Branch
-                Role = "Approver",
-                IsActive = true,
-                CreatedAt = now
-            }
-        };
-
-        context.Users.AddRange(testUsers);
         await context.SaveChangesAsync();
     }
 
