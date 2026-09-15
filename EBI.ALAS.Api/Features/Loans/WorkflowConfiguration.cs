@@ -1,7 +1,13 @@
 using System.Security.Claims;
+using EBI.ALAS.Api.Common.Constants;
 using EBI.ALAS.Api.Common.Models;
+using EBI.ALAS.Api.Common.Time;
 using EBI.ALAS.Api.Features.AuditLogs;
+using EBI.ALAS.Api.Features.Auth;
+using EBI.ALAS.Api.Features.Notifications;
 using EBI.ALAS.Api.Features.SystemSettings;
+using EBI.ALAS.Api.Infrastructure.Data;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 
 namespace EBI.ALAS.Api.Features.Loans;
@@ -144,6 +150,8 @@ public static class WorkflowConfigurationEndpoints
             ISystemSettingsStore store,
             IWorkflowConfiguration config,
             IAuditLogService auditLogService,
+            AppDbContext db,
+            ITimeProvider timeProvider,
             ClaimsPrincipal user,
             CancellationToken ct) =>
         {
@@ -164,6 +172,36 @@ public static class WorkflowConfigurationEndpoints
                 SystemSettingKeys.RequireRecommendation,
                 request.RequireRecommendation.ToString(),
                 $"Workflow recommendation step {(request.RequireRecommendation ? "enabled" : "disabled")}");
+
+            // ── Notify all active workflow users about the pipeline change ──
+            var workflowRoles = new[] { Roles.Encoder, Roles.Recommender, Roles.Evaluator, Roles.Approver, Roles.Admin };
+            var activeUsers = await db.Users
+                .Where(u => u.IsActive && workflowRoles.Contains(u.Role))
+                .ToListAsync(ct);
+
+            var title = request.RequireRecommendation
+                ? "System Update: Recommendation Step Enabled"
+                : "System Update: Recommendation Step Disabled";
+
+            var description = request.RequireRecommendation
+                ? "The Branch Head recommendation step is now required for new loan applications."
+                : "The Branch Head recommendation step is now skipped. New applications will go straight to evaluation.";
+
+            var notifications = activeUsers.Select(u => new Notification
+            {
+                UserId = u.Id,
+                Title = title,
+                Description = description,
+                Link = "/admin/workflow",
+                CreatedAt = timeProvider.UtcNow,
+                IsRead = false
+            }).ToList();
+
+            if (notifications.Count > 0)
+            {
+                db.Notifications.AddRange(notifications);
+                await db.SaveChangesAsync(ct);
+            }
 
             return Results.Ok(ApiResponse<WorkflowConfigurationResponse>.SuccessResponse(
                 Map(config), "Workflow configuration updated."));

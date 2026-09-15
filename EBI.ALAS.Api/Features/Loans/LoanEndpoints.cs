@@ -680,6 +680,22 @@ public static class LoanEndpoints
                         link);
                 }
             }
+            // Notify Recommenders when a loan is resubmitted to ForRecommendation
+            // (e.g. Encoder fixed revisions and the workflow routes back through
+            // the Branch Head recommendation step).
+            else if (request.Status == "ForRecommendation")
+            {
+                var recommenders = await loanRepository.GetUsersByRoleAndBranchAsync(
+                    Roles.Recommender, loan.BranchCode, ct);
+                foreach (var r in recommenders)
+                {
+                    await notificationService.CreateAsync(
+                        r.Id,
+                        "Ready for Recommendation",
+                        $"{actorName} resubmitted {clientName}'s application ({loan.LamId}) for recommendation.",
+                        link);
+                }
+            }
             else if (request.Status == "ForApproval")
             {
                 var approvers = await loanRepository.GetUsersByRoleAndBranchAsync(
