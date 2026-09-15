@@ -32,6 +32,7 @@ public class AppDbContext : DbContext
     public DbSet<DeviationRemark> DeviationRemarks => Set<DeviationRemark>();
     public DbSet<DocumentRemark> DocumentRemarks => Set<DocumentRemark>();
     public DbSet<SystemSetting> SystemSettings => Set<SystemSetting>();
+    public DbSet<LoanProductChecklist> LoanProductChecklists => Set<LoanProductChecklist>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -874,6 +875,32 @@ public class AppDbContext : DbContext
                 .WithMany()
                 .HasForeignKey(e => e.UpdatedById)
                 .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        // ─── LoanProductChecklist Entity ─────────────────────────────
+        // Junction table mapping required checklist documents to each
+        // loan product. Composite PK (LoanProduct, IdCode) — each row
+        // says "product X requires checklist item Y".
+        modelBuilder.Entity<LoanProductChecklist>(entity =>
+        {
+            entity.HasKey(e => new { e.LoanProduct, e.IdCode });
+
+            entity.Property(e => e.LoanProduct)
+                .IsRequired()
+                .HasMaxLength(20);
+
+            entity.Property(e => e.IdCode)
+                .IsRequired()
+                .HasMaxLength(20);
+
+            // FK to LoanProduct — a checklist entry must reference a
+            // valid product. Cascade so deleting a product removes its
+            // checklist requirements (the product is retired, not the
+            // checklist definition).
+            entity.HasOne(e => e.Product)
+                .WithMany()
+                .HasForeignKey(e => e.LoanProduct)
+                .OnDelete(DeleteBehavior.Cascade);
         });
     }
 }

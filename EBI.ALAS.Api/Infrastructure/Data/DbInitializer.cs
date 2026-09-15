@@ -1,6 +1,7 @@
 using EBI.ALAS.Api.Common.Time;
 using EBI.ALAS.Api.Features.Auth;
 using EBI.ALAS.Api.Features.Branches;
+using EBI.ALAS.Api.Features.Loans;
 using Microsoft.EntityFrameworkCore;
 
 namespace EBI.ALAS.Api.Infrastructure.Data;
@@ -53,6 +54,9 @@ public static class DbInitializer
 
         // Seed test users for each role
         await SeedTestUsersAsync(context, timeProvider);
+
+        // Seed loan product checklist requirements
+        await SeedLoanProductChecklistAsync(context);
     }
 
     private static async Task SeedBranchesAsync(AppDbContext context, ITimeProvider timeProvider)
@@ -175,6 +179,98 @@ public static class DbInitializer
         };
 
         context.Users.AddRange(testUsers);
+        await context.SaveChangesAsync();
+    }
+
+    private static async Task SeedLoanProductChecklistAsync(AppDbContext context)
+    {
+        if (await context.LoanProductChecklists.AnyAsync())
+            return;
+
+        var checklistItems = new List<LoanProductChecklist>
+        {
+            // A16
+            new() { LoanProduct = "A16", IdCode = "A1004" },
+            new() { LoanProduct = "A16", IdCode = "A2008" },
+            new() { LoanProduct = "A16", IdCode = "A2016" },
+            new() { LoanProduct = "A16", IdCode = "A2017" },
+            new() { LoanProduct = "A16", IdCode = "A2018" },
+            new() { LoanProduct = "A16", IdCode = "A2019" },
+            new() { LoanProduct = "A16", IdCode = "A2020" },
+            new() { LoanProduct = "A16", IdCode = "A2021" },
+            new() { LoanProduct = "A16", IdCode = "A2035" },
+            new() { LoanProduct = "A16", IdCode = "A4001" },
+            new() { LoanProduct = "A16", IdCode = "CCR38" },
+            new() { LoanProduct = "A16", IdCode = "PIC02" },
+            new() { LoanProduct = "A16", IdCode = "PIC03" },
+
+            // A17
+            new() { LoanProduct = "A17", IdCode = "A1004" },
+            new() { LoanProduct = "A17", IdCode = "A2008" },
+            new() { LoanProduct = "A17", IdCode = "A2016" },
+            new() { LoanProduct = "A17", IdCode = "A2017" },
+            new() { LoanProduct = "A17", IdCode = "A2018" },
+            new() { LoanProduct = "A17", IdCode = "A2019" },
+            new() { LoanProduct = "A17", IdCode = "A2020" },
+            new() { LoanProduct = "A17", IdCode = "A2021" },
+            new() { LoanProduct = "A17", IdCode = "A2022" },
+            new() { LoanProduct = "A17", IdCode = "A2027" },
+            new() { LoanProduct = "A17", IdCode = "A2035" },
+            new() { LoanProduct = "A17", IdCode = "A4001" },
+            new() { LoanProduct = "A17", IdCode = "CCR38" },
+            new() { LoanProduct = "A17", IdCode = "PIC02" },
+            new() { LoanProduct = "A17", IdCode = "PIC03" },
+
+            // C02
+            new() { LoanProduct = "C02", IdCode = "A1004" },
+            new() { LoanProduct = "C02", IdCode = "A2008" },
+            new() { LoanProduct = "C02", IdCode = "A2018" },
+            new() { LoanProduct = "C02", IdCode = "A2019" },
+            new() { LoanProduct = "C02", IdCode = "A2027" },
+            new() { LoanProduct = "C02", IdCode = "A4001" },
+            new() { LoanProduct = "C02", IdCode = "CCR38" },
+            new() { LoanProduct = "C02", IdCode = "PIC02" },
+            new() { LoanProduct = "C02", IdCode = "PIC03" },
+
+            // C23
+            new() { LoanProduct = "C23", IdCode = "A1004" },
+            new() { LoanProduct = "C23", IdCode = "A2008" },
+            new() { LoanProduct = "C23", IdCode = "A2018" },
+            new() { LoanProduct = "C23", IdCode = "A2019" },
+            new() { LoanProduct = "C23", IdCode = "A2027" },
+            new() { LoanProduct = "C23", IdCode = "A4001" },
+            new() { LoanProduct = "C23", IdCode = "CCR38" },
+            new() { LoanProduct = "C23", IdCode = "PIC02" },
+            new() { LoanProduct = "C23", IdCode = "PIC03" },
+
+            // C35
+            new() { LoanProduct = "C35", IdCode = "A1004" },
+            new() { LoanProduct = "C35", IdCode = "A2008" },
+            new() { LoanProduct = "C35", IdCode = "A2018" },
+            new() { LoanProduct = "C35", IdCode = "A2019" },
+            new() { LoanProduct = "C35", IdCode = "A2027" },
+            new() { LoanProduct = "C35", IdCode = "A4001" },
+            new() { LoanProduct = "C35", IdCode = "CCR38" },
+            new() { LoanProduct = "C35", IdCode = "PIC02" },
+            new() { LoanProduct = "C35", IdCode = "PIC03" },
+
+            // C21
+            new() { LoanProduct = "C21", IdCode = "A1004" },
+            new() { LoanProduct = "C21", IdCode = "A2008" },
+            new() { LoanProduct = "C21", IdCode = "A2018" },
+            new() { LoanProduct = "C21", IdCode = "A2019" },
+            new() { LoanProduct = "C21", IdCode = "A2020" },
+            new() { LoanProduct = "C21", IdCode = "A2021" },
+            new() { LoanProduct = "C21", IdCode = "A2022" },
+            new() { LoanProduct = "C21", IdCode = "A2023" },
+            new() { LoanProduct = "C21", IdCode = "A2027" },
+            new() { LoanProduct = "C21", IdCode = "A4001" },
+            new() { LoanProduct = "C21", IdCode = "CCR38" },
+            new() { LoanProduct = "C21", IdCode = "PIC02" },
+            new() { LoanProduct = "C21", IdCode = "PIC03" },
+        };
+
+        context.LoanProductChecklists.AddRange(checklistItems);
         await context.SaveChangesAsync();
     }
 }
