@@ -250,6 +250,22 @@ builder.Services.Configure<Microsoft.AspNetCore.Mvc.JsonOptions>(options =>
 builder.Services.AddApplicationServices();
 builder.Services.Configure<WorkflowOptions>(
     configuration.GetSection(WorkflowOptions.SectionName));
+
+// ─── SignalR (real-time notifications) ────────────────────────────────
+// Custom User ID provider maps the "userId" JWT claim to SignalR's
+// user-based routing so IHubContext.Clients.User(id) targets the
+// correct connection.
+builder.Services.AddSingleton<Microsoft.AspNetCore.SignalR.IUserIdProvider,
+    EBI.ALAS.Api.Infrastructure.SignalR.JwtUserIdProvider>();
+
+builder.Services.AddSignalR(options =>
+{
+    options.EnableDetailedErrors = builder.Environment.IsDevelopment();
+    // Keep-alive tuned for banking proxies/load balancers that drop
+    // idle WebSocket connections after 30–60s.
+    options.KeepAliveInterval = TimeSpan.FromSeconds(15);
+    options.ClientTimeoutInterval = TimeSpan.FromSeconds(30);
+});
 builder.Services.AddFluentValidationAutoValidation();
 builder.Services.AddFluentValidationClientsideAdapters();
 builder.Services.AddValidatorsFromAssemblyContaining<Program>();
@@ -320,6 +336,7 @@ app.UseAuthorization();
 app.UseCsrfValidation();
 
 app.MapHealthChecks("/health");
+app.MapHub<EBI.ALAS.Api.Features.Notifications.NotificationHub>("/hubs/notifications");
 app.MapAuthEndpoints();
 app.MapUserEndpoints();
 app.MapRoleEndpoints();

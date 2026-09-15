@@ -21,6 +21,7 @@ public class LoanSubmissionService : ILoanSubmissionService
     private readonly IAuditLogger _auditLogger;
     private readonly ITimeProvider _timeProvider;
     private readonly INotificationService _notificationService;
+    private readonly IRealtimeNotificationService _realtimeService;
 
     public LoanSubmissionService(
         ILoanRepository loanRepository,
@@ -28,7 +29,8 @@ public class LoanSubmissionService : ILoanSubmissionService
         ILoanWorkflowService workflowService,
         IAuditLogger auditLogger,
         ITimeProvider timeProvider,
-        INotificationService notificationService)
+        INotificationService notificationService,
+        IRealtimeNotificationService realtimeService)
     {
         _loanRepository = loanRepository;
         _lamIdGenerator = lamIdGenerator;
@@ -36,6 +38,7 @@ public class LoanSubmissionService : ILoanSubmissionService
         _auditLogger = auditLogger;
         _timeProvider = timeProvider;
         _notificationService = notificationService;
+        _realtimeService = realtimeService;
     }
 
     public async Task<(LoanSubmissionResponse Response, bool Replayed)> SubmitAsync(
@@ -185,6 +188,13 @@ public class LoanSubmissionService : ILoanSubmissionService
                     "New Loan Application Submitted",
                     $"Application group {groupNo} for {clientName} has been submitted for recommendation.",
                     "/loans/monitoring");
+
+                // Real-time push for instant bell update + toast
+                await _realtimeService.NotifyUserAsync(
+                    recommender.Id,
+                    "New Loan Application Submitted",
+                    $"Application group {groupNo} for {clientName} has been submitted for recommendation.",
+                    "/loans/monitoring");
             }
         }
         else
@@ -196,6 +206,13 @@ public class LoanSubmissionService : ILoanSubmissionService
             foreach (var evaluator in evaluators)
             {
                 await _notificationService.CreateAsync(
+                    evaluator.Id,
+                    "New Loan Application Submitted",
+                    $"Application group {groupNo} for {clientName} has been submitted for evaluation.",
+                    "/loans/monitoring");
+
+                // Real-time push for instant bell update + toast
+                await _realtimeService.NotifyUserAsync(
                     evaluator.Id,
                     "New Loan Application Submitted",
                     $"Application group {groupNo} for {clientName} has been submitted for evaluation.",

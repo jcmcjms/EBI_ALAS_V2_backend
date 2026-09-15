@@ -139,6 +139,12 @@ public static class ServiceCollectionExtensions
         // and written by workflow handlers on status transitions.
         services.AddScoped<INotificationService, NotificationService>();
 
+        // ─── Real-time Notifications (SignalR) ─────────────────────────
+        // Push transport for instant bell updates + toasts. Business logic
+        // depends on the abstraction (IRealtimeNotificationService) so the
+        // hub can be swapped or mocked without touching loan code.
+        services.AddScoped<IRealtimeNotificationService, RealtimeNotificationService>();
+
         // ─── Authorization ───────────────────────────────────────────────
         services.AddScoped<IAuthorizationHandler, PermissionAuthorizationHandler>();
 

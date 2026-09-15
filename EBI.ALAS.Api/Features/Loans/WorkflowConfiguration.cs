@@ -150,6 +150,7 @@ public static class WorkflowConfigurationEndpoints
             ISystemSettingsStore store,
             IWorkflowConfiguration config,
             IAuditLogService auditLogService,
+            IRealtimeNotificationService realtimeService,
             AppDbContext db,
             ITimeProvider timeProvider,
             ClaimsPrincipal user,
@@ -202,6 +203,11 @@ public static class WorkflowConfigurationEndpoints
                 db.Notifications.AddRange(notifications);
                 await db.SaveChangesAsync(ct);
             }
+
+            // ── Real-time broadcast to all connected users ──────────────
+            // Every officer sees the pipeline shape change instantly in
+            // their UI without waiting for the next poll cycle.
+            await realtimeService.NotifyAllAsync(title, description, "/admin/workflow");
 
             return Results.Ok(ApiResponse<WorkflowConfigurationResponse>.SuccessResponse(
                 Map(config), "Workflow configuration updated."));

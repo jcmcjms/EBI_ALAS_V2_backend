@@ -585,6 +585,7 @@ public static class LoanEndpoints
             ILoanWorkflowService workflowService,
             IAuditLogger auditLogger,
             INotificationService notificationService,
+            IRealtimeNotificationService realtimeService,
             ClaimsPrincipal user,
             ITimeProvider timeProvider,
             CancellationToken ct) =>
@@ -678,6 +679,13 @@ public static class LoanEndpoints
                         "Ready for Evaluation",
                         $"{actorName} recommended {clientName}'s application ({loan.LamId}).",
                         link);
+
+                    // Real-time push for instant bell update + toast
+                    await realtimeService.NotifyUserAsync(
+                        e.Id,
+                        "Ready for Evaluation",
+                        $"{actorName} recommended {clientName}'s application ({loan.LamId}).",
+                        link);
                 }
             }
             // Notify Recommenders when a loan is resubmitted to ForRecommendation
@@ -694,6 +702,13 @@ public static class LoanEndpoints
                         "Ready for Recommendation",
                         $"{actorName} resubmitted {clientName}'s application ({loan.LamId}) for recommendation.",
                         link);
+
+                    // Real-time push for instant bell update + toast
+                    await realtimeService.NotifyUserAsync(
+                        r.Id,
+                        "Ready for Recommendation",
+                        $"{actorName} resubmitted {clientName}'s application ({loan.LamId}) for recommendation.",
+                        link);
                 }
             }
             else if (request.Status == "ForApproval")
@@ -706,11 +721,13 @@ public static class LoanEndpoints
                     : string.Empty;
                 foreach (var a in approvers)
                 {
-                    await notificationService.CreateAsync(
-                        a.Id,
-                        verdict == "NotRecommended" ? "Evaluation: NOT Recommended" : "Ready for Approval",
-                        $"{actorName} evaluated {clientName}'s application ({loan.LamId}) as {stance}.{extra}",
-                        link);
+                    var title = verdict == "NotRecommended" ? "Evaluation: NOT Recommended" : "Ready for Approval";
+                    var description = $"{actorName} evaluated {clientName}'s application ({loan.LamId}) as {stance}.{extra}";
+
+                    await notificationService.CreateAsync(a.Id, title, description, link);
+
+                    // Real-time push for instant bell update + toast
+                    await realtimeService.NotifyUserAsync(a.Id, title, description, link);
                 }
             }
             else if (request.Status == "ForRevision")
@@ -719,11 +736,21 @@ public static class LoanEndpoints
                 var pushbackRole = userRole == Roles.Recommender ? "Branch Head"
                                  : userRole == Roles.Approver ? "Area Head"
                                  : "Reviewer";
-                
+
+                var title = "Application Returned for Revision";
+                var description = $"{pushbackRole} {actorName} returned {clientName}'s application ({loan.LamId}). Reason: {request.Comments}";
+
                 await notificationService.CreateAsync(
                     loan.CreatedById,
-                    "Application Returned for Revision",
-                    $"{pushbackRole} {actorName} returned {clientName}'s application ({loan.LamId}). Reason: {request.Comments}",
+                    title,
+                    description,
+                    link);
+
+                // Real-time push for instant bell update + toast
+                await realtimeService.NotifyUserAsync(
+                    loan.CreatedById,
+                    title,
+                    description,
                     link);
             }
 
@@ -733,10 +760,20 @@ public static class LoanEndpoints
             // noisy self-ping when the encoder moves their own draft.
             if (loan.CreatedById != userId)
             {
+                var title = $"Status Update: {request.Status}";
+                var description = $"Your application for {clientName} ({loan.LamId}) has been updated to {request.Status}.";
+
                 await notificationService.CreateAsync(
                     loan.CreatedById,
-                    $"Status Update: {request.Status}",
-                    $"Your application for {clientName} ({loan.LamId}) has been updated to {request.Status}.",
+                    title,
+                    description,
+                    link);
+
+                // Real-time push for instant bell update + toast
+                await realtimeService.NotifyUserAsync(
+                    loan.CreatedById,
+                    title,
+                    description,
                     link);
             }
 
@@ -794,6 +831,7 @@ public static class LoanEndpoints
             ILoanWorkflowService workflowService,
             IAuditLogger auditLogger,
             INotificationService notificationService,
+            IRealtimeNotificationService realtimeService,
             ClaimsPrincipal user,
             ITimeProvider timeProvider,
             CancellationToken ct) =>
@@ -851,19 +889,25 @@ public static class LoanEndpoints
                 var recipients = await loanRepository.GetUsersByRoleAndBranchAsync(notifyRole, loan.BranchCode, ct);
                 foreach (var r in recipients)
                 {
-                    await notificationService.CreateAsync(r.Id,
-                        "Application Cancelled",
-                        $"{actorName} cancelled {clientName}'s application ({loan.LamId}). Reason: {request.Reason}",
-                        link);
+                    var title = "Application Cancelled";
+                    var description = $"{actorName} cancelled {clientName}'s application ({loan.LamId}). Reason: {request.Reason}";
+
+                    await notificationService.CreateAsync(r.Id, title, description, link);
+
+                    // Real-time push for instant bell update + toast
+                    await realtimeService.NotifyUserAsync(r.Id, title, description, link);
                 }
             }
 
             if (loan.CreatedById != userId)
             {
-                await notificationService.CreateAsync(loan.CreatedById,
-                    "Application Cancelled",
-                    $"An administrator cancelled your application for {clientName} ({loan.LamId}). Reason: {request.Reason}",
-                    link);
+                var title = "Application Cancelled";
+                var description = $"An administrator cancelled your application for {clientName} ({loan.LamId}). Reason: {request.Reason}";
+
+                await notificationService.CreateAsync(loan.CreatedById, title, description, link);
+
+                // Real-time push for instant bell update + toast
+                await realtimeService.NotifyUserAsync(loan.CreatedById, title, description, link);
             }
 
             return Results.Ok(ApiResponse.SuccessResponse(
