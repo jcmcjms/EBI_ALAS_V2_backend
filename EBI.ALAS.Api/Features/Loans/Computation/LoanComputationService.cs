@@ -9,6 +9,20 @@ public record FeeSchedule(
     decimal NotarialFee,
     decimal InsuranceRate);
 
+/// <summary>Deduction computation policy for a product.</summary>
+public record DeductionPolicy(
+    DeductionPolicyMode Mode,
+    decimal TotalRate);
+
+/// <summary>Deduction computation modes.</summary>
+public enum DeductionPolicyMode
+{
+    /// <summary>Total deductions = proposed × totalRate; applicationCharge is the residual.</summary>
+    FixedTotalRate,
+    /// <summary>applicationCharge = proposed × applicationChargeRate (original behavior).</summary>
+    SumOfComponents
+}
+
 /// <summary>Product-level computation config, assembled from LoanProduct + workflow.</summary>
 public record LoanProductComputationConfig(
     string ProductCode,
@@ -17,6 +31,9 @@ public record LoanProductComputationConfig(
     AmortizationMode AmortizationMode,
     bool ChargeAdvanceInterest,
     FeeSchedule Fees,
+    DeductionPolicy DeductionPolicy,
+    int PolicyTermMonths = 0,
+    decimal MaxLoanableStep = 100m,
     IReadOnlyList<MinimumAmortizationTier>? MinimumAmortizationTiers = null)
 {
     /// <summary>
@@ -25,23 +42,37 @@ public record LoanProductComputationConfig(
     /// override the product defaults (the product provides the fee
     /// schedule and amortization mode; the loan provides the specific
     /// term/rate for this application).
+    ///
+    /// PolicyTermMonths is derived from termDays (termDays / 30) as the
+    /// authoritative source — never trust the catalog Term(Mos) column.
     /// </summary>
     public static LoanProductComputationConfig FromEntity(
         LoanProduct product,
         decimal interestRate,
-        int termDays) => new(
-        ProductCode: product.Code,
-        AnnualInterestRate: interestRate,
-        TermDays: termDays,
-        AmortizationMode: product.AmortizationMode == "MIC"
-            ? Computation.AmortizationMode.MIC
-            : Computation.AmortizationMode.DIM,
-        ChargeAdvanceInterest: product.ChargeAdvanceInterest,
-        Fees: new FeeSchedule(
-            ApplicationChargeRate: product.ApplicationChargeRate,
-            DocStampRate: product.DocStampFee > 0 ? product.DocStampFee : 0m,
-            NotarialFee: product.NotarialFee,
-            InsuranceRate: product.InsuranceFee > 0 ? product.InsuranceFee : 0m));
+        int termDays)
+    {
+        var isDim = (product.AmortizationMode ?? "DIM") == "DIM";
+        var deductionPolicy = isDim
+            ? new DeductionPolicy(DeductionPolicyMode.FixedTotalRate, 0.06m)
+            : new DeductionPolicy(DeductionPolicyMode.SumOfComponents, 0m);
+
+        return new LoanProductComputationConfig(
+            ProductCode: product.Code,
+            AnnualInterestRate: interestRate,
+            TermDays: termDays,
+            AmortizationMode: product.AmortizationMode == "MIC"
+                ? Computation.AmortizationMode.MIC
+                : Computation.AmortizationMode.DIM,
+            ChargeAdvanceInterest: product.ChargeAdvanceInterest,
+            Fees: new FeeSchedule(
+                ApplicationChargeRate: product.ApplicationChargeRate,
+                DocStampRate: product.DocStampFee > 0 ? product.DocStampFee : 0m,
+                NotarialFee: product.NotarialFee,
+                InsuranceRate: product.InsuranceFee > 0 ? product.InsuranceFee : 0m),
+            DeductionPolicy: deductionPolicy,
+            PolicyTermMonths: termDays > 0 ? (int)Math.Round(termDays / 30m) : 0,
+            MaxLoanableStep: 100m);
+    }
 }
 
 public enum AmortizationMode { DIM, MIC }
@@ -82,6 +113,7 @@ public record LoanComputationInput(
 /// LoanApplication entity — never read from the request.
 /// </summary>
 public record LoanComputationResults(
+    LoanFees Fees,
     decimal TotalDeductions,
     decimal DeductionRate,
     decimal GrossProceeds,
@@ -134,14 +166,30 @@ public interface ILoanComputationService
 public sealed class LoanComputationService : ILoanComputationService
 {
     public LoanFees ComputeExpectedFees(LoanProductComputationConfig product, decimal proposedAmount)
-        => new(
-            ApplicationCharge: Round(proposedAmount * product.Fees.ApplicationChargeRate),
-            DocStamp: Round(proposedAmount * product.Fees.DocStampRate),
-            NotarialFee: product.Fees.NotarialFee,
-            Insurance: Round(proposedAmount * product.Fees.InsuranceRate),
-            AdvanceInterest: product.ChargeAdvanceInterest
-                ? Round(proposedAmount * product.AnnualInterestRate * product.TermDays / 360m)
-                : 0m);
+    {
+        var docStamp = Round(proposedAmount * product.Fees.DocStampRate);
+        var notarial = product.Fees.NotarialFee;
+        var insurance = Round(proposedAmount * product.Fees.InsuranceRate);
+        var advanceInterest = product.ChargeAdvanceInterest
+            ? Round(proposedAmount * product.AnnualInterestRate * product.TermDays / 360m)
+            : 0m;
+
+        decimal applicationCharge;
+        if (product.DeductionPolicy?.Mode == DeductionPolicyMode.FixedTotalRate)
+        {
+            // Total deductions are fixed at proposed × totalRate.
+            // Application charge is the residual after other components.
+            var totalDeductions = Round(proposedAmount * product.DeductionPolicy.TotalRate);
+            applicationCharge = Math.Max(0m, Round(totalDeductions - docStamp - notarial - insurance));
+        }
+        else
+        {
+            // SUM_OF_COMPONENTS (default / backward-compatible)
+            applicationCharge = Round(proposedAmount * product.Fees.ApplicationChargeRate);
+        }
+
+        return new LoanFees(applicationCharge, docStamp, notarial, insurance, advanceInterest);
+    }
 
     public LoanComputationResults ComputeLoanMetrics(LoanComputationInput input)
     {
@@ -166,7 +214,11 @@ public sealed class LoanComputationService : ILoanComputationService
         var netProceedsToClient = Round(netProceedsOnDS - totalBuyOutBalance);
 
         // ── Row 8–9: Term & Amortization ─────────────────────────────
-        var termMonths = product.TermDays / 30m;
+        // Use PolicyTermMonths when available (authoritative for amortization);
+        // fall back to TermDays / 30 only when PolicyTermMonths is not set.
+        var termMonths = product.PolicyTermMonths > 0
+            ? product.PolicyTermMonths
+            : product.TermDays / 30m;
         var factor = AnnuityFactor(product.AnnualInterestRate / 12m, termMonths);
         var diminishingAmortization = Round(proposed * factor);
 
@@ -191,13 +243,16 @@ public sealed class LoanComputationService : ILoanComputationService
         var netDisposableIncome = Round(grossDisposableIncome - capacityDeductions);
 
         // ── Row 15: Maximum Loanable Amount (closed-form) ────────────
-        var maximumLoanableAmount = factor > 0 ? Round(netDisposableIncome / factor) : 0m;
+        var maximumLoanableAmount = factor > 0
+            ? FloorToStep(netDisposableIncome / factor, product.MaxLoanableStep)
+            : 0m;
 
         // ── Row 16: Gates ────────────────────────────────────────────
         var amortizationExceedsDisposable = monthlyAmortization > netDisposableIncome;
         var nthpBelowMinimum = input.NetTakeHomePay < input.MinimumNthp;
 
         return new LoanComputationResults(
+            Fees: input.Fees,
             TotalDeductions: totalDeductions,
             DeductionRate: proposed > 0 ? totalDeductions / proposed : 0m,
             GrossProceeds: grossProceeds,
@@ -266,4 +321,11 @@ public sealed class LoanComputationService : ILoanComputationService
     /// </summary>
     private static decimal Round(decimal value) =>
         Math.Round(value, 2, MidpointRounding.AwayFromZero);
+
+    /// <summary>
+    /// Floor a value to the nearest step increment (e.g. 100 → nearest 100).
+    /// Used for Maximum Loanable Amount to match the Excel FLOOR step rule.
+    /// </summary>
+    private static decimal FloorToStep(decimal value, decimal step) =>
+        step > 0m ? Math.Floor(value / step) * step : value;
 }
