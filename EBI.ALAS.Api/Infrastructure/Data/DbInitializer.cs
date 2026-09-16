@@ -53,6 +53,9 @@ public static class DbInitializer
         // Seed admin user
         await SeedAdminUserAsync(context, timeProvider);
 
+        // Seed loan products (required before checklist, which has FK to LoanProducts)
+        await SeedLoanProductsAsync(context, timeProvider);
+
         // Seed loan product checklist requirements
         await SeedLoanProductChecklistAsync(context);
 
@@ -127,6 +130,111 @@ public static class DbInitializer
         };
 
         context.Users.Add(adminUser);
+        await context.SaveChangesAsync();
+    }
+
+    private static async Task SeedLoanProductsAsync(AppDbContext context, ITimeProvider timeProvider)
+    {
+        if (await context.LoanProducts.AnyAsync())
+            return;
+
+        var now = timeProvider.UtcNow;
+        var products = new List<LoanProduct>
+        {
+            new()
+            {
+                Code = "A16",
+                Description = "Salary Loan - Private",
+                MinAmount = 5_000,
+                MaxAmount = 1_500_000,
+                MinTermDays = 30,
+                MaxTermDays = 2_555,
+                ApplicationChargeRate = 0.06m,
+                AmortizationMode = "DIM",
+                ChargeAdvanceInterest = false,
+                IsRetired = false,
+                LastSyncedAt = now,
+                UpdatedDate = now,
+            },
+            new()
+            {
+                Code = "A17",
+                Description = "Salary Loan - Government",
+                MinAmount = 5_000,
+                MaxAmount = 1_500_000,
+                MinTermDays = 30,
+                MaxTermDays = 2_555,
+                ApplicationChargeRate = 0.06m,
+                AmortizationMode = "DIM",
+                ChargeAdvanceInterest = false,
+                IsRetired = false,
+                LastSyncedAt = now,
+                UpdatedDate = now,
+            },
+            new()
+            {
+                Code = "C02",
+                Description = "Consumptive Loan",
+                MinAmount = 5_000,
+                MaxAmount = 1_500_000,
+                MinTermDays = 30,
+                MaxTermDays = 2_555,
+                ApplicationChargeRate = 0.06m,
+                AmortizationMode = "DIM",
+                ChargeAdvanceInterest = false,
+                IsRetired = false,
+                LastSyncedAt = now,
+                UpdatedDate = now,
+            },
+            new()
+            {
+                Code = "C23",
+                Description = "Consumptive Loan - Teachers",
+                MinAmount = 5_000,
+                MaxAmount = 1_500_000,
+                MinTermDays = 30,
+                MaxTermDays = 2_555,
+                ApplicationChargeRate = 0.06m,
+                AmortizationMode = "DIM",
+                ChargeAdvanceInterest = false,
+                IsRetired = false,
+                LastSyncedAt = now,
+                UpdatedDate = now,
+            },
+            new()
+            {
+                Code = "C35",
+                Description = "Consumptive Loan - MIC",
+                MinAmount = 5_000,
+                MaxAmount = 1_500_000,
+                MinTermDays = 30,
+                MaxTermDays = 2_555,
+                ApplicationChargeRate = 0.075m,
+                AmortizationMode = "MIC",
+                ChargeAdvanceInterest = true,
+                AdvanceInterestRate = 0.18m,
+                IsRetired = false,
+                LastSyncedAt = now,
+                UpdatedDate = now,
+            },
+            new()
+            {
+                Code = "C21",
+                Description = "Consumptive Loan - Special",
+                MinAmount = 5_000,
+                MaxAmount = 1_500_000,
+                MinTermDays = 30,
+                MaxTermDays = 2_555,
+                ApplicationChargeRate = 0.06m,
+                AmortizationMode = "DIM",
+                ChargeAdvanceInterest = false,
+                IsRetired = false,
+                LastSyncedAt = now,
+                UpdatedDate = now,
+            },
+        };
+
+        context.LoanProducts.AddRange(products);
         await context.SaveChangesAsync();
     }
 
