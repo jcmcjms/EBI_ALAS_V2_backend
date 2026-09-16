@@ -350,7 +350,6 @@ app.UseIdempotency();  // Must be before rate limiter to catch all requests
 app.UseRateLimiter();
 app.UseAuthentication();
 app.UseAuthorization();
-app.UseCsrfValidation();
 
 app.MapHealthChecks("/health");
 app.MapHub<EBI.ALAS.Api.Features.Notifications.NotificationHub>("/hubs/notifications");
