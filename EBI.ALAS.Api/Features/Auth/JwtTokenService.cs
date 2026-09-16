@@ -65,6 +65,12 @@ public class JwtTokenService : IJwtTokenService
             claims.Add(new Claim("middleName", user.MiddleName));
         }
 
+        // Add job title if present
+        if (!string.IsNullOrEmpty(user.JobTitle))
+        {
+            claims.Add(new Claim("jobTitle", user.JobTitle));
+        }
+
         // Add permissions
         foreach (var permission in permissions)
         {
