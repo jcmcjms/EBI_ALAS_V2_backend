@@ -160,6 +160,11 @@ public static class ServiceCollectionExtensions
         // Lease-based assignment — assigns loans to available approvers.
         services.AddScoped<ILoanAssignmentService, LoanAssignmentService>();
 
+        // Background job that re-verifies document completeness for in-flight
+        // loans. Keeps the stamp honest for legacy rows and post-stamp drift.
+        // Same pattern as LoanProductSyncHostedService.
+        services.AddHostedService<DocumentCompletenessSyncHostedService>();
+
         // ─── Authorization ───────────────────────────────────────────────
         services.AddScoped<IAuthorizationHandler, PermissionAuthorizationHandler>();
 

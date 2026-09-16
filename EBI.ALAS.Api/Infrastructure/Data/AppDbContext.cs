@@ -991,6 +991,13 @@ public class AppDbContext : DbContext
 
             entity.Property(e => e.AssignedApproverId);
 
+            // Navigation property — EF emits a LEFT JOIN so list projections
+            // can resolve AssignedApproverName without an N+1 subquery.
+            entity.HasOne(e => e.AssignedApprover)
+                .WithMany()
+                .HasForeignKey(e => e.AssignedApproverId)
+                .OnDelete(DeleteBehavior.SetNull);
+
             entity.Property(e => e.AssignedAt);
 
             entity.Property(e => e.DocumentsCompleteAt);

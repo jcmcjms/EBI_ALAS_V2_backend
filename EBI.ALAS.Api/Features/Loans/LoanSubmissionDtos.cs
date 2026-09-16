@@ -236,6 +236,31 @@ public sealed record CreatedLoan
     /// <summary>User ID of the encoder who created this application.
     /// Populated by GET /api/loans; null on POST responses.</summary>
     public int? CreatedById { get; init; }
+
+    // ── Delegation-of-authority enrichment (GET /api/loans only) ─────
+    // These fields mirror the detail endpoint (LoanResponse) so the
+    // monitoring table can render Docs status + Assigned To without
+    // a per-row subquery or a second API call.
+
+    /// <summary>Derived boolean: true when DocumentsCompleteAt is set.
+    /// Null on POST responses (not yet verified).</summary>
+    public bool? DocumentsComplete { get; init; }
+
+    /// <summary>Timestamp when document completeness was last verified.
+    /// Null = unchecked/incomplete. Populated by GET /api/loans.</summary>
+    public DateTime? DocumentsCompleteAt { get; init; }
+
+    /// <summary>Frozen routing tier at entry to ForApproval.
+    /// Null until routed. Populated by GET /api/loans.</summary>
+    public int? RequiredApprovalTier { get; init; }
+
+    /// <summary>User ID of the assigned approver (active lease).
+    /// Null when unassigned. Populated by GET /api/loans.</summary>
+    public int? AssignedApproverId { get; init; }
+
+    /// <summary>Display name of the assigned approver.
+    /// Null when unassigned. Populated by GET /api/loans.</summary>
+    public string? AssignedApproverName { get; init; }
 }
 
 // ─── GET /api/loans/{id}/history — timeline entries ─────────────────────

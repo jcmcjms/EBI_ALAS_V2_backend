@@ -83,7 +83,8 @@ public static class LoanEndpoints
             // is just narrower for the benefit of subsequent assignments.
             IQueryable<LoanApplication> query = db.LoanApplications
                 .AsNoTracking()
-                .Include(l => l.CreatedBy);
+                .Include(l => l.CreatedBy)
+                .Include(l => l.AssignedApprover);
 
             // ── Branch scoping (anti-enumeration) ──────────────────────
             var userRole = ctx.User.GetRole();
@@ -199,6 +200,14 @@ public static class LoanEndpoints
                     l.CreatedById,
                     CreatedByName = l.CreatedBy.FirstName + " " + l.CreatedBy.LastName,
 
+                    // ── Delegation-of-authority enrichment ──────────────
+                    l.DocumentsCompleteAt,
+                    l.RequiredApprovalTier,
+                    l.AssignedApproverId,
+                    AssignedApproverName = l.AssignedApprover == null
+                        ? null
+                        : l.AssignedApprover.FirstName + " " + l.AssignedApprover.LastName,
+
                     // ── Last handler: latest audit action per loan ─────
                     // Resolved in-SQL (OUTER APPLY … ORDER BY … OFFSET 0)
                     // so the page costs ONE round-trip; OrderBy(ActionDate,
@@ -247,6 +256,12 @@ public static class LoanEndpoints
                             CreatedByName = r.CreatedByName,
                             LastActionByName = r.LastActionInfo != null ? r.LastActionInfo.Name : r.CreatedByName,
                             LastAction = r.LastActionInfo != null ? r.LastActionInfo.Action : null,
+                            // ── Delegation-of-authority enrichment ───────
+                            DocumentsComplete = r.DocumentsCompleteAt != null,
+                            DocumentsCompleteAt = r.DocumentsCompleteAt,
+                            RequiredApprovalTier = r.RequiredApprovalTier,
+                            AssignedApproverId = r.AssignedApproverId,
+                            AssignedApproverName = r.AssignedApproverName,
                         })
                         .ToList(),
                 })
@@ -668,6 +683,19 @@ public static class LoanEndpoints
             }
 
             var fromStatus = loan.Status;
+
+            // ── Real-time completeness stamp on workflow entry ──────────────
+            // When a loan first enters the active workflow (Draft →
+            // ForRecommendation), check document completeness and stamp it.
+            // This catches the common case where documents are uploaded before
+            // the encoder submits. The check is cheap (one OPENQUERY call)
+            // and only fires once per loan lifecycle at this transition.
+            if (fromStatus == "Draft" && request.Status == "ForRecommendation")
+            {
+                var completenessService = ctx.RequestServices.GetRequiredService<IDocumentCompletenessService>();
+                var completeness = await completenessService.CheckAsync(loan, ct);
+                loan.DocumentsCompleteAt = completeness.Complete ? timeProvider.UtcNow : null;
+            }
 
             // ── Delegation-of-authority: ForApproval entry gate ─────────────
             // When transitioning INTO ForApproval, enforce document completeness
@@ -1189,6 +1217,41 @@ public static class LoanEndpoints
         })
         .WithName("GetLoanRouting")
         .Produces<ApiResponse<LoanRoutingDto>>(200)
+        .Produces<ApiResponse>(404)
+        .RequireAuthorization("CanViewLoan");
+
+        // ── POST /api/loans/{id}/documents/verify — on-demand completeness recheck ──
+        //
+        // Cache-bypassing instant correction path. The sweep keeps the stamp
+        // honest on a timer; this endpoint lets a user force an immediate
+        // recheck (e.g. after uploading a missing document). Only mutates the
+        // cache stamp — never workflow state. The gate at ForChecking →
+        // ForApproval remains the authoritative enforcement.
+        group.MapPost("/{id:int}/documents/verify", async (
+            int id,
+            AppDbContext db,
+            IDocumentCompletenessService completeness,
+            ITimeProvider time,
+            CancellationToken ct) =>
+        {
+            var loan = await db.LoanApplications.FindAsync([id], ct);
+            if (loan is null) return Results.NotFound(ApiResponse.ErrorResponse("Loan not found"));
+
+            var result = await completeness.CheckByLoanNoAsync(loan.LoanNo, ct, bypassCache: true);
+            loan.DocumentsCompleteAt = result.Complete ? time.UtcNow : null;
+            await db.SaveChangesAsync(ct);
+
+            return Results.Ok(ApiResponse<object>.SuccessResponse(new
+            {
+                complete = result.Complete,
+                missing = result.Missing,
+                documentsCompleteAt = loan.DocumentsCompleteAt,
+            }, result.Complete
+                ? "All required documents are uploaded."
+                : $"{result.Missing.Count} document(s) still missing."));
+        })
+        .WithName("VerifyLoanDocuments")
+        .Produces<ApiResponse<object>>(200)
         .Produces<ApiResponse>(404)
         .RequireAuthorization("CanViewLoan");
     }

@@ -154,6 +154,10 @@ public class LoanApplication
     /// <summary>Active lease: assigned approver while in ForApproval. Null = unassigned.</summary>
     public int? AssignedApproverId { get; set; }
 
+    /// <summary>Navigation property for the assigned approver. EF uses this
+    /// for a LEFT JOIN in list projections (avoids N+1 subquery).</summary>
+    public User? AssignedApprover { get; set; }
+
     /// <summary>Timestamp of assignment. Null when unassigned.</summary>
     public DateTime? AssignedAt { get; set; }
 
