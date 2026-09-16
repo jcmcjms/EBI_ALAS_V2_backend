@@ -55,6 +55,15 @@ public class CreateUserValidator : AbstractValidator<CreateUserRequest>
             RuleFor(x => x.JobTitle).MaximumLength(100).WithMessage("Job title must not exceed 100 characters.");
         });
 
+        // ── Non-approvers must not carry CoveredBranches ─────────────
+        // Reject the payload instead of silently ignoring it — the
+        // caller is confused about the data model and should be told.
+        When(x => x.Role != Roles.Approver && x.CoveredBranches is { Count: > 0 }, () =>
+        {
+            RuleFor(x => x.CoveredBranches).Empty()
+                .WithMessage("Covered branches apply only to Approver accounts.");
+        });
+
         RuleFor(x => x.ESignature).MaximumLength(2000000).WithMessage("Signature image is too large.");
     }
 }
@@ -91,6 +100,13 @@ public class UpdateUserValidator : AbstractValidator<UpdateUserRequest>
         When(x => x.Role != Roles.Approver, () =>
         {
             RuleFor(x => x.JobTitle).MaximumLength(100).WithMessage("Job title must not exceed 100 characters.");
+        });
+
+        // ── Non-approvers must not carry CoveredBranches ─────────────
+        When(x => x.Role != Roles.Approver && x.CoveredBranches is { Count: > 0 }, () =>
+        {
+            RuleFor(x => x.CoveredBranches).Empty()
+                .WithMessage("Covered branches apply only to Approver accounts.");
         });
 
         RuleFor(x => x.ESignature).MaximumLength(2000000).WithMessage("Signature image is too large.");

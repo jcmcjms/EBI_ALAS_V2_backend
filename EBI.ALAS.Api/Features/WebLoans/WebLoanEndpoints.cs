@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using EBI.ALAS.Api.Common.Authorization;
 using EBI.ALAS.Api.Common.Extensions;
 using EBI.ALAS.Api.Common.Models;
 using Microsoft.Extensions.Caching.Memory;
@@ -42,22 +43,32 @@ public static class WebLoanEndpoints
 
         // ─── Step 2: outstanding loans for an account ──────────────────
         // The route parameter `accountId` is the combined
-        // "<branchCode>-<accountNo>" form (e.g. "011-05-13081-1"). The
-        // branch is therefore caller-controlled — the JWT no longer
-        // restricts branch scope for this endpoint, mirroring the
-        // original SQL's WHERE bch = ... AND acct_no = ... shape.
-        // Admin and non-Admin behave identically for the branch filter;
-        // the JWT still gates *which* accounts a caller may read via
-        // AccountBelongsToCisAsync (the (bch, acct_no, cis_no) ownership
-        // check).
+        // "<branchCode>-<accountNo>" form (e.g. "011-05-13081-1").
+        // Branch scope check runs FIRST via IBranchScopeService — an
+        // explicit 403 when the account's branch is outside the caller's
+        // scope, never a silent-empty 200. Anti-enumeration guard
+        // (AccountBelongsToCisAsync) runs second.
         group.MapGet("/cis/{cisNo}/accounts/{accountId}/outstanding-loans", async (
             string cisNo,
             string accountId,
             IWebLoanService webLoanService,
+            IBranchScopeService branchScope,
+            ClaimsPrincipal user,
             int pageSize = 50,
             int pageNumber = 1,
             CancellationToken ct = default) =>
         {
+            var (branchCode, _) = WebLoanAccountId.Parse(accountId);
+
+            // Scope check FIRST — can never return "empty set";
+            // BranchScopeService falls back to home branch and throws
+            // on misconfiguration.
+            if (!await branchScope.CanAccessBranchAsync(user, branchCode, ct))
+                return Results.Json(
+                    ApiResponse.ErrorResponse(
+                        $"Account branch {branchCode} is outside your branch scope."),
+                    statusCode: StatusCodes.Status403Forbidden);
+
             // Clamp to a sane ceiling: 500 rows max per page keeps the
             // response payload under 1MB even with the LEFT JOINs to
             // amort_data and loan_product. Anything bigger is a UI bug
@@ -78,17 +89,30 @@ public static class WebLoanEndpoints
         // ─── Step 3: pending loan for an account ──────────────────────
         // Same combined-`accountId` shape as the outstanding-loans
         // endpoint. Returns the in-flight pre_loan_data rows + NTHP
-        // enrichment. Anti-enumeration guard runs first (mirrors Step 2).
+        // enrichment. Branch scope check runs FIRST via
+        // IBranchScopeService — explicit 403 instead of silent-empty.
+        // Anti-enumeration guard runs second.
         //
         // 200 with Loans=[] is a valid response: the (cisNo, accountId)
         // pair exists but has no pending loan. Only 404 when the
-        // account↔CIS pair is unknown.
+        // account↔CIS pair is unknown. Only 403 when outside scope.
         group.MapGet("/cis/{cisNo}/accounts/{accountId}/pending-loan", async (
             string cisNo,
             string accountId,
             IWebLoanService webLoanService,
+            IBranchScopeService branchScope,
+            ClaimsPrincipal user,
             CancellationToken ct) =>
         {
+            var (branchCode, _) = WebLoanAccountId.Parse(accountId);
+
+            // Scope check FIRST — can never return "empty set".
+            if (!await branchScope.CanAccessBranchAsync(user, branchCode, ct))
+                return Results.Json(
+                    ApiResponse.ErrorResponse(
+                        $"Account branch {branchCode} is outside your branch scope."),
+                    statusCode: StatusCodes.Status403Forbidden);
+
             var result = await webLoanService.GetPendingLoanAsync(cisNo, accountId, ct);
             return result is null
                 ? Results.NotFound(ApiResponse.ErrorResponse("Account not found for the given CIS"))

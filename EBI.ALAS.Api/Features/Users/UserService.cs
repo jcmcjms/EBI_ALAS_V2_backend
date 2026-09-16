@@ -61,9 +61,10 @@ public class UserService : IUserService
         };
 
         // ── Approver: JobTitle is the authority key, sync both fields ────
+        ApprovalAuthority? authority = null;
         if (request.Role == Roles.Approver && !string.IsNullOrWhiteSpace(request.JobTitle))
         {
-            var authority = await _context.ApprovalAuthorities
+            authority = await _context.ApprovalAuthorities
                 .AsNoTracking()
                 .FirstOrDefaultAsync(a => a.Key == request.JobTitle);
 
@@ -86,26 +87,22 @@ public class UserService : IUserService
         await _userRepository.AddUserAsync(user);
 
         // ── Multi-branch coverage for Branch-scope approvers ──────────
-        if (request.Role == Roles.Approver
-            && request.CoveredBranches is { Count: > 0 }
-            && !string.IsNullOrWhiteSpace(request.JobTitle))
+        // Only persist when Role == Approver AND authority scope is
+        // Branch AND the caller supplied a non-empty list. Otherwise
+        // no coverage rows are written — the user's home branch (in
+        // BranchId) is the identity, not a coverage row.
+        if (authority?.ScopeType == AuthorityScope.Branch
+            && request.CoveredBranches is { Count: > 0 })
         {
-            var authority = await _context.ApprovalAuthorities
-                .AsNoTracking()
-                .FirstOrDefaultAsync(a => a.Key == request.JobTitle);
-
-            if (authority?.ScopeType == AuthorityScope.Branch)
+            foreach (var branchCode in request.CoveredBranches.Distinct())
             {
-                foreach (var branchCode in request.CoveredBranches.Distinct())
+                _context.UserBranchCoverages.Add(new UserBranchCoverage
                 {
-                    _context.UserBranchCoverages.Add(new UserBranchCoverage
-                    {
-                        UserId = user.Id,
-                        BranchCode = branchCode
-                    });
-                }
-                await _context.SaveChangesAsync();
+                    UserId = user.Id,
+                    BranchCode = branchCode
+                });
             }
+            await _context.SaveChangesAsync();
         }
 
         return await MapToResponseAsync(user);
@@ -155,18 +152,34 @@ public class UserService : IUserService
         await _userRepository.UpdateUserAsync();
 
         // ── Multi-branch coverage for Branch-scope approvers ──────────
-        if (request.Role == Roles.Approver && request.CoveredBranches is not null)
+        // Load the authority ONCE to decide the coverage action.
+        // Rules:
+        //   1. Role != Approver or authority is null → clear existing
+        //      coverage (handles role/authority changes away from
+        //      approver or Branch scope).
+        //   2. Role == Approver + Branch scope + CoveredBranches is
+        //      non-null → replace coverage with the supplied list.
+        //   3. Role == Approver + Branch scope + CoveredBranches is
+        //      null → keep existing coverage (editing name/branch
+        //      without touching coverage should not wipe it).
+        //   4. Role == Approver + Area/Global scope → clear existing
+        //      coverage (only Branch-scope approvers have rows).
         {
-            var authority = await _context.ApprovalAuthorities
-                .AsNoTracking()
-                .FirstOrDefaultAsync(a => a.Key == request.JobTitle);
-
-            if (authority?.ScopeType == AuthorityScope.Branch && request.CoveredBranches.Count > 0)
+            ApprovalAuthority? authority = null;
+            if (request.Role == Roles.Approver && !string.IsNullOrWhiteSpace(request.JobTitle))
             {
-                // Replace coverage: remove old, insert new
-                var existing = await _context.UserBranchCoverages
-                    .Where(ubc => ubc.UserId == id).ToListAsync();
-                _context.UserBranchCoverages.RemoveRange(existing);
+                authority = await _context.ApprovalAuthorities
+                    .AsNoTracking()
+                    .FirstOrDefaultAsync(a => a.Key == request.JobTitle);
+            }
+
+            var existingCoverage = await _context.UserBranchCoverages
+                .Where(ubc => ubc.UserId == id).ToListAsync();
+
+            if (authority?.ScopeType == AuthorityScope.Branch && request.CoveredBranches is not null)
+            {
+                // Rule 2: Replace coverage
+                _context.UserBranchCoverages.RemoveRange(existingCoverage);
 
                 foreach (var branchCode in request.CoveredBranches.Distinct())
                 {
@@ -178,17 +191,16 @@ public class UserService : IUserService
                 }
                 await _context.SaveChangesAsync();
             }
-            else
+            else if (authority?.ScopeType != AuthorityScope.Branch || request.Role != Roles.Approver)
             {
-                // Area/Global scope or empty coverage: clear any old coverage rows
-                var existing = await _context.UserBranchCoverages
-                    .Where(ubc => ubc.UserId == id).ToListAsync();
-                if (existing.Count > 0)
+                // Rules 1 & 4: Clear existing coverage
+                if (existingCoverage.Count > 0)
                 {
-                    _context.UserBranchCoverages.RemoveRange(existing);
+                    _context.UserBranchCoverages.RemoveRange(existingCoverage);
                     await _context.SaveChangesAsync();
                 }
             }
+            // Rule 3: Branch scope + null CoveredBranches → keep existing
         }
 
         return await MapToResponseAsync(user);

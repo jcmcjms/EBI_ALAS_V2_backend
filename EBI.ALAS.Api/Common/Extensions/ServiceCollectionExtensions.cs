@@ -168,6 +168,12 @@ public static class ServiceCollectionExtensions
         // ─── Authorization ───────────────────────────────────────────────
         services.AddScoped<IAuthorizationHandler, PermissionAuthorizationHandler>();
 
+        // ─── Branch Scope (single source of truth for branch scoping) ──
+        // Fail-safe service that guarantees no empty branch sets reach
+        // SQL predicates. Consulted by webloan drill-downs and any
+        // future branch-scoped read endpoint.
+        services.AddScoped<IBranchScopeService, BranchScopeService>();
+
         return services;
     }
 }
