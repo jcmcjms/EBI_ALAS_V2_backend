@@ -38,7 +38,15 @@ public class UserRepository : IUserRepository
             .Take(parameters.PageSize)
             .Select(u => new UserResponse(
                 u.Id, u.Username, u.FirstName, u.MiddleName, u.LastName,
-                u.BranchId, u.Role, u.IsActive, u.CreatedAt, u.JobTitle, u.ESignature))
+                u.BranchId, u.Role, u.IsActive, u.CreatedAt, u.JobTitle, u.ESignature,
+                u.ApprovalAuthorityKey != null && u.ApprovalAuthority!.Key != null
+                    ? new ApprovalAuthorityInfo(
+                        u.ApprovalAuthority!.Key,
+                        u.ApprovalAuthority.DisplayName,
+                        u.ApprovalAuthority.Tier,
+                        u.ApprovalAuthority.Priority,
+                        u.ApprovalAuthority.MaxTotalExposure)
+                    : null))
             .ToListAsync();
 
         return new PagedResult<UserResponse>(items, totalCount, parameters.PageNumber, parameters.PageSize);

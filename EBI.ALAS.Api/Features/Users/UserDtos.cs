@@ -47,6 +47,20 @@ public record UserAuditLogResponse(
     string? IpAddress
 );
 
+/// <summary>
+/// Lightweight representation of an ApprovalAuthority for embedding in
+/// UserResponse. Keeps the routing key, display label, and tier info
+/// so the admin UI can render the authority dropdown without a second
+/// fetch.
+/// </summary>
+public record ApprovalAuthorityInfo(
+    string Key,
+    string DisplayName,
+    int Tier,
+    int Priority,
+    decimal MaxTotalExposure
+);
+
 public record UserResponse(
     int Id,
     string Username,
@@ -58,5 +72,6 @@ public record UserResponse(
     bool IsActive,
     DateTime CreatedAt,
     string? JobTitle = null,
-    string? ESignature = null
+    string? ESignature = null,
+    ApprovalAuthorityInfo? ApprovalAuthority = null
 );

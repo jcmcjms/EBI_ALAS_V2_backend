@@ -973,6 +973,11 @@ public class AppDbContext : DbContext
 
             entity.HasIndex(e => e.ApprovalAuthorityKey)
                 .HasDatabaseName("IX_Users_ApprovalAuthorityKey");
+
+            entity.HasOne(e => e.ApprovalAuthority)
+                .WithMany()
+                .HasForeignKey(e => e.ApprovalAuthorityKey)
+                .OnDelete(DeleteBehavior.SetNull);
         });
 
         // ─── Update LoanApplication: add routing fields ─────────────

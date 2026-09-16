@@ -1,3 +1,4 @@
+using EBI.ALAS.Api.Common.Constants;
 using EBI.ALAS.Api.Common.Exceptions;
 using EBI.ALAS.Api.Common.Models;
 using EBI.ALAS.Api.Common.Time;
@@ -36,7 +37,7 @@ public class UserService : IUserService
     {
         var user = await _userRepository.GetUserByIdAsync(id);
         if (user == null) return null;
-        return new UserResponse(user.Id, user.Username, user.FirstName, user.MiddleName, user.LastName, user.BranchId, user.Role, user.IsActive, user.CreatedAt, user.JobTitle, user.ESignature);
+        return await MapToResponseAsync(user);
     }
 
     public async Task<UserResponse> CreateUserAsync(CreateUserRequest request)
@@ -53,15 +54,36 @@ public class UserService : IUserService
             LastName = request.LastName,
             BranchId = request.BranchId,
             Role = request.Role,
-            JobTitle = request.JobTitle,
-            ESignature = request.ESignature,
             IsActive = true,
             MustChangePassword = true,
-            CreatedAt = _timeProvider.UtcNow
+            CreatedAt = _timeProvider.UtcNow,
         };
 
+        // ── Approver: JobTitle is the authority key, sync both fields ────
+        if (request.Role == Roles.Approver && !string.IsNullOrWhiteSpace(request.JobTitle))
+        {
+            var authority = await _context.ApprovalAuthorities
+                .AsNoTracking()
+                .FirstOrDefaultAsync(a => a.Key == request.JobTitle);
+
+            if (authority is null)
+                throw new InvalidOperationException($"Invalid approval authority: {request.JobTitle}");
+
+            user.ApprovalAuthorityKey = authority.Key;
+            user.JobTitle = authority.DisplayName; // Store human-readable label
+        }
+        else
+        {
+            // Non-approver: free text, no authority link
+            user.ApprovalAuthorityKey = null;
+            user.JobTitle = request.JobTitle;
+        }
+
+        if (!string.IsNullOrWhiteSpace(request.ESignature))
+            user.ESignature = request.ESignature;
+
         await _userRepository.AddUserAsync(user);
-        return new UserResponse(user.Id, user.Username, user.FirstName, user.MiddleName, user.LastName, user.BranchId, user.Role, user.IsActive, user.CreatedAt, user.JobTitle, user.ESignature);
+        return await MapToResponseAsync(user);
     }
 
     public async Task<UserResponse?> UpdateUserAsync(int id, UpdateUserRequest request)
@@ -74,7 +96,25 @@ public class UserService : IUserService
         user.LastName = request.LastName;
         user.BranchId = request.BranchId;
         user.Role = request.Role;
-        user.JobTitle = request.JobTitle;
+
+        // ── Approver: sync authority key from JobTitle dropdown value ────
+        if (request.Role == Roles.Approver && !string.IsNullOrWhiteSpace(request.JobTitle))
+        {
+            var authority = await _context.ApprovalAuthorities
+                .AsNoTracking()
+                .FirstOrDefaultAsync(a => a.Key == request.JobTitle);
+
+            if (authority is null)
+                throw new InvalidOperationException($"Invalid approval authority: {request.JobTitle}");
+
+            user.ApprovalAuthorityKey = authority.Key;
+            user.JobTitle = authority.DisplayName; // Store human-readable label
+        }
+        else
+        {
+            user.ApprovalAuthorityKey = null;
+            user.JobTitle = request.JobTitle;
+        }
 
         // Only update the signature when the client explicitly provided
         // a value. This preserves the existing base64 PNG when the user
@@ -88,7 +128,7 @@ public class UserService : IUserService
         }
 
         await _userRepository.UpdateUserAsync();
-        return new UserResponse(user.Id, user.Username, user.FirstName, user.MiddleName, user.LastName, user.BranchId, user.Role, user.IsActive, user.CreatedAt, user.JobTitle, user.ESignature);
+        return await MapToResponseAsync(user);
     }
 
     public async Task<bool> UpdateUserStatusAsync(int id, bool isActive)
@@ -162,5 +202,45 @@ public class UserService : IUserService
             .ToListAsync();
 
         return items;
+    }
+
+    /// <summary>
+    /// Maps a User entity to UserResponse, resolving the approval authority
+    /// info when the user has an ApprovalAuthorityKey set.
+    /// </summary>
+    private async Task<UserResponse> MapToResponseAsync(User user)
+    {
+        ApprovalAuthorityInfo? authorityInfo = null;
+
+        if (!string.IsNullOrEmpty(user.ApprovalAuthorityKey))
+        {
+            var authority = await _context.ApprovalAuthorities
+                .AsNoTracking()
+                .FirstOrDefaultAsync(a => a.Key == user.ApprovalAuthorityKey);
+
+            if (authority is not null)
+            {
+                authorityInfo = new ApprovalAuthorityInfo(
+                    authority.Key,
+                    authority.DisplayName,
+                    authority.Tier,
+                    authority.Priority,
+                    authority.MaxTotalExposure);
+            }
+        }
+
+        return new UserResponse(
+            user.Id,
+            user.Username,
+            user.FirstName,
+            user.MiddleName,
+            user.LastName,
+            user.BranchId,
+            user.Role,
+            user.IsActive,
+            user.CreatedAt,
+            user.JobTitle,
+            user.ESignature,
+            authorityInfo);
     }
 }

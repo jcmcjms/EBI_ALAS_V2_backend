@@ -1,3 +1,5 @@
+using EBI.ALAS.Api.Features.ApprovalMatrix;
+
 namespace EBI.ALAS.Api.Features.Auth;
 public class User
 {
@@ -33,4 +35,8 @@ public class User
     /// (Encoder, Recommender, Evaluator, Admin). Determines which tier
     /// of the approval matrix this user belongs to.</summary>
     public string? ApprovalAuthorityKey { get; set; }
+
+    /// <summary>Navigation property to the approval authority row.
+    /// Null when ApprovalAuthorityKey is null (non-approvers).</summary>
+    public ApprovalAuthority? ApprovalAuthority { get; set; }
 }

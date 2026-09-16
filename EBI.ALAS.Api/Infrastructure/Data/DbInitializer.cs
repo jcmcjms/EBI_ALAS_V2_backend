@@ -332,6 +332,45 @@ public static class DbInitializer
 
     private static async Task SeedApprovalAuthoritiesAsync(AppDbContext context)
     {
+        // ── Migration: merge separate CEO + President rows into one ──
+        // For databases that already have the old two-row setup, consolidate
+        // into a single "CEOPresident" key. Reassign any users first.
+        var ceoRow = await context.ApprovalAuthorities.FindAsync("CEO");
+        var presidentRow = await context.ApprovalAuthorities.FindAsync("President");
+        if (ceoRow is not null && presidentRow is not null)
+        {
+            // Reassign users with the old "President" key to the new consolidated key
+            var presidentUsers = await context.Users
+                .Where(u => u.ApprovalAuthorityKey == "President")
+                .ToListAsync();
+            foreach (var u in presidentUsers)
+            {
+                u.ApprovalAuthorityKey = "CEOPresident";
+                u.JobTitle = "CEO / President";
+            }
+
+            // Remove the old separate rows
+            context.ApprovalAuthorities.Remove(ceoRow);
+            context.ApprovalAuthorities.Remove(presidentRow);
+
+            // Insert the consolidated row
+            context.ApprovalAuthorities.Add(new ApprovalAuthority
+            {
+                Key = "CEOPresident",
+                DisplayName = "CEO / President",
+                Tier = 5,
+                Priority = 1,
+                AllowNew = true,
+                AllowRenewal = true,
+                MaxSeverity = DeviationSeverity.Major,
+                MaxTotalExposure = 1_500_000,
+                ScopeType = AuthorityScope.Global,
+            });
+
+            await context.SaveChangesAsync();
+        }
+
+        // ── Fresh database seed ──────────────────────────────────────
         if (await context.ApprovalAuthorities.AnyAsync())
             return;
 
@@ -366,14 +405,12 @@ public static class DbInitializer
                 AllowNew = true, AllowRenewal = true, MaxSeverity = DeviationSeverity.Major,
                 MaxTotalExposure = 1_200_000, ScopeType = AuthorityScope.Global },
 
-            // Tier 5: CEO, President, CreCom Chair Level D (New+Renewal, Major, max 1.5M)
-            new() { Key = "CEO", DisplayName = "Chief Executive Officer", Tier = 5, Priority = 1,
+            // Tier 5: CEO/President (single person), CreCom Chair Level D
+            // (New+Renewal, Major, max 1.5M)
+            new() { Key = "CEOPresident", DisplayName = "CEO / President", Tier = 5, Priority = 1,
                 AllowNew = true, AllowRenewal = true, MaxSeverity = DeviationSeverity.Major,
                 MaxTotalExposure = 1_500_000, ScopeType = AuthorityScope.Global },
-            new() { Key = "President", DisplayName = "President", Tier = 5, Priority = 2,
-                AllowNew = true, AllowRenewal = true, MaxSeverity = DeviationSeverity.Major,
-                MaxTotalExposure = 1_500_000, ScopeType = AuthorityScope.Global },
-            new() { Key = "CreComChair", DisplayName = "CreCom Chair Level D", Tier = 5, Priority = 3,
+            new() { Key = "CreComChair", DisplayName = "CreCom Chair Level D", Tier = 5, Priority = 2,
                 AllowNew = true, AllowRenewal = true, MaxSeverity = DeviationSeverity.Major,
                 MaxTotalExposure = 1_500_000, ScopeType = AuthorityScope.Global },
         };
