@@ -37,10 +37,19 @@ public sealed class LoanAssignmentService : ILoanAssignmentService
 
     public async Task AssignAsync(LoanApplication loan, CancellationToken ct = default)
     {
-        if (loan.RequiredApprovalTier is not { } tier) return;
+        if (loan.RequiredApprovalTier is not { } requiredTier) return;
 
+        // ── Tier escalation: try required tier first, then escalate ────
+        var tier = requiredTier;
         var candidates = await CandidatesAsync(loan, tier, ct);
-        if (candidates.Count == 0) return;   // tier queue until an approver exists/logs in
+
+        while (candidates.Count == 0 && tier < 5) // max 5 tiers in the matrix
+        {
+            tier++;
+            candidates = await CandidatesAsync(loan, tier, ct);
+        }
+
+        if (candidates.Count == 0) return; // no approvers in any tier
 
         // Active leases per candidate (one loan in ForApproval = "reviewing").
         var ids = candidates.Select(c => c.User.Id).ToList();
@@ -63,7 +72,7 @@ public sealed class LoanAssignmentService : ILoanAssignmentService
         await _db.SaveChangesAsync(ct);
 
         await _hub.Clients.User(pick.User.Id.ToString())
-            .SendAsync("LoanAssigned", new { loan.Id, loan.LamId, loan.Status });
+            .SendAsync("LoanAssigned", new { loan.Id, loan.LamId, loan.Status, escalated = tier != requiredTier });
         await _hub.Clients.Group("Approvers").SendAsync("LoanAssigned", new { loan.Id, loan.LamId, loan.Status });
     }
 
@@ -78,6 +87,15 @@ public sealed class LoanAssignmentService : ILoanAssignmentService
                         && u.ApprovalAuthorityKey != null && tierKeys.Contains(u.ApprovalAuthorityKey))
             .ToListAsync(ct);
 
+        // Build coverage map: userId → set of covered branch codes
+        var coverage = await _db.UserBranchCoverages.AsNoTracking()
+            .Where(ubc => users.Select(u => u.Id).Contains(ubc.UserId))
+            .GroupBy(ubc => ubc.UserId)
+            .ToDictionaryAsync(
+                g => g.Key,
+                g => g.Select(ubc => ubc.BranchCode).ToHashSet(),
+                ct);
+
         var areaBranches = loan.BranchCode is not null
             ? await _db.Branches.AsNoTracking().Where(b => b.AreaCode != null)
                 .GroupBy(b => b.AreaCode!).ToDictionaryAsync(g => g.Key, g => g.Select(b => b.Code).ToList(), ct)
@@ -90,17 +108,22 @@ public sealed class LoanAssignmentService : ILoanAssignmentService
                 .FirstOrDefaultAsync(a => a.Key == u.ApprovalAuthorityKey, ct);
             if (auth is null) continue;
 
-            if (InScope(auth.ScopeType, u.BranchId, loan.BranchCode, areaBranches))
+            // For Branch scope: use multi-branch coverage if available,
+            // fall back to the user's single BranchId.
+            var coveredBranches = coverage.GetValueOrDefault(u.Id)
+                ?? new HashSet<string> { u.BranchId };
+
+            if (InScope(auth.ScopeType, u.BranchId, loan.BranchCode, coveredBranches, areaBranches))
                 result.Add((u, auth));
         }
         return result;
     }
 
     private static bool InScope(AuthorityScope scope, string userBranch, string? loanBranch,
-        Dictionary<string, List<string>> areaBranches) => scope switch
+        HashSet<string> coveredBranches, Dictionary<string, List<string>> areaBranches) => scope switch
     {
         AuthorityScope.Global => true,
-        AuthorityScope.Branch => string.Equals(userBranch, loanBranch, StringComparison.Ordinal),
+        AuthorityScope.Branch => coveredBranches.Contains(loanBranch ?? ""),
         AuthorityScope.Area => areaBranches.Values.Any(set => set.Contains(userBranch) && set.Contains(loanBranch ?? "")),
         _ => false,
     };
@@ -129,12 +152,21 @@ public sealed class LoanAssignmentService : ILoanAssignmentService
             .FirstOrDefaultAsync(a => a.Key == user.ApprovalAuthorityKey, ct);
         if (auth is null) return;
 
+        // Load multi-branch coverage for this user
+        var coverage = new HashSet<string>(
+            await _db.UserBranchCoverages.AsNoTracking()
+                .Where(ubc => ubc.UserId == userId)
+                .Select(ubc => ubc.BranchCode)
+                .ToListAsync(ct));
+
+        // Accept loans at or below my tier (tier escalation: a higher-tier
+        // approver can serve lower-tier loans when no one else is available).
         var pending = await _db.LoanApplications
             .Where(l => l.Status == "ForApproval" && l.AssignedApproverId == null
-                        && l.RequiredApprovalTier == auth.Tier)
-            .OrderBy(l => l.LastActionDate).Take(1).ToListAsync(ct);
+                        && l.RequiredApprovalTier <= auth.Tier)
+            .OrderBy(l => l.LastActionDate).Take(5).ToListAsync(ct);
 
-        foreach (var loan in pending.Where(l => InScope(auth.ScopeType, user.BranchId, l.BranchCode, [])))
+        foreach (var loan in pending.Where(l => InScope(auth.ScopeType, user.BranchId, l.BranchCode, coverage, [])))
             await AssignAsync(loan, ct);
     }
 }

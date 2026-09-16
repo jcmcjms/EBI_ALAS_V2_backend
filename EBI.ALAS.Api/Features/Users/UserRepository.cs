@@ -1,4 +1,5 @@
 using EBI.ALAS.Api.Common.Models;
+using EBI.ALAS.Api.Features.ApprovalMatrix;
 using EBI.ALAS.Api.Features.Auth;
 using EBI.ALAS.Api.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
@@ -46,6 +47,9 @@ public class UserRepository : IUserRepository
                         u.ApprovalAuthority.Tier,
                         u.ApprovalAuthority.Priority,
                         u.ApprovalAuthority.MaxTotalExposure)
+                    : null,
+                u.ApprovalAuthority != null && u.ApprovalAuthority.ScopeType == AuthorityScope.Branch
+                    ? u.BranchCoverages.Select(bc => bc.BranchCode).ToList()
                     : null))
             .ToListAsync();
 

@@ -39,4 +39,8 @@ public class User
     /// <summary>Navigation property to the approval authority row.
     /// Null when ApprovalAuthorityKey is null (non-approvers).</summary>
     public ApprovalAuthority? ApprovalAuthority { get; set; }
+
+    /// <summary>Multi-branch coverage for Branch-scope approvers.
+    /// Empty for Area/Global scope approvers and non-approvers.</summary>
+    public ICollection<UserBranchCoverage> BranchCoverages { get; set; } = new List<UserBranchCoverage>();
 }

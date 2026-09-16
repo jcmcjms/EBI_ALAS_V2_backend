@@ -36,6 +36,7 @@ public class AppDbContext : DbContext
     public DbSet<LoanProductChecklist> LoanProductChecklists => Set<LoanProductChecklist>();
     public DbSet<ApprovalAuthority> ApprovalAuthorities => Set<ApprovalAuthority>();
     public DbSet<DeviationCatalogItem> DeviationCatalog => Set<DeviationCatalogItem>();
+    public DbSet<UserBranchCoverage> UserBranchCoverages => Set<UserBranchCoverage>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -956,6 +957,26 @@ public class AppDbContext : DbContext
 
             entity.Property(e => e.Severity)
                 .IsRequired();
+        });
+
+        // ─── UserBranchCoverage Entity ──────────────────────────────
+        // Junction table for Branch-scope approvers who cover multiple
+        // branches. Composite PK (UserId, BranchCode). Cascade on both
+        // sides — deleting a user or a branch cleans up the mapping.
+        modelBuilder.Entity<UserBranchCoverage>(entity =>
+        {
+            entity.HasKey(ubc => new { ubc.UserId, ubc.BranchCode });
+
+            entity.HasOne(ubc => ubc.User)
+                .WithMany(u => u.BranchCoverages)
+                .HasForeignKey(ubc => ubc.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne(ubc => ubc.Branch)
+                .WithMany()
+                .HasForeignKey(ubc => ubc.BranchCode)
+                .HasPrincipalKey(b => b.Code)
+                .OnDelete(DeleteBehavior.Cascade);
         });
 
         // ─── Update Branch: add AreaCode ────────────────────────────

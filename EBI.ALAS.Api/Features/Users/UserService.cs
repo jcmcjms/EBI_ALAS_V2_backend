@@ -2,6 +2,7 @@ using EBI.ALAS.Api.Common.Constants;
 using EBI.ALAS.Api.Common.Exceptions;
 using EBI.ALAS.Api.Common.Models;
 using EBI.ALAS.Api.Common.Time;
+using EBI.ALAS.Api.Features.ApprovalMatrix;
 using EBI.ALAS.Api.Features.Auth;
 using EBI.ALAS.Api.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
@@ -83,6 +84,30 @@ public class UserService : IUserService
             user.ESignature = request.ESignature;
 
         await _userRepository.AddUserAsync(user);
+
+        // ── Multi-branch coverage for Branch-scope approvers ──────────
+        if (request.Role == Roles.Approver
+            && request.CoveredBranches is { Count: > 0 }
+            && !string.IsNullOrWhiteSpace(request.JobTitle))
+        {
+            var authority = await _context.ApprovalAuthorities
+                .AsNoTracking()
+                .FirstOrDefaultAsync(a => a.Key == request.JobTitle);
+
+            if (authority?.ScopeType == AuthorityScope.Branch)
+            {
+                foreach (var branchCode in request.CoveredBranches.Distinct())
+                {
+                    _context.UserBranchCoverages.Add(new UserBranchCoverage
+                    {
+                        UserId = user.Id,
+                        BranchCode = branchCode
+                    });
+                }
+                await _context.SaveChangesAsync();
+            }
+        }
+
         return await MapToResponseAsync(user);
     }
 
@@ -128,6 +153,44 @@ public class UserService : IUserService
         }
 
         await _userRepository.UpdateUserAsync();
+
+        // ── Multi-branch coverage for Branch-scope approvers ──────────
+        if (request.Role == Roles.Approver && request.CoveredBranches is not null)
+        {
+            var authority = await _context.ApprovalAuthorities
+                .AsNoTracking()
+                .FirstOrDefaultAsync(a => a.Key == request.JobTitle);
+
+            if (authority?.ScopeType == AuthorityScope.Branch && request.CoveredBranches.Count > 0)
+            {
+                // Replace coverage: remove old, insert new
+                var existing = await _context.UserBranchCoverages
+                    .Where(ubc => ubc.UserId == id).ToListAsync();
+                _context.UserBranchCoverages.RemoveRange(existing);
+
+                foreach (var branchCode in request.CoveredBranches.Distinct())
+                {
+                    _context.UserBranchCoverages.Add(new UserBranchCoverage
+                    {
+                        UserId = id,
+                        BranchCode = branchCode
+                    });
+                }
+                await _context.SaveChangesAsync();
+            }
+            else
+            {
+                // Area/Global scope or empty coverage: clear any old coverage rows
+                var existing = await _context.UserBranchCoverages
+                    .Where(ubc => ubc.UserId == id).ToListAsync();
+                if (existing.Count > 0)
+                {
+                    _context.UserBranchCoverages.RemoveRange(existing);
+                    await _context.SaveChangesAsync();
+                }
+            }
+        }
+
         return await MapToResponseAsync(user);
     }
 
@@ -206,11 +269,12 @@ public class UserService : IUserService
 
     /// <summary>
     /// Maps a User entity to UserResponse, resolving the approval authority
-    /// info when the user has an ApprovalAuthorityKey set.
+    /// info and multi-branch coverage when applicable.
     /// </summary>
     private async Task<UserResponse> MapToResponseAsync(User user)
     {
         ApprovalAuthorityInfo? authorityInfo = null;
+        List<string>? coveredBranches = null;
 
         if (!string.IsNullOrEmpty(user.ApprovalAuthorityKey))
         {
@@ -226,6 +290,16 @@ public class UserService : IUserService
                     authority.Tier,
                     authority.Priority,
                     authority.MaxTotalExposure);
+
+                // Load multi-branch coverage for Branch-scope approvers
+                if (authority.ScopeType == AuthorityScope.Branch)
+                {
+                    coveredBranches = await _context.UserBranchCoverages
+                        .AsNoTracking()
+                        .Where(ubc => ubc.UserId == user.Id)
+                        .Select(ubc => ubc.BranchCode)
+                        .ToListAsync();
+                }
             }
         }
 
@@ -241,6 +315,7 @@ public class UserService : IUserService
             user.CreatedAt,
             user.JobTitle,
             user.ESignature,
-            authorityInfo);
+            authorityInfo,
+            coveredBranches);
     }
 }
