@@ -27,4 +27,10 @@ public class User
     // stamping on generated PDF documents.
     public string? JobTitle { get; set; }
     public string? ESignature { get; set; }
+
+    // ── Delegation-of-authority routing ──────────────────────────────
+    /// <summary>FK to ApprovalAuthorities.Key. Null for non-approvers
+    /// (Encoder, Recommender, Evaluator, Admin). Determines which tier
+    /// of the approval matrix this user belongs to.</summary>
+    public string? ApprovalAuthorityKey { get; set; }
 }

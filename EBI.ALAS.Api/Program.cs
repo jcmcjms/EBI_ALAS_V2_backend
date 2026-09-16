@@ -369,6 +369,7 @@ app.MapAccountEndpoints();
 app.MapWebLoanEndpoints();
 app.MapLoanProductEndpoints();
 app.MapNotificationEndpoints();
+app.MapApprovalMatrixEndpoints();
 
 using (var scope = app.Services.CreateScope())
 {

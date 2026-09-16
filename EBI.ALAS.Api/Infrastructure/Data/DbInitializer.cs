@@ -1,4 +1,5 @@
 using EBI.ALAS.Api.Common.Time;
+using EBI.ALAS.Api.Features.ApprovalMatrix;
 using EBI.ALAS.Api.Features.Auth;
 using EBI.ALAS.Api.Features.Branches;
 using EBI.ALAS.Api.Features.Loans;
@@ -54,6 +55,15 @@ public static class DbInitializer
 
         // Seed loan product checklist requirements
         await SeedLoanProductChecklistAsync(context);
+
+        // Seed approval authority matrix
+        await SeedApprovalAuthoritiesAsync(context);
+
+        // Seed deviation severity catalog
+        await SeedDeviationCatalogAsync(context);
+
+        // Seed branch area codes
+        await SeedBranchAreaCodesAsync(context);
     }
 
     private static async Task SeedBranchesAsync(AppDbContext context, ITimeProvider timeProvider)
@@ -209,6 +219,130 @@ public static class DbInitializer
         };
 
         context.LoanProductChecklists.AddRange(checklistItems);
+        await context.SaveChangesAsync();
+    }
+
+    private static async Task SeedApprovalAuthoritiesAsync(AppDbContext context)
+    {
+        if (await context.ApprovalAuthorities.AnyAsync())
+            return;
+
+        var authorities = new List<ApprovalAuthority>
+        {
+            // Tier 1: Branch Head + OIC Level 1 (Renewal only, max 300K)
+            new() { Key = "BranchHead", DisplayName = "Branch Head", Tier = 1, Priority = 1,
+                AllowNew = false, AllowRenewal = true, MaxSeverity = DeviationSeverity.None,
+                MaxTotalExposure = 300_000, ScopeType = AuthorityScope.Branch },
+            new() { Key = "OICLevel1", DisplayName = "OIC Level 1", Tier = 1, Priority = 2,
+                AllowNew = false, AllowRenewal = true, MaxSeverity = DeviationSeverity.None,
+                MaxTotalExposure = 300_000, ScopeType = AuthorityScope.Branch },
+
+            // Tier 2: Area Head (Renewal only, max 600K, area scope)
+            new() { Key = "AreaHead", DisplayName = "Area Head", Tier = 2, Priority = 1,
+                AllowNew = false, AllowRenewal = true, MaxSeverity = DeviationSeverity.None,
+                MaxTotalExposure = 600_000, ScopeType = AuthorityScope.Area },
+
+            // Tier 3: RBG Head, Product Head, Credit Head (New+Renewal, Minor, max 1M)
+            new() { Key = "RBGHead", DisplayName = "RBG Head", Tier = 3, Priority = 1,
+                AllowNew = true, AllowRenewal = true, MaxSeverity = DeviationSeverity.Minor,
+                MaxTotalExposure = 1_000_000, ScopeType = AuthorityScope.Global },
+            new() { Key = "ProductHead", DisplayName = "Product Head", Tier = 3, Priority = 2,
+                AllowNew = true, AllowRenewal = true, MaxSeverity = DeviationSeverity.Minor,
+                MaxTotalExposure = 1_000_000, ScopeType = AuthorityScope.Global },
+            new() { Key = "CreditHead", DisplayName = "Credit Head", Tier = 3, Priority = 3,
+                AllowNew = true, AllowRenewal = true, MaxSeverity = DeviationSeverity.Minor,
+                MaxTotalExposure = 1_000_000, ScopeType = AuthorityScope.Global },
+
+            // Tier 4: COO (New+Renewal, Major, max 1.2M)
+            new() { Key = "COO", DisplayName = "Chief Operating Officer", Tier = 4, Priority = 1,
+                AllowNew = true, AllowRenewal = true, MaxSeverity = DeviationSeverity.Major,
+                MaxTotalExposure = 1_200_000, ScopeType = AuthorityScope.Global },
+
+            // Tier 5: CEO, President, CreCom Chair Level D (New+Renewal, Major, max 1.5M)
+            new() { Key = "CEO", DisplayName = "Chief Executive Officer", Tier = 5, Priority = 1,
+                AllowNew = true, AllowRenewal = true, MaxSeverity = DeviationSeverity.Major,
+                MaxTotalExposure = 1_500_000, ScopeType = AuthorityScope.Global },
+            new() { Key = "President", DisplayName = "President", Tier = 5, Priority = 2,
+                AllowNew = true, AllowRenewal = true, MaxSeverity = DeviationSeverity.Major,
+                MaxTotalExposure = 1_500_000, ScopeType = AuthorityScope.Global },
+            new() { Key = "CreComChair", DisplayName = "CreCom Chair Level D", Tier = 5, Priority = 3,
+                AllowNew = true, AllowRenewal = true, MaxSeverity = DeviationSeverity.Major,
+                MaxTotalExposure = 1_500_000, ScopeType = AuthorityScope.Global },
+        };
+
+        context.ApprovalAuthorities.AddRange(authorities);
+        await context.SaveChangesAsync();
+    }
+
+    private static async Task SeedDeviationCatalogAsync(AppDbContext context)
+    {
+        if (await context.DeviationCatalog.AnyAsync())
+            return;
+
+        // Major deviations (from the bank's delegation matrix)
+        var catalog = new List<DeviationCatalogItem>
+        {
+            // Major severity
+            new() { Description = "Age not within the prescribed parameters", Severity = DeviationSeverity.Major },
+            new() { Description = "Discounted Application Fee", Severity = DeviationSeverity.Major },
+            new() { Description = "Interest rate reduction", Severity = DeviationSeverity.Major },
+            new() { Description = "With past due account - non performing loan", Severity = DeviationSeverity.Major },
+
+            // Minor severity (all other deviations)
+            new() { Description = "Lacking bank statement of account", Severity = DeviationSeverity.Minor },
+            new() { Description = "Lacking CIBI", Severity = DeviationSeverity.Minor },
+            new() { Description = "Lacking marriage cert. with surname as single", Severity = DeviationSeverity.Minor },
+            new() { Description = "Lacking one or two payslip(s) for new atm loan", Severity = DeviationSeverity.Minor },
+            new() { Description = "Lacking signature in application form", Severity = DeviationSeverity.Minor },
+            new() { Description = "Lacking SPAs to claim ATM", Severity = DeviationSeverity.Minor },
+            new() { Description = "No appointment record and/or service record", Severity = DeviationSeverity.Minor },
+            new() { Description = "No FI SOA and loan ledger", Severity = DeviationSeverity.Minor },
+            new() { Description = "No latest payslip", Severity = DeviationSeverity.Minor },
+            new() { Description = "No interview sheet", Severity = DeviationSeverity.Minor },
+            new() { Description = "No orientation form or old form submitted", Severity = DeviationSeverity.Minor },
+            new() { Description = "No valid identification cards", Severity = DeviationSeverity.Minor },
+            new() { Description = "Total consumer loan exposure exceeding 1.2 million", Severity = DeviationSeverity.Minor },
+            new() { Description = "With blocked ATIM in same school", Severity = DeviationSeverity.Minor },
+            new() { Description = "With history of delinquency in the latest loan availment", Severity = DeviationSeverity.Minor },
+            new() { Description = "With NFIS findings", Severity = DeviationSeverity.Minor },
+            new() { Description = "With past due account - performing", Severity = DeviationSeverity.Minor },
+        };
+
+        context.DeviationCatalog.AddRange(catalog);
+        await context.SaveChangesAsync();
+    }
+
+    private static async Task SeedBranchAreaCodesAsync(AppDbContext context)
+    {
+        // Area mapping from the bank's delegation matrix
+        var areaMapping = new Dictionary<string, string>
+        {
+            // A1: San Francisco, Butuan, Cagayan, Trento, Bayugan, Nabunturan, Surigao, Gingoog
+            ["003"] = "A1", ["008"] = "A1", ["012"] = "A1", ["023"] = "A1",
+            ["025"] = "A1", ["026"] = "A1", ["028"] = "A1", ["029"] = "A1",
+
+            // A2: Lianga, Barobo, Arasasan, Hinatuan, Bislig, Cateel, Madrid
+            ["000"] = "A2", ["002"] = "A2", ["004"] = "A2", ["005"] = "A2",
+            ["007"] = "A2", ["009"] = "A2", ["017"] = "A2", ["027"] = "A2",
+
+            // A3: Tagum, General Santos, Panabo, Valencia, Davao-Matina, Mati
+            ["006"] = "A3", ["011"] = "A3", ["014"] = "A3", ["015"] = "A3",
+            ["016"] = "A3", ["022"] = "A3", ["024"] = "A3",
+
+            // A4: Talisay, Tacloban, Bacolod, Iloilo, CTS (Mandaue), Ronda
+            ["013"] = "A4", ["019"] = "A4", ["020"] = "A4", ["021"] = "A4",
+            ["030"] = "A4", ["031"] = "A4",
+        };
+
+        var branches = await context.Branches.ToListAsync();
+        foreach (var branch in branches)
+        {
+            if (areaMapping.TryGetValue(branch.Code, out var areaCode))
+            {
+                branch.AreaCode = areaCode;
+            }
+        }
+
         await context.SaveChangesAsync();
     }
 }

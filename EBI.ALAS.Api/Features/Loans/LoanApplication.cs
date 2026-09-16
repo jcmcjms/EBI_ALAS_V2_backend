@@ -141,6 +141,25 @@ public class LoanApplication
     public DateTime ApplicationDate { get; set; } = DateTime.UtcNow;
     public DateTime LastActionDate { get; set; } = DateTime.UtcNow;
 
+    // ── Delegation-of-authority routing ─────────────────────────────
+    /// <summary>"New" or "Renewal" — supplied at submission, validated server-side.</summary>
+    public string LoanType { get; set; } = "New";
+
+    /// <summary>Deviation severity recomputed at routing time (None/Minor/Major).</summary>
+    public EBI.ALAS.Api.Features.ApprovalMatrix.DeviationSeverity DeviationSeverity { get; set; }
+
+    /// <summary>Frozen routing tier at entry to ForApproval. Null until routed.</summary>
+    public int? RequiredApprovalTier { get; set; }
+
+    /// <summary>Active lease: assigned approver while in ForApproval. Null = unassigned.</summary>
+    public int? AssignedApproverId { get; set; }
+
+    /// <summary>Timestamp of assignment. Null when unassigned.</summary>
+    public DateTime? AssignedAt { get; set; }
+
+    /// <summary>Timestamp when document completeness was verified. Null = unchecked/incomplete.</summary>
+    public DateTime? DocumentsCompleteAt { get; set; }
+
     // ── Audit ──────────────────────────────────────────────────────
     public int CreatedById { get; set; }
     public User CreatedBy { get; set; } = null!;

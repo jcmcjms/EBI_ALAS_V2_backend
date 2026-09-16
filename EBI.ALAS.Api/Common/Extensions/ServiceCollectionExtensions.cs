@@ -1,6 +1,7 @@
 using EBI.ALAS.Api.Common.Authorization;
 using EBI.ALAS.Api.Common.Time;
 using EBI.ALAS.Api.Features.Account;
+using EBI.ALAS.Api.Features.ApprovalMatrix;
 using EBI.ALAS.Api.Features.Auth;
 using EBI.ALAS.Api.Features.AuditLogs;
 using EBI.ALAS.Api.Features.Branches;
@@ -148,6 +149,16 @@ public static class ServiceCollectionExtensions
         // depends on the abstraction (IRealtimeNotificationService) so the
         // hub can be swapped or mocked without touching loan code.
         services.AddScoped<IRealtimeNotificationService, RealtimeNotificationService>();
+
+        // ─── Delegation-of-Authority Routing ───────────────────────────
+        // In-memory presence registry (single-pod topology).
+        services.AddSingleton<IPresenceService, PresenceService>();
+        // Pure routing function — reads approval matrix from DB, cached 5min.
+        services.AddScoped<IApprovalRoutingService, ApprovalRoutingService>();
+        // Document completeness gate — checks checklist documents against requirements.
+        services.AddScoped<IDocumentCompletenessService, DocumentCompletenessService>();
+        // Lease-based assignment — assigns loans to available approvers.
+        services.AddScoped<ILoanAssignmentService, LoanAssignmentService>();
 
         // ─── Authorization ───────────────────────────────────────────────
         services.AddScoped<IAuthorizationHandler, PermissionAuthorizationHandler>();

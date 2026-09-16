@@ -1,3 +1,4 @@
+using EBI.ALAS.Api.Features.ApprovalMatrix;
 using EBI.ALAS.Api.Features.Auth;
 using EBI.ALAS.Api.Features.AuditLogs;
 using EBI.ALAS.Api.Features.Branches;
@@ -33,6 +34,8 @@ public class AppDbContext : DbContext
     public DbSet<DocumentRemark> DocumentRemarks => Set<DocumentRemark>();
     public DbSet<SystemSetting> SystemSettings => Set<SystemSetting>();
     public DbSet<LoanProductChecklist> LoanProductChecklists => Set<LoanProductChecklist>();
+    public DbSet<ApprovalAuthority> ApprovalAuthorities => Set<ApprovalAuthority>();
+    public DbSet<DeviationCatalogItem> DeviationCatalog => Set<DeviationCatalogItem>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -901,6 +904,104 @@ public class AppDbContext : DbContext
                 .WithMany()
                 .HasForeignKey(e => e.LoanProduct)
                 .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // ─── ApprovalAuthority Entity ───────────────────────────────
+        // Delegation-of-authority matrix. Seeded from the bank's
+        // approval matrix; read-only at runtime (no CRUD endpoints).
+        modelBuilder.Entity<ApprovalAuthority>(entity =>
+        {
+            entity.HasKey(e => e.Key);
+
+            entity.Property(e => e.Key)
+                .IsRequired()
+                .HasMaxLength(50);
+
+            entity.Property(e => e.DisplayName)
+                .IsRequired()
+                .HasMaxLength(100);
+
+            entity.Property(e => e.MaxTotalExposure)
+                .IsRequired()
+                .HasColumnType("decimal(18,2)");
+
+            entity.Property(e => e.Tier)
+                .IsRequired();
+
+            entity.Property(e => e.Priority)
+                .IsRequired();
+
+            entity.Property(e => e.AllowNew)
+                .IsRequired();
+
+            entity.Property(e => e.AllowRenewal)
+                .IsRequired();
+
+            entity.Property(e => e.MaxSeverity)
+                .IsRequired();
+
+            entity.Property(e => e.ScopeType)
+                .IsRequired();
+        });
+
+        // ─── DeviationCatalogItem Entity ─────────────────────────────
+        // Seeded deviation severity catalog. Read-only at runtime.
+        modelBuilder.Entity<DeviationCatalogItem>(entity =>
+        {
+            entity.HasKey(e => e.Description);
+
+            entity.Property(e => e.Description)
+                .IsRequired()
+                .HasMaxLength(500);
+
+            entity.Property(e => e.Severity)
+                .IsRequired();
+        });
+
+        // ─── Update Branch: add AreaCode ────────────────────────────
+        modelBuilder.Entity<Branch>(entity =>
+        {
+            entity.Property(e => e.AreaCode)
+                .HasMaxLength(10);
+        });
+
+        // ─── Update User: add ApprovalAuthorityKey ─────────────────
+        modelBuilder.Entity<User>(entity =>
+        {
+            entity.Property(e => e.ApprovalAuthorityKey)
+                .HasMaxLength(50);
+
+            entity.HasIndex(e => e.ApprovalAuthorityKey)
+                .HasDatabaseName("IX_Users_ApprovalAuthorityKey");
+        });
+
+        // ─── Update LoanApplication: add routing fields ─────────────
+        modelBuilder.Entity<LoanApplication>(entity =>
+        {
+            entity.Property(e => e.LoanType)
+                .IsRequired()
+                .HasMaxLength(20)
+                .HasDefaultValue("New");
+
+            entity.Property(e => e.DeviationSeverity)
+                .IsRequired()
+                .HasDefaultValue(DeviationSeverity.None);
+
+            entity.Property(e => e.RequiredApprovalTier);
+
+            entity.Property(e => e.AssignedApproverId);
+
+            entity.Property(e => e.AssignedAt);
+
+            entity.Property(e => e.DocumentsCompleteAt);
+
+            // Index for the assignment query pattern
+            entity.HasIndex(e => new { e.Status, e.AssignedApproverId })
+                .HasDatabaseName("IX_LoanApplications_Status_AssignedApprover");
+
+            // Index for the routing tier query
+            entity.HasIndex(e => new { e.Status, e.RequiredApprovalTier, e.AssignedApproverId })
+                .HasDatabaseName("IX_LoanApplications_RoutingQueue");
         });
     }
 }

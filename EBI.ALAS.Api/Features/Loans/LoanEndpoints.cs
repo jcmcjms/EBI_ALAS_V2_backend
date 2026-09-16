@@ -4,6 +4,7 @@ using EBI.ALAS.Api.Common.Exceptions;
 using EBI.ALAS.Api.Common.Extensions;
 using EBI.ALAS.Api.Common.Models;
 using EBI.ALAS.Api.Common.Time;
+using EBI.ALAS.Api.Features.ApprovalMatrix;
 using EBI.ALAS.Api.Features.Notifications;
 using EBI.ALAS.Api.Infrastructure.Data;
 using FluentValidation;
@@ -266,7 +267,9 @@ public static class LoanEndpoints
         group.MapGet("/{id:int}", async (
             int id,
             ILoanRepository loanRepository,
-            IAuditLogger auditLogger) =>
+            AppDbContext db,
+            IAuditLogger auditLogger,
+            CancellationToken ct) =>
         {
             var loan = await loanRepository.GetByIdAsync(id, includeRelated: true);
             if (loan == null)
@@ -279,6 +282,18 @@ public static class LoanEndpoints
             var lastAction = loan.Actions
                 .OrderByDescending(a => a.ActionDate).ThenByDescending(a => a.Id)
                 .FirstOrDefault();
+
+            // Resolve assigned approver name
+            string? assignedApproverName = null;
+            if (loan.AssignedApproverId is { } assigneeId)
+            {
+                var assignee = await db.Users.AsNoTracking()
+                    .Where(u => u.Id == assigneeId)
+                    .Select(u => new { u.FirstName, u.LastName })
+                    .FirstOrDefaultAsync(ct);
+                if (assignee is not null)
+                    assignedApproverName = $"{assignee.FirstName} {assignee.LastName}";
+            }
 
             var loanResponse = new LoanResponse
             {
@@ -406,6 +421,13 @@ public static class LoanEndpoints
                     .OrderByDescending(a => a.ActionDate).ThenByDescending(a => a.Id)
                     .Select(a => a.Action)
                     .FirstOrDefault(),
+                LoanType = loan.LoanType,
+                DeviationSeverity = (int)loan.DeviationSeverity,
+                RequiredApprovalTier = loan.RequiredApprovalTier,
+                AssignedApproverId = loan.AssignedApproverId,
+                AssignedApproverName = assignedApproverName,
+                AssignedAt = loan.AssignedAt,
+                DocumentsCompleteAt = loan.DocumentsCompleteAt,
                 WebLoanCisNo = loan.WebLoanCisNo,
                 WebLoanBranchCode = loan.WebLoanBranchCode,
                 WebLoanAccountNumbers = loan.WebLoanAccountNumbers,
@@ -611,6 +633,7 @@ public static class LoanEndpoints
             IRealtimeNotificationService realtimeService,
             ClaimsPrincipal user,
             ITimeProvider timeProvider,
+            HttpContext ctx,
             CancellationToken ct) =>
         {
             // Validate request
@@ -645,6 +668,54 @@ public static class LoanEndpoints
             }
 
             var fromStatus = loan.Status;
+
+            // ── Delegation-of-authority: ForApproval entry gate ─────────────
+            // When transitioning INTO ForApproval, enforce document completeness
+            // and compute the routing decision. This freezes the required tier
+            // on the loan at the moment it enters the approval queue.
+            if (request.Status == "ForApproval" && fromStatus == "ForChecking")
+            {
+                var completenessService = ctx.RequestServices.GetRequiredService<IDocumentCompletenessService>();
+                var routingService = ctx.RequestServices.GetRequiredService<IApprovalRoutingService>();
+                var assignmentService = ctx.RequestServices.GetRequiredService<ILoanAssignmentService>();
+
+                var completeness = await completenessService.CheckAsync(loan, ct);
+                if (!completeness.Complete)
+                    return Results.Json(ApiResponse.ErrorResponse(
+                        "Application cannot proceed to approval: incomplete documents.",
+                        completeness.Missing.ToList()), statusCode: 422);
+
+                loan.DocumentsCompleteAt = timeProvider.UtcNow;
+
+                var decision = await routingService.RouteAsync(loan, ct);
+                loan.DeviationSeverity = decision.Severity;
+                loan.RequiredApprovalTier = decision.Tier;
+                await loanRepository.UpdateAsync(loan);
+
+                await assignmentService.AssignAsync(loan, ct);
+            }
+
+            // ── Delegation-of-authority: decision enforcement ───────────────
+            // When an Approver acts on a ForApproval loan, verify tier and
+            // lease assignment match before allowing the transition.
+            if (fromStatus == "ForApproval" && userRole == Roles.Approver)
+            {
+                var db = ctx.RequestServices.GetRequiredService<AppDbContext>();
+                var me = await db.Users.AsNoTracking()
+                    .FirstOrDefaultAsync(u => u.Id == userId, ct);
+                var inTier = me?.ApprovalAuthorityKey != null
+                    && db.ApprovalAuthorities.Any(a => a.Key == me.ApprovalAuthorityKey
+                        && a.Tier == loan.RequiredApprovalTier);
+                var mineOrUnassigned = loan.AssignedApproverId is null || loan.AssignedApproverId == userId;
+                if (!inTier || !mineOrUnassigned)
+                    return Results.Json(ApiResponse.ErrorResponse(
+                        $"This application requires a Tier {loan.RequiredApprovalTier} approver and must be assigned to you."),
+                        statusCode: StatusCodes.Status403Forbidden);
+
+                // Release lease on any decision
+                loan.AssignedApproverId = null;
+                loan.AssignedAt = null;
+            }
 
             // ── Verdict rules for the evaluation step ─────────────────────────
             var verdict = request.Verdict;
@@ -943,6 +1014,184 @@ public static class LoanEndpoints
         .Produces<ApiResponse>(404)
         .RequireAuthorization("CanViewLoan");
     }
+
+    // ── Approval Matrix Endpoints ────────────────────────────────────────────
+
+    /// <summary>Maps approval-matrix and presence endpoints.</summary>
+    public static void MapApprovalMatrixEndpoints(this WebApplication app)
+    {
+        var group = app.MapGroup("/api")
+            .WithTags("Approval Matrix")
+            .RequireAuthorization();
+
+        // ── GET /api/approval-authorities — the full matrix for UI rendering ──
+        group.MapGet("/approval-authorities", async (
+            AppDbContext db,
+            CancellationToken ct) =>
+        {
+            var authorities = await db.ApprovalAuthorities
+                .AsNoTracking()
+                .OrderBy(a => a.Tier).ThenBy(a => a.Priority)
+                .Select(a => new ApprovalAuthorityDto
+                {
+                    Key = a.Key,
+                    DisplayName = a.DisplayName,
+                    Tier = a.Tier,
+                    Priority = a.Priority,
+                    AllowNew = a.AllowNew,
+                    AllowRenewal = a.AllowRenewal,
+                    MaxSeverity = (int)a.MaxSeverity,
+                    MaxTotalExposure = a.MaxTotalExposure,
+                    ScopeType = (int)a.ScopeType,
+                })
+                .ToListAsync(ct);
+
+            return Results.Ok(ApiResponse<List<ApprovalAuthorityDto>>.SuccessResponse(authorities));
+        })
+        .WithName("GetApprovalAuthorities")
+        .Produces<ApiResponse<List<ApprovalAuthorityDto>>>(200)
+        .RequireAuthorization("CanViewLoan");
+
+        // ── GET /api/deviation-catalog — deviation severity catalog ───────────
+        group.MapGet("/deviation-catalog", async (
+            AppDbContext db,
+            CancellationToken ct) =>
+        {
+            var catalog = await db.DeviationCatalog
+                .AsNoTracking()
+                .Select(c => new DeviationCatalogDto
+                {
+                    Description = c.Description,
+                    Severity = (int)c.Severity,
+                })
+                .ToListAsync(ct);
+
+            return Results.Ok(ApiResponse<List<DeviationCatalogDto>>.SuccessResponse(catalog));
+        })
+        .WithName("GetDeviationCatalog")
+        .Produces<ApiResponse<List<DeviationCatalogDto>>>(200)
+        .RequireAuthorization("CanViewLoan");
+
+        // ── GET /api/presence/approvers — online/reviewing snapshot ───────────
+        group.MapGet("/presence/approvers", async (
+            ClaimsPrincipal principal,
+            AppDbContext db,
+            IPresenceService presence,
+            ILoanAssignmentService assignment,
+            CancellationToken ct) =>
+        {
+            var myBranch = principal.GetBranchCode();
+            var myRole = principal.GetRole();
+
+            // Get approvers in scope (same branch for Branch scope, all for Area/Global)
+            var approvers = await db.Users.AsNoTracking()
+                .Where(u => u.Role == Roles.Approver && u.IsActive && u.ApprovalAuthorityKey != null)
+                .Select(u => new { u.Id, u.FirstName, u.LastName, u.BranchId, u.ApprovalAuthorityKey })
+                .ToListAsync(ct);
+
+            var result = new List<ApproverPresenceDto>();
+            foreach (var a in approvers)
+            {
+                var auth = await db.ApprovalAuthorities.AsNoTracking()
+                    .FirstOrDefaultAsync(x => x.Key == a.ApprovalAuthorityKey, ct);
+                if (auth is null) continue;
+
+                // Scope check: Branch scope = same branch only
+                if (auth.ScopeType == AuthorityScope.Branch && a.BranchId != myBranch)
+                    continue;
+
+                result.Add(new ApproverPresenceDto
+                {
+                    UserId = a.Id,
+                    Name = $"{a.FirstName} {a.LastName}",
+                    AuthorityKey = a.ApprovalAuthorityKey!,
+                    Tier = auth.Tier,
+                    Online = presence.IsOnline(a.Id),
+                    Reviewing = await assignment.IsReviewingAsync(a.Id, ct),
+                });
+            }
+
+            return Results.Ok(ApiResponse<List<ApproverPresenceDto>>.SuccessResponse(result));
+        })
+        .WithName("GetApproverPresence")
+        .Produces<ApiResponse<List<ApproverPresenceDto>>>(200)
+        .RequireAuthorization("CanViewLoan");
+
+        // ── POST /api/loans/{id}/assignment/release — release an active lease ──
+        group.MapPost("/{id:int}/assignment/release", async (
+            int id,
+            ClaimsPrincipal principal,
+            ILoanAssignmentService assignment,
+            CancellationToken ct) =>
+        {
+            var userId = principal.GetUserId();
+            await assignment.ReleaseAsync(id, userId, ct);
+            return Results.Ok(ApiResponse.SuccessResponse("Assignment released."));
+        })
+        .WithName("ReleaseAssignment")
+        .Produces<ApiResponse>(200)
+        .RequireAuthorization("CanViewLoan");
+
+        // ── GET /api/loans/{id}/routing — tier + matched rule + completeness ──
+        group.MapGet("/{id:int}/routing", async (
+            int id,
+            AppDbContext db,
+            IDocumentCompletenessService completeness,
+            CancellationToken ct) =>
+        {
+            var loan = await db.LoanApplications
+                .AsNoTracking()
+                .Include(l => l.Deviations)
+                .FirstOrDefaultAsync(l => l.Id == id, ct);
+
+            if (loan is null)
+                return Results.NotFound(ApiResponse.ErrorResponse("Loan not found"));
+
+            var completenessResult = await completeness.CheckAsync(loan, ct);
+
+            // Resolve assigned approver name
+            string? assignedName = null;
+            if (loan.AssignedApproverId is { } assigneeId)
+            {
+                var assignee = await db.Users.AsNoTracking()
+                    .Where(u => u.Id == assigneeId)
+                    .Select(u => new { u.FirstName, u.LastName })
+                    .FirstOrDefaultAsync(ct);
+                if (assignee is not null)
+                    assignedName = $"{assignee.FirstName} {assignee.LastName}";
+            }
+
+            // Resolve matched rule description
+            string? matchedRule = null;
+            if (loan.RequiredApprovalTier is { } tier)
+            {
+                var auth = await db.ApprovalAuthorities.AsNoTracking()
+                    .FirstOrDefaultAsync(a => a.Tier == tier, ct);
+                if (auth is not null)
+                    matchedRule = $"{auth.DisplayName} (Tier {tier})";
+            }
+
+            var dto = new LoanRoutingDto
+            {
+                LoanId = loan.Id,
+                RequiredApprovalTier = loan.RequiredApprovalTier,
+                DeviationSeverity = (int)loan.DeviationSeverity,
+                TotalExposure = loan.TotalExposure,
+                LoanType = loan.LoanType,
+                MatchedRule = matchedRule,
+                DocumentsComplete = completenessResult.Complete,
+                MissingDocuments = completenessResult.Missing.ToList(),
+                AssignedApproverId = loan.AssignedApproverId,
+                AssignedApproverName = assignedName,
+            };
+
+            return Results.Ok(ApiResponse<LoanRoutingDto>.SuccessResponse(dto));
+        })
+        .WithName("GetLoanRouting")
+        .Produces<ApiResponse<LoanRoutingDto>>(200)
+        .Produces<ApiResponse>(404)
+        .RequireAuthorization("CanViewLoan");
+    }
 }
 
 public class LoanResponse
@@ -1037,6 +1286,15 @@ public class LoanResponse
     /// <summary>Latest evaluation verdict projected from the audit trail.
     /// Values: "EvaluatedRecommended" | "EvaluatedNotRecommended" | null.</summary>
     public string? EvaluationVerdict { get; set; }
+
+    // ── Delegation-of-authority routing ─────────────────────────────
+    public string LoanType { get; set; } = "New";
+    public int DeviationSeverity { get; set; }
+    public int? RequiredApprovalTier { get; set; }
+    public int? AssignedApproverId { get; set; }
+    public string? AssignedApproverName { get; set; }
+    public DateTime? AssignedAt { get; set; }
+    public DateTime? DocumentsCompleteAt { get; set; }
 
     public List<OutstandingLoanResponse> OutstandingLoans { get; set; } = new();
     public List<BuyOutResponse> BuyOuts { get; set; } = new();
@@ -1168,4 +1426,49 @@ public sealed class CancelLoanApplicationValidator : AbstractValidator<CancelLoa
             .MinimumLength(10).WithMessage("Reason must be at least 10 characters.")
             .MaximumLength(2000).WithMessage("Reason must not exceed 2000 characters.");
     }
+}
+
+// ── Approval Matrix DTOs ─────────────────────────────────────────────────────
+
+public class ApprovalAuthorityDto
+{
+    public string Key { get; set; } = string.Empty;
+    public string DisplayName { get; set; } = string.Empty;
+    public int Tier { get; set; }
+    public int Priority { get; set; }
+    public bool AllowNew { get; set; }
+    public bool AllowRenewal { get; set; }
+    public int MaxSeverity { get; set; }
+    public decimal MaxTotalExposure { get; set; }
+    public int ScopeType { get; set; }
+}
+
+public class DeviationCatalogDto
+{
+    public string Description { get; set; } = string.Empty;
+    public int Severity { get; set; }
+}
+
+public class ApproverPresenceDto
+{
+    public int UserId { get; set; }
+    public string Name { get; set; } = string.Empty;
+    public string AuthorityKey { get; set; } = string.Empty;
+    public int Tier { get; set; }
+    public bool Online { get; set; }
+    public bool Reviewing { get; set; }
+}
+
+public class LoanRoutingDto
+{
+    public int LoanId { get; set; }
+    public int? RequiredApprovalTier { get; set; }
+    public int DeviationSeverity { get; set; }
+    public decimal TotalExposure { get; set; }
+    public string LoanType { get; set; } = string.Empty;
+    public string? MatchedRule { get; set; }
+    public bool DocumentsComplete { get; set; }
+    public List<string> MissingDocuments { get; set; } = new();
+    public int? AssignedApproverId { get; set; }
+    public string? AssignedApproverName { get; set; }
 }
