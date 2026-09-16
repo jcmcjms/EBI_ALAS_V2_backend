@@ -417,6 +417,10 @@ public class WebLoanRepository(IDbContextFactory<WebLoanDbContext> contextFactor
     }
 
     // ─── Loan class lookup (loan_data.cat_loan_class) ──────────────────
+    /// <summary>
+    /// Returns the cat_loan_class value for a loan, or null if no loan row exists.
+    /// Uses a sentinel to distinguish "row exists but cat_loan_class IS NULL" from "no row found".
+    /// </summary>
     public async Task<string?> GetCatLoanClassAsync(
         string branchCode,
         string loanNo,
@@ -446,13 +450,23 @@ public class WebLoanRepository(IDbContextFactory<WebLoanDbContext> contextFactor
         }
 
         await using var command = connection.CreateCommand();
+        // Use COUNT(*) to first check if the loan row exists, then fetch cat_loan_class.
+        // This distinguishes "no row" from "row exists but cat_loan_class IS NULL".
         command.CommandText = @"
-            SELECT TOP (1)
-                cat_loan_class
-            FROM webloan.dbo.loan_data
-            WHERE bch          = @branchCode
-              AND loan_no      = @loanNo
-              AND loan_product = @productCode";
+            SELECT
+                CASE
+                    WHEN EXISTS (
+                        SELECT 1 FROM webloan.dbo.loan_data
+                        WHERE bch = @branchCode AND loan_no = @loanNo AND loan_product = @productCode
+                    )
+                    THEN ISNULL(
+                        (SELECT TOP (1) cat_loan_class
+                         FROM webloan.dbo.loan_data
+                         WHERE bch = @branchCode AND loan_no = @loanNo AND loan_product = @productCode),
+                        '__NULL__'
+                    )
+                    ELSE '__NOT_FOUND__'
+                END AS result";
 
         var pBranch = command.CreateParameter();
         pBranch.ParameterName = "@branchCode";
@@ -472,19 +486,16 @@ public class WebLoanRepository(IDbContextFactory<WebLoanDbContext> contextFactor
         pProduct.Size = 50;
         command.Parameters.Add(pProduct);
 
-        // ExecuteScalar returns DBNull.Value for SQL NULL, or the object
-        // value for a non-null result. We return C# null in both cases —
-        // the service/endpoint maps null → 404 (no row found) and the UI
-        // renders a placeholder when cat_loan_class is genuinely NULL.
         var result = await command.ExecuteScalarAsync(ct);
 
-        // ExecuteScalar semantics:
-        //   * No rows returned (TOP 1 with no match) → null
-        //   * Row returned with cat_loan_class IS NULL → DBNull.Value
-        //   * Row returned with non-null value → the string
-        // Both null and DBNull.Value map to C# null in the response,
-        // which the service/endpoint treats as "no class to return".
+        // ExecuteScalar returns:
+        //   '__NOT_FOUND__' → no loan row exists → return null (caller maps to 404)
+        //   '__NULL__' → loan exists but cat_loan_class IS NULL → return empty string
+        //   non-null string → the actual cat_loan_class value
         if (result is null || result == DBNull.Value) return null;
-        return (string?)result;
+        var strResult = (string)result;
+        if (strResult == "__NOT_FOUND__") return null;
+        if (strResult == "__NULL__") return string.Empty;
+        return strResult;
     }
 }

@@ -179,6 +179,7 @@ public static class WebLoanEndpoints
                 AbsoluteExpirationRelativeToNow = result is null
                     ? TimeSpan.FromMinutes(5)
                     : TimeSpan.FromHours(12),
+                Size = 1,
             });
 
             return result is null

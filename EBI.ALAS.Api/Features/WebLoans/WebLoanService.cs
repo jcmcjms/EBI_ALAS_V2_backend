@@ -376,11 +376,14 @@ public class WebLoanService(IWebLoanRepository repository) : IWebLoanService
         // the given (bch, loan_no, loan_product)".
         if (catLoanClass is null) return null;
 
+        // Empty string from repository means the loan row exists but
+        // cat_loan_class IS NULL. Return a valid response with null
+        // CatLoanClass so the endpoint returns 200 (not 404).
         return new CatLoanClassResponse(
             Bch: bch,
             LoanNo: loanNo,
             LoanProduct: loanProduct,
-            CatLoanClass: catLoanClass);
+            CatLoanClass: string.IsNullOrEmpty(catLoanClass) ? null : catLoanClass);
     }
 
     // ─── Helpers ──────────────────────────────────────────────────────────
