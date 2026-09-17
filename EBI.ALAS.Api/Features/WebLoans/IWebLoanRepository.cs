@@ -35,7 +35,15 @@ public interface IWebLoanRepository
         IReadOnlyList<string> paths,
         CancellationToken ct = default);
 
-    Task<IReadOnlyList<LoanAcctInfo>> GetAccountsByCisAsync(string cisNo, CancellationToken ct = default);
+    // Returns all accounts for a CIS, optionally scoped to a branch.
+    // When branchCode is non-null (non-Admin callers), only accounts
+    // belonging to that branch are returned. When null (Admin), all
+    // branches are visible. This prevents encoders from seeing accounts
+    // belonging to other branches for the same CIS.
+    Task<IReadOnlyList<LoanAcctInfo>> GetAccountsByCisAsync(
+        string cisNo,
+        string? branchCode = null,
+        CancellationToken ct = default);
 
     // Returns true when an account exists AND its cis_no matches the caller-
     // supplied cisNo AND its bch matches the caller-supplied branchCode.

@@ -4,8 +4,8 @@ namespace EBI.ALAS.Api.Features.WebLoans;
 //
 // Branch scoping rules differ per endpoint:
 //   * `SearchByCisAsync` — `bch` is the auth user's branch (null for Admin).
-//     Not currently used to filter CIS rows; kept on the signature for
-//     forward-compat and to keep the contract symmetric.
+//     Non-Admin callers (e.g. Encoder) are scoped to their branch so they
+//     only see accounts belonging to their branch. Admin sees all branches.
 //   * `GetOutstandingLoansAsync` / `GetPendingLoanAsync` — `bch` comes
 //     from the URL (the `accountId` route parameter), NOT from the JWT.
 //     The caller controls it; the JWT no longer restricts branch scope

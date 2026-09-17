@@ -105,12 +105,26 @@ public class WebLoanRepository(IDbContextFactory<WebLoanDbContext> contextFactor
             .ToListAsync(ct);
     }
 
-    public async Task<IReadOnlyList<LoanAcctInfo>> GetAccountsByCisAsync(string cisNo, CancellationToken ct = default)
+    public async Task<IReadOnlyList<LoanAcctInfo>> GetAccountsByCisAsync(
+        string cisNo,
+        string? branchCode = null,
+        CancellationToken ct = default)
     {
         await using var context = await contextFactory.CreateDbContextAsync(ct);
-        return await context.LoanAcctInfos
+
+        // When branchCode is non-null (non-Admin callers), scope accounts
+        // to the caller's branch so an encoder only sees their own
+        // branch's accounts. Admin callers pass null and see all branches.
+        var query = context.LoanAcctInfos
             .AsNoTracking()
-            .Where(a => a.CisNo == cisNo)
+            .Where(a => a.CisNo == cisNo);
+
+        if (!string.IsNullOrEmpty(branchCode))
+        {
+            query = query.Where(a => a.BranchCode == branchCode);
+        }
+
+        return await query
             .OrderBy(a => a.AccountNo)
             .ToListAsync(ct);
     }

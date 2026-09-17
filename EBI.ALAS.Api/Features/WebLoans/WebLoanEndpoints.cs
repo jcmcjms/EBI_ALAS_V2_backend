@@ -21,8 +21,9 @@ public static class WebLoanEndpoints
         // Returns the borrower profile + flat list of accounts. The bch
         // is taken from the JWT — never from the client — so a user
         // cannot spoof another branch by adding it to the query string.
-        // Admin role passes null bch (no filter, since CIS search is not
-        // branch-scoped anyway).
+        // Non-Admin callers (e.g. Encoder) are scoped to their branch
+        // so they only see accounts belonging to their branch. Admin
+        // role passes null bch (no filter — sees all branches).
         group.MapGet("/cis/{cisNo}/search", async (
             string cisNo,
             ClaimsPrincipal user,
@@ -227,11 +228,10 @@ public static class WebLoanEndpoints
     ///
     /// Returns:
     ///   * <c>null</c> when the caller has the Admin role — branch
-    ///     scoping is bypassed, the repository emits an "IS NULL OR"
-    ///     predicate. Mirrors the existing HasPermission Admin wildcard
-    ///     in ClaimsPrincipalExtensions.
+    ///     scoping is bypassed, the repository returns all branches.
     ///   * <c>string</c> — the user's <c>branchId</c> claim value, when
-    ///     the caller is non-Admin.
+    ///     the caller is non-Admin. The service scopes account results
+    ///     to this branch so encoders only see their own branch.
     ///
     /// Throws <see cref="UnauthorizedAccessException"/> when a non-Admin
     /// token lacks the <c>branchId</c> claim. Every token this service

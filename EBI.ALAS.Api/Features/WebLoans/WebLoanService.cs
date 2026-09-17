@@ -10,19 +10,15 @@ public class WebLoanService(IWebLoanRepository repository) : IWebLoanService
         string? bch,
         CancellationToken ct = default)
     {
-        // The bch is the auth user's branch (null for Admin). The CIS-
-        // search endpoint does not filter rows by branch (a CIS can have
-        // accounts in multiple branches), so the value is not used here —
-        // it stays on the signature for forward-compat with branch-scoped
-        // audit logging and to keep the contract symmetric with the
-        // loans call.
-        _ = bch;
+        // The bch is the auth user's branch (null for Admin). Non-Admin
+        // callers (e.g. Encoder) are scoped to their branch so they only
+        // see accounts belonging to their branch. Admin sees all branches.
 
         // Fire all four independent queries in parallel. The cis_info
         // row is the gate (404 if missing); the other three are
         // best-effort enrichments.
         var cisTask = repository.GetCisInfoAsync(cisNo, ct);
-        var accountsTask = repository.GetAccountsByCisAsync(cisNo, ct);
+        var accountsTask = repository.GetAccountsByCisAsync(cisNo, bch, ct);
         var agencyTypeTask = repository.GetAgencyTypeAsync(cisNo, ct);
         var lengthOfServiceTask = repository.GetLengthOfServiceAsync(cisNo, ct);
 
