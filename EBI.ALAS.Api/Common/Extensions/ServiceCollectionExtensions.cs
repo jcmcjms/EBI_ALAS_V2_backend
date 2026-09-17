@@ -3,6 +3,7 @@ using EBI.ALAS.Api.Common.Time;
 using EBI.ALAS.Api.Features.Account;
 using EBI.ALAS.Api.Features.ApprovalMatrix;
 using EBI.ALAS.Api.Features.Auth;
+using EBI.ALAS.Api.Features.Presence;
 using EBI.ALAS.Api.Features.AuditLogs;
 using EBI.ALAS.Api.Features.Branches;
 using EBI.ALAS.Api.Features.Dashboard;
@@ -153,6 +154,8 @@ public static class ServiceCollectionExtensions
         // ─── Delegation-of-Authority Routing ───────────────────────────
         // In-memory presence registry (single-pod topology).
         services.AddSingleton<IPresenceService, PresenceService>();
+        // Entity watch — reusable "who is looking at this record" primitive.
+        services.AddSingleton<IEntityWatchService, EntityWatchService>();
         // Pure routing function — reads approval matrix from DB, cached 5min.
         services.AddScoped<IApprovalRoutingService, ApprovalRoutingService>();
         // Document completeness gate — checks checklist documents against requirements.

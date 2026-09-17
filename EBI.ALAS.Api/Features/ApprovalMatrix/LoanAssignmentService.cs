@@ -2,6 +2,7 @@ using EBI.ALAS.Api.Common.Constants;
 using EBI.ALAS.Api.Features.Auth;
 using EBI.ALAS.Api.Features.Loans;
 using EBI.ALAS.Api.Features.Notifications;
+using EBI.ALAS.Api.Features.Presence;
 using EBI.ALAS.Api.Infrastructure.Data;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;

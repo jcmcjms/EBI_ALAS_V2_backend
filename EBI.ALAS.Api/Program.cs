@@ -20,6 +20,7 @@ using EBI.ALAS.Api.Features.Notifications;
 using EBI.ALAS.Api.Features.RoleManagement;
 using EBI.ALAS.Api.Features.Users;
 using EBI.ALAS.Api.Features.WebLoans;
+using EBI.ALAS.Api.Features.Presence;
 using EBI.ALAS.Api.Infrastructure.Data;
 using EBI.ALAS.Api.Infrastructure.Interceptors;
 using EBI.ALAS.Api.Infrastructure.Security;
@@ -369,6 +370,7 @@ app.MapWebLoanEndpoints();
 app.MapLoanProductEndpoints();
 app.MapNotificationEndpoints();
 app.MapApprovalMatrixEndpoints();
+app.MapPresenceEndpoints();
 
 using (var scope = app.Services.CreateScope())
 {
