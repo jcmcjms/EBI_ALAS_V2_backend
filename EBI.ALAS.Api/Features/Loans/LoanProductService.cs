@@ -67,9 +67,15 @@ public class LoanProductService(
         existing.DocStampFee = request.DocStampFee;
         existing.InsuranceFee = request.InsuranceFee;
         existing.AdvanceInterestRate = request.AdvanceInterestRate;
-        existing.ApplicationChargeRate = request.ApplicationChargeRate;
-        existing.AmortizationMode = request.AmortizationMode;
-        existing.ChargeAdvanceInterest = request.ChargeAdvanceInterest;
+        // Nullable fields: only overwrite when the caller explicitly
+        // provided a value. Old frontend versions that don't send
+        // these fields will preserve the existing row values.
+        if (request.ApplicationChargeRate.HasValue)
+            existing.ApplicationChargeRate = request.ApplicationChargeRate.Value;
+        if (request.AmortizationMode is not null)
+            existing.AmortizationMode = request.AmortizationMode;
+        if (request.ChargeAdvanceInterest.HasValue)
+            existing.ChargeAdvanceInterest = request.ChargeAdvanceInterest.Value;
 
         // UpsertAsync with preservePolicyFields=false is what writes
         // the updated row — the merge helper keeps the logic in one
@@ -141,10 +147,10 @@ public class LoanProductService(
         if (r.AdvanceInterestRate < 0 || r.AdvanceInterestRate > 1m)
             throw new ArgumentException(
                 "AdvanceInterestRate must be between 0 and 1 (e.g. 0.12 for 12% p.a.).", nameof(r));
-        if (r.ApplicationChargeRate < 0 || r.ApplicationChargeRate > 1m)
+        if (r.ApplicationChargeRate is < 0 or > 1m)
             throw new ArgumentException(
                 "ApplicationChargeRate must be between 0 and 1 (e.g. 0.06 for 6%).", nameof(r));
-        if (r.AmortizationMode is not ("DIM" or "MIC"))
+        if (r.AmortizationMode is not null and not ("DIM" or "MIC"))
             throw new ArgumentException(
                 "AmortizationMode must be 'DIM' or 'MIC'.", nameof(r));
     }

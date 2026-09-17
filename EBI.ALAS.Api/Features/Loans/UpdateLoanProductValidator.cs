@@ -47,5 +47,19 @@ public class UpdateLoanProductValidator : AbstractValidator<UpdateLoanProductReq
         RuleFor(x => x.AdvanceInterestRate)
             .InclusiveBetween(0m, 1m)
             .WithMessage("AdvanceInterestRate must be between 0 and 1 (e.g. 0.12 for 12% p.a.).");
+
+        // Nullable fields — only validate when the caller explicitly
+        // provided a value. Old frontend versions that don't send
+        // these fields will skip validation and preserve existing
+        // row values via merge semantics in the service layer.
+        RuleFor(x => x.ApplicationChargeRate)
+            .InclusiveBetween(0m, 1m)
+            .When(x => x.ApplicationChargeRate.HasValue)
+            .WithMessage("ApplicationChargeRate must be between 0 and 1 (e.g. 0.06 for 6%).");
+
+        RuleFor(x => x.AmortizationMode)
+            .Must(m => m is "DIM" or "MIC")
+            .When(x => x.AmortizationMode is not null)
+            .WithMessage("AmortizationMode must be 'DIM' or 'MIC'.");
     }
 }

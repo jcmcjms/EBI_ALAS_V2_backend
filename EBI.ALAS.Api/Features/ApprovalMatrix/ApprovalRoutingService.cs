@@ -71,6 +71,7 @@ public sealed class ApprovalRoutingService : IApprovalRoutingService
     private Task<List<ApprovalAuthority>> GetAuthoritiesAsync(CancellationToken ct) =>
         _cache.GetOrCreateAsync("approval-matrix:authorities", async e =>
         {
+            e.Size = 1;
             e.AbsoluteExpirationRelativeToNow = CacheTtl;
             return await _db.ApprovalAuthorities.AsNoTracking()
                 .OrderBy(a => a.Tier).ThenBy(a => a.Priority)
@@ -80,6 +81,7 @@ public sealed class ApprovalRoutingService : IApprovalRoutingService
     private Task<Dictionary<string, DeviationSeverity>> GetCatalogAsync(CancellationToken ct) =>
         _cache.GetOrCreateAsync("approval-matrix:catalog", async e =>
         {
+            e.Size = 1;
             e.AbsoluteExpirationRelativeToNow = CacheTtl;
             return await _db.DeviationCatalog.AsNoTracking()
                 .ToDictionaryAsync(x => x.Description, x => x.Severity, ct);

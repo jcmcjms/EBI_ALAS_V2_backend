@@ -45,7 +45,7 @@ public class ChecklistDocumentRepository : IChecklistDocumentRepository
             SELECT 
                 ld.loan_no,
                 ld.loan_product,
-                lpc.id_code,
+                lpc.IdCode AS id_code,
                 cla.description AS checklist_description,
                 dr.doc_id,
                 d.mini_str,
@@ -56,18 +56,18 @@ public class ChecklistDocumentRepository : IChecklistDocumentRepository
                     WHEN dr.doc_id IS NULL THEN 'No uploaded documents'
                     ELSE 'Uploaded'
                 END AS upload_status
-            FROM ALASv2_DB.dbo.loan_product_checklist lpc
+            FROM ALASv2_DB.dbo.LoanProductChecklist lpc
             INNER JOIN WEBLOAN_SERVER.webloan.dbo.loan_data ld
-                ON lpc.loan_product = ld.loan_product
+                ON lpc.LoanProduct = ld.loan_product
             LEFT JOIN WEBLOAN_SERVER.webloan.dbo.check_list_all cla
-                ON lpc.id_code = cla.id_code
+                ON lpc.IdCode = cla.id_code
             LEFT JOIN OPENQUERY(BPB_BINARY_SERVER,
                 'SELECT doc_id, check_list_item, cis_no, filename_str
                  FROM bpb_binary.dbo.doc_ref
                  WHERE cis_no = ''{sanitizedLoanNo}''
                    AND deleted IS NULL'
             ) dr
-                ON lpc.id_code = dr.check_list_item
+                ON lpc.IdCode = dr.check_list_item
                AND dr.cis_no = ld.loan_no
             LEFT JOIN OPENQUERY(BPB_BINARY_SERVER,
                 'SELECT doc_id, mini_str, content_type, created, uploaded_by

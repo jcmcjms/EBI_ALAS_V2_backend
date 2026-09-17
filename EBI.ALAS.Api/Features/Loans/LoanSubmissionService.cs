@@ -172,13 +172,9 @@ public class LoanSubmissionService : ILoanSubmissionService
                 application.NthpBelowMinimum = results.NthpBelowMinimum;
 
                 // ── Capacity gates ────────────────────────────────────
-                if (results.AmortizationExceedsDisposable)
-                {
-                    validationErrors[$"loans[{i}].capacityToPay"] =
-                    [
-                        $"Monthly amortization {results.MonthlyAmortization:N2} exceeds net disposable income {results.NetDisposableIncome:N2}."
-                    ];
-                }
+                // AmortizationExceedsDisposable gate removed — the
+                // engine still computes the flag for UI display, but
+                // submission is no longer blocked.
 
                 if (results.NthpBelowMinimum)
                 {

@@ -179,9 +179,7 @@ public class EbiReloanSectionValidator : AbstractValidator<EbiReloanSection>
         RuleFor(x => x.ExistingDeduction).GreaterThanOrEqualTo(0);
         RuleFor(x => x.OutstandingBalance).GreaterThanOrEqualTo(0);
         RuleFor(x => x.PayToClose)
-            .GreaterThanOrEqualTo(0)
-            .Must((row, pay) => pay <= row.OutstandingBalance)
-            .WithMessage("Pay to close cannot exceed the outstanding balance.");
+            .GreaterThanOrEqualTo(0);
     }
 }
 

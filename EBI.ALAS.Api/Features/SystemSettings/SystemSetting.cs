@@ -63,7 +63,11 @@ public sealed class SystemSettingsStore : ISystemSettingsStore
             ? SettingSnapshot.Empty
             : new SettingSnapshot(parsed, row.UpdatedAt, row.Name);
 
-        _cache.Set(cacheKey, snapshot, CacheTtl);
+        _cache.Set(cacheKey, snapshot, new MemoryCacheEntryOptions
+        {
+            Size = 1,
+            AbsoluteExpirationRelativeToNow = CacheTtl,
+        });
         return snapshot;
     }
 
@@ -85,7 +89,11 @@ public sealed class SystemSettingsStore : ISystemSettingsStore
             .Select(u => u.FirstName + " " + u.LastName).FirstOrDefaultAsync(ct) ?? string.Empty;
 
         var snapshot = new SettingSnapshot(value, row.UpdatedAt, name);
-        _cache.Set(CachePrefix + key, snapshot, CacheTtl);
+        _cache.Set(CachePrefix + key, snapshot, new MemoryCacheEntryOptions
+        {
+            Size = 1,
+            AbsoluteExpirationRelativeToNow = CacheTtl,
+        });
         return snapshot;
     }
 }

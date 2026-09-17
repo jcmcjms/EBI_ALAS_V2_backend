@@ -37,12 +37,17 @@ public sealed class DocumentCompletenessService : IDocumentCompletenessService
         {
             docs = await _checklist.GetChecklistDocumentsAsync(loanNo, ct);
             // Refresh the cache so subsequent reads hit the updated snapshot.
-            _cache.Set($"checklist:{loanNo}", docs, TimeSpan.FromSeconds(60));
+            _cache.Set($"checklist:{loanNo}", docs, new MemoryCacheEntryOptions
+            {
+                Size = 1,
+                AbsoluteExpirationRelativeToNow = TimeSpan.FromSeconds(60),
+            });
         }
         else
         {
             docs = await _cache.GetOrCreateAsync($"checklist:{loanNo}", async e =>
             {
+                e.Size = 1;
                 e.AbsoluteExpirationRelativeToNow = TimeSpan.FromSeconds(60);
                 return await _checklist.GetChecklistDocumentsAsync(loanNo, ct);
             });
