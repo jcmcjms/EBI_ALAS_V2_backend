@@ -95,12 +95,40 @@ public static class UserEndpoints
                 : Results.NotFound(ApiResponse.ErrorResponse("User not found"));
         }).WithName("UpdateUserStatus").RequireAuthorization("CanSuspendUsers");
 
-        group.MapPost("/{id:int}/reset-password", async (int id, [FromBody] ResetPasswordRequest request, IUserService userService) =>
+        group.MapPost("/{id:int}/reset-password", async (
+            int id,
+            [FromBody] ResetPasswordRequest? request,
+            IUserService userService,
+            ITempPasswordGenerator generator,
+            IAuditLogService auditLogService,
+            ClaimsPrincipal principal) =>
         {
+            var supplied = request?.NewPassword;
+            string newPassword;
+
+            if (string.IsNullOrWhiteSpace(supplied))
+            {
+                // Server is the policy authority — generate on behalf of the admin.
+                newPassword = generator.Generate();
+            }
+            else
+            {
+                newPassword = supplied;
+            }
+
             try
             {
-                var tempPassword = await userService.ResetPasswordAsync(id, request.NewPassword);
-                return Results.Ok(ApiResponse<string>.SuccessResponse(tempPassword, "Password reset successfully. User must change password on next login."));
+                var result = await userService.ResetPasswordAsync(id, newPassword);
+
+                // Compliance trail — NEVER the credential itself.
+                await auditLogService.LogAsync(
+                    principal.GetUserId(),
+                    $"{principal.GetFirstName()} {principal.GetLastName()}",
+                    "PasswordReset", "User", id.ToString(), result.Username,
+                    "Temporary credential issued; change required at next login.");
+
+                return Results.Ok(ApiResponse<ResetPasswordResponse>.SuccessResponse(result,
+                    "Password reset. Display the credential once via the secure handoff dialog."));
             }
             catch (NotFoundException ex)
             {

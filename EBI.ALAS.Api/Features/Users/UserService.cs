@@ -227,7 +227,7 @@ public class UserService : IUserService
         return true;
     }
 
-    public async Task<string> ResetPasswordAsync(int id, string newPassword)
+    public async Task<ResetPasswordResponse> ResetPasswordAsync(int id, string newPassword)
     {
         var user = await _userRepository.GetUserByIdAsync(id);
         if (user == null)
@@ -237,7 +237,7 @@ public class UserService : IUserService
         user.MustChangePassword = true; // Force change on next login
         await _userRepository.UpdateUserAsync();
 
-        return newPassword;
+        return new ResetPasswordResponse(user.Username, newPassword, user.MustChangePassword);
     }
 
     public async Task<int> RevokeAllSessionsAsync(int id)

@@ -38,7 +38,13 @@ public record UpdateUserRequest(
 
 public record UserStatusRequest(bool IsActive);
 
-public record ResetPasswordRequest(string NewPassword);
+public record ResetPasswordRequest(string? NewPassword = null);
+
+/// <summary>
+/// Response from the reset-password endpoint. The temporary password is
+/// shown exactly once — in the secure handoff dialog — and never logged.
+/// </summary>
+public sealed record ResetPasswordResponse(string Username, string TemporaryPassword, bool MustChangePassword);
 
 public record UserAuditLogResponse(
     int Id,
