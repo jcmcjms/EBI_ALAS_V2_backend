@@ -58,7 +58,6 @@ public record LoanProductSyncResult(
 public interface ILoanProductService
 {
     Task<IReadOnlyList<LoanProductResponse>> GetAllAsync(CancellationToken ct = default);
-    Task<IReadOnlyList<LoanProductResponse>> GetActiveAsync(CancellationToken ct = default);
     Task<LoanProductResponse?> GetByCodeAsync(string code, CancellationToken ct = default);
 
     // Returns null when the code does not exist in the mirror. The

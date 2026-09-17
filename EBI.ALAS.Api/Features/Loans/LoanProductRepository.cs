@@ -16,18 +16,6 @@ public class LoanProductRepository(AppDbContext context) : ILoanProductRepositor
             .ToListAsync(ct);
     }
 
-    public async Task<IReadOnlyList<LoanProduct>> GetActiveAsync(CancellationToken ct = default)
-    {
-        // What the loan-creation dropdown consumes. Filter pushed to
-        // SQL via the LINQ WHERE; index seek on PK (Code) is fine for
-        // a small lookup table — the IsRetired filter is residual.
-        return await context.LoanProducts
-            .AsNoTracking()
-            .Where(p => !p.IsRetired)
-            .OrderBy(p => p.Code)
-            .ToListAsync(ct);
-    }
-
     public async Task<LoanProduct?> GetByCodeAsync(string code, CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(code)) return null;

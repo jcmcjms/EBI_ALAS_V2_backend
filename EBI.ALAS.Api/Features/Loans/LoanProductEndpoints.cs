@@ -15,11 +15,11 @@ public static class LoanProductEndpoints
             .WithTags("LoanProducts");
 
         // ─── List all products (admin view, includes retired) ─────────
-        // Gated by CanViewLoanProduct so any of the five roles can
-        // inspect the catalog. Retired products are included so the
-        // admin screen can show "this product was retired on…" for
-        // historical context — but the loan-creation form should
-        // query /active instead.
+        // Gated by CanViewLoanProduct so admins can inspect the
+        // catalog. Retired products are included so the admin screen
+        // can show "this product was retired on…" for historical
+        // context. The creation tree no longer calls this endpoint —
+        // it uses the pending-loan feed and `/loan-class` instead.
         group.MapGet("/", async (
             ILoanProductService service,
             CancellationToken ct) =>
@@ -29,25 +29,6 @@ public static class LoanProductEndpoints
                 ApiResponse<IReadOnlyList<LoanProductResponse>>.SuccessResponse(products));
         })
         .WithName("ListLoanProducts")
-        .Produces<ApiResponse<IReadOnlyList<LoanProductResponse>>>(200)
-        .Produces<ApiResponse>(401)
-        .RequireAuthorization("CanViewLoanProduct");
-
-        // ─── List active products only (loan-form dropdown source) ───
-        // This is the endpoint the loan-creation form calls. Only
-        // non-retired rows are returned so encoders can never pick
-        // a product that webloan (the source of truth) considers
-        // retired. The cached mirror means a hit here is one row
-        // lookup, not a cross-database query.
-        group.MapGet("/active", async (
-            ILoanProductService service,
-            CancellationToken ct) =>
-        {
-            var products = await service.GetActiveAsync(ct);
-            return Results.Ok(
-                ApiResponse<IReadOnlyList<LoanProductResponse>>.SuccessResponse(products));
-        })
-        .WithName("ListActiveLoanProducts")
         .Produces<ApiResponse<IReadOnlyList<LoanProductResponse>>>(200)
         .Produces<ApiResponse>(401)
         .RequireAuthorization("CanViewLoanProduct");

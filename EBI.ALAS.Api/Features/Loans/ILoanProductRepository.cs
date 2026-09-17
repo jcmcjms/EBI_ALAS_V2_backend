@@ -13,10 +13,6 @@ public interface ILoanProductRepository
     // All products, both active and retired. Admin-only views typically.
     Task<IReadOnlyList<LoanProduct>> GetAllAsync(CancellationToken ct = default);
 
-    // Only non-retired products. This is what the loan-creation
-    // dropdown consumes — encoders can never pick a retired product.
-    Task<IReadOnlyList<LoanProduct>> GetActiveAsync(CancellationToken ct = default);
-
     // Single-row fetch by natural key. Returns null when the code does
     // not exist (mirror row never synced). Used by the validator and
     // the admin edit form.

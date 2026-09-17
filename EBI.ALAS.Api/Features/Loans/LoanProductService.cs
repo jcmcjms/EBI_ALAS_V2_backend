@@ -21,12 +21,6 @@ public class LoanProductService(
         return rows.Select(ToResponse).ToList();
     }
 
-    public async Task<IReadOnlyList<LoanProductResponse>> GetActiveAsync(CancellationToken ct = default)
-    {
-        var rows = await repository.GetActiveAsync(ct);
-        return rows.Select(ToResponse).ToList();
-    }
-
     public async Task<LoanProductResponse?> GetByCodeAsync(string code, CancellationToken ct = default)
     {
         var row = await repository.GetByCodeAsync(code, ct);

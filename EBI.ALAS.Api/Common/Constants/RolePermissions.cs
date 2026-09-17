@@ -3,19 +3,11 @@ public static class RolePermissions
 {
     private static readonly Dictionary<string, string[]> RolePermissionMap = new()
     {
-        // TODO(option-A lockdown): product policy fields are Admin-only.
-        // The loan-creation form's product dropdown currently calls
-        // GET /api/loan-products/active which now returns 403 for
-        // non-Admin roles. The form team needs to either:
-        //   (a) Hit a new server-enriched endpoint that includes the
-        //       product in the loan-create response, OR
-        //   (b) Add a separate /api/loans/creation-context endpoint
-        //       that returns the product list bound to the current
-        //       user, OR
-        //   (c) Re-allow CanViewLoanProduct for the five roles and
-        //       only restrict CanManageLoanProduct to Admin.
-        // Until one of those lands, the loan form's product picker
-        // is broken for non-Admin users.
+        // RESOLVED: The `/active` endpoint has been deleted. The loan-
+        // creation form no longer fetches the product catalog — it
+        // uses the pending-loan feed and `/loan-class` instead.
+        // `CanViewLoanProduct` remains Admin-only for the catalog
+        // page; `CanManageLoanProduct` gates edits and sync.
         [Roles.Encoder] = new[]
         {
             Permissions.LoansCreate,
