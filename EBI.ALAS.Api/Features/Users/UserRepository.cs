@@ -28,6 +28,9 @@ public class UserRepository : IUserRepository
         if (!string.IsNullOrWhiteSpace(parameters.Role))
             query = query.Where(u => u.Role == parameters.Role);
 
+        if (!string.IsNullOrWhiteSpace(parameters.BranchId))
+            query = query.Where(u => u.BranchId == parameters.BranchId);
+
         if (parameters.IsActive.HasValue)
             query = query.Where(u => u.IsActive == parameters.IsActive.Value);
 
@@ -35,6 +38,7 @@ public class UserRepository : IUserRepository
 
         var items = await query
             .OrderByDescending(u => u.CreatedAt)
+            .ThenBy(u => u.Id)
             .Skip((parameters.PageNumber - 1) * parameters.PageSize)
             .Take(parameters.PageSize)
             .Select(u => new UserResponse(

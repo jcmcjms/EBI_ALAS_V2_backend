@@ -3,6 +3,7 @@ namespace EBI.ALAS.Api.Features.Users;
 public record UserQueryParameters(
     string? Search,
     string? Role,
+    string? BranchId,
     bool? IsActive,
     int PageNumber = 1,
     int PageSize = 20
