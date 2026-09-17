@@ -120,9 +120,8 @@ public class LoanSubmissionService : ILoanSubmissionService
         var lamIds = await _lamIdGenerator.GenerateLamIdsAsync(request.Loans.Count, ct);
         var now = _timeProvider.UtcNow;
 
-        // ── Compute metrics and gate each loan before persisting ──────
+        // ── Compute metrics before persisting ────────────────────────
         var applications = new List<LoanApplication>();
-        var validationErrors = new Dictionary<string, string[]>();
 
         foreach (var (loan, i) in request.Loans.Select((l, i) => (l, i)))
         {
@@ -172,28 +171,12 @@ public class LoanSubmissionService : ILoanSubmissionService
                 application.NthpBelowMinimum = results.NthpBelowMinimum;
 
                 // ── Capacity gates ────────────────────────────────────
-                // AmortizationExceedsDisposable gate removed — the
-                // engine still computes the flag for UI display, but
-                // submission is no longer blocked.
-
-                if (results.NthpBelowMinimum)
-                {
-                    validationErrors[$"loans[{i}].netTakeHomePay"] =
-                    [
-                        $"NTHP is below the required minimum of {_workflowConfig.MinimumNthp:N2}."
-                    ];
-                }
+                // AmortizationExceedsDisposable and NthpBelowMinimum gates
+                // are computed and persisted for UI display but no longer
+                // block submission.
             }
 
             applications.Add(application);
-        }
-
-        // If any loan failed the capacity gate, reject the entire submission.
-        if (validationErrors.Count > 0)
-        {
-            throw new CapacityGateException(
-                "Capacity-to-pay gate failed. The borrower cannot afford the proposed amortization.",
-                validationErrors);
         }
 
         var idempotency = new LoanSubmissionIdempotency

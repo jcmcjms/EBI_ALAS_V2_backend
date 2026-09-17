@@ -626,13 +626,6 @@ public static class LoanEndpoints
             {
                 return Results.BadRequest(ApiResponse.ErrorResponse(ex.Message));
             }
-            catch (CapacityGateException ex)
-            {
-                var errors = ex.Errors
-                    .SelectMany(e => e.Value)
-                    .ToList();
-                return Results.BadRequest(ApiResponse.ErrorResponse(ex.Message, errors));
-            }
         })
         .WithName("CreateLoanApplication")
         .Produces<ApiResponse<LoanSubmissionResponse>>(201)
