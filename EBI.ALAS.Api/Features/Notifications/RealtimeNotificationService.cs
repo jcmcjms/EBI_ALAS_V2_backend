@@ -51,4 +51,25 @@ public class RealtimeNotificationService : IRealtimeNotificationService
             Timestamp = DateTime.UtcNow
         });
     }
+
+    public async Task NotifyDashboardUpdateAsync(string? branchCode)
+    {
+        // When a loan status changes, the dashboard KPIs, pending queue,
+        // now-serving list, and charts all shift. Rather than pushing the
+        // full payload (expensive, per-branch cache keys), we send a
+        // lightweight "DashboardUpdated" event that tells the client to
+        // invalidate its TanStack Query cache and re-fetch.
+        //
+        // Routing:
+        //   • If branchCode is set → push to Branch_{id} group only.
+        //   • If null/empty → broadcast to All_Users (admin-level change).
+        var target = string.IsNullOrEmpty(branchCode)
+            ? _hubContext.Clients.Group("All_Users")
+            : _hubContext.Clients.Group($"Branch_{branchCode}");
+
+        await target.SendAsync("DashboardUpdated", new
+        {
+            Timestamp = DateTime.UtcNow
+        });
+    }
 }

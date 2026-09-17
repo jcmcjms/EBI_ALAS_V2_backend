@@ -302,6 +302,9 @@ public class LoanSubmissionService : ILoanSubmissionService
             }
         }
 
+        // Dashboard real-time refresh — new submission shifts KPIs and pending queue
+        await _realtimeService.NotifyDashboardUpdateAsync(branchCode);
+
         return (response, false);
     }
 
@@ -354,6 +357,9 @@ public class LoanSubmissionService : ILoanSubmissionService
             ProposedAmount = p.ProposedAmount,
             TermDays = p.Term,
             InterestRate = p.InterestRate,
+            PolicyTermMonths = p.PolicyTermMonths,
+            ApprovalTermDays = ApprovalFormConventions.ResolveApprovalTermDays(p.Term, p.PolicyTermMonths),
+            AnnualRatePercent = ApprovalFormConventions.ToAnnualRatePercent(p.InterestRate),
             NthpDate = ParseIsoDate(p.NthpDate),
             NotarialFee = p.NotarialFee,
             DocStamps = p.DocStamps,

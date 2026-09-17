@@ -346,6 +346,9 @@ public static class LoanEndpoints
                 TermDays = loan.TermDays,
                 InterestRate = loan.InterestRate,
                 NthpDate = loan.NthpDate,
+                PolicyTermMonths = loan.PolicyTermMonths,
+                ApprovalTermDays = loan.ApprovalTermDays,
+                AnnualRatePercent = loan.AnnualRatePercent,
                 NotarialFee = loan.NotarialFee,
                 DocStamps = loan.DocStamps,
                 Insurance = loan.Insurance,
@@ -899,6 +902,12 @@ public static class LoanEndpoints
                     link);
             }
 
+            // ── Dashboard real-time refresh ─────────────────────────
+            // Every status change shifts KPIs, pending queue, and charts.
+            // Push a lightweight event so connected clients invalidate
+            // their dashboard query cache and re-fetch.
+            await realtimeService.NotifyDashboardUpdateAsync(loan.BranchCode);
+
             var response = new LoanResponse
             {
                 Id = loan.Id,
@@ -922,6 +931,9 @@ public static class LoanEndpoints
                 ProposedAmount = loan.ProposedAmount,
                 TermDays = loan.TermDays,
                 InterestRate = loan.InterestRate,
+                PolicyTermMonths = loan.PolicyTermMonths,
+                ApprovalTermDays = loan.ApprovalTermDays,
+                AnnualRatePercent = loan.AnnualRatePercent,
                 Status = loan.Status,
                 ApplicationDate = loan.ApplicationDate,
                 LastActionDate = loan.LastActionDate,
@@ -1297,6 +1309,16 @@ public class LoanResponse
     public int TermDays { get; set; }
     public decimal InterestRate { get; set; }
     public DateOnly? NthpDate { get; set; }
+
+    // ── Approval form convention fields (frozen at submission) ──────
+    /// <summary>webloan loan_data.total_amortization: amortization period count (e.g. 84).</summary>
+    public int? PolicyTermMonths { get; set; }
+
+    /// <summary>Frozen TERM (Days) printed on the approval form at submission time.</summary>
+    public int? ApprovalTermDays { get; set; }
+
+    /// <summary>Frozen annual rate in percent (e.g. 21.57) normalized at submission time.</summary>
+    public decimal? AnnualRatePercent { get; set; }
 
     public decimal NotarialFee { get; set; }
     public decimal DocStamps { get; set; }

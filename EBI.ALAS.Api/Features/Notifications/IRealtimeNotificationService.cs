@@ -17,4 +17,11 @@ public interface IRealtimeNotificationService
 
     /// <summary>Push to every connected user (system-wide broadcast).</summary>
     Task NotifyAllAsync(string title, string description, string? link);
+
+    /// <summary>
+    /// Signal connected clients that dashboard data has changed and
+    /// should be re-fetched. Sent to branch-scoped group so only
+    /// affected officers see the refresh prompt.
+    /// </summary>
+    Task NotifyDashboardUpdateAsync(string? branchCode);
 }

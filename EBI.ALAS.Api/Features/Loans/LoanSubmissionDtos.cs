@@ -77,6 +77,13 @@ public sealed record LoanParametersSection
     public decimal DocStamps { get; init; }
     public decimal Insurance { get; init; }
     public required FeeSnapshotSection StandardFeesSnapshot { get; init; }
+
+    /// <summary>
+    /// Amortization period count from webloan loan_data.total_amortization
+    /// (e.g. 84 for monthly products). Used to derive the approval form's
+    /// TERM (Days) via the 30-day-month convention. Null when unavailable.
+    /// </summary>
+    public int? PolicyTermMonths { get; init; }
 }
 
 public sealed record FeeSnapshotSection

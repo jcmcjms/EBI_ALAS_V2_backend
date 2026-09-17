@@ -259,6 +259,12 @@ public class AppDbContext : DbContext
                 .IsRequired()
                 .HasColumnType("decimal(9,6)");
 
+            // ── Approval form convention fields (frozen at submission) ──
+            entity.Property(e => e.PolicyTermMonths);
+            entity.Property(e => e.ApprovalTermDays);
+            entity.Property(e => e.AnnualRatePercent)
+                .HasColumnType("decimal(9,4)");
+
             entity.Property(e => e.NthpDate);
 
             // ── §3 bank fees (AO entry + policy snapshot) ──

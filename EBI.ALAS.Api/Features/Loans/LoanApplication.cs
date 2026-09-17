@@ -64,6 +64,29 @@ public class LoanApplication
 
     /// <summary>Per-annum rate. decimal(9,6): decimal(5,2) silently rounded 0.0966 → 0.10.</summary>
     public decimal InterestRate { get; set; }
+
+    /// <summary>
+    /// webloan loan_data.total_amortization: amortization period count
+    /// (84 for monthly products). The approval form quotes TERM (Days) as
+    /// policyTermMonths × 30; without this the convention is unreproducible
+    /// after submission.
+    /// </summary>
+    public int? PolicyTermMonths { get; set; }
+
+    /// <summary>
+    /// Frozen at submission: the TERM (Days) actually printed on the
+    /// approval form (policy months × 30, or feed days for single-payment
+    /// products). Signed-document integrity: re-deriving at print time could
+    /// diverge from what the encoder's form showed.
+    /// </summary>
+    public int? ApprovalTermDays { get; set; }
+
+    /// <summary>
+    /// Frozen at submission: annual rate in percent (21.57), normalized
+    /// from webloan's decimal fraction (0.2157).
+    /// </summary>
+    public decimal? AnnualRatePercent { get; set; }
+
     public DateOnly? NthpDate { get; set; }
 
     // Bank fees — AO entry plus the policy snapshot at encode time so
