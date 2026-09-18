@@ -156,7 +156,10 @@ public class UserImportService : IUserImportService
             "Passwords will be auto-generated; users must change on first login",
             "Email and Phone are optional but recommended for contact tracing",
             "",
-            "Security: All imported users will be created with MustChangePassword = true"
+            "Security: All imported users will be created with MustChangePassword = true",
+            "",
+            "Row numbers in validation errors are the Excel row numbers (header = row 1).",
+            "Completely empty rows are ignored — clear a row's contents to exclude it."
         };
 
         for (int i = 0; i < instructionText.Length; i++)
@@ -185,8 +188,7 @@ public class UserImportService : IUserImportService
         }
 
         // Skip header row (row 1)
-        var dataRows = worksheet.Dimension.Rows - 1;
-        totalRows = dataRows;
+        totalRows = 0;
 
         // Load lookup data once
         var validBranchCodes = (await _context.Branches.Select(b => b.Code).ToListAsync(ct)).ToHashSet();
@@ -195,7 +197,13 @@ public class UserImportService : IUserImportService
 
         for (int excelRow = 2; excelRow <= worksheet.Dimension.Rows; excelRow++)
         {
-            var rowNumber = excelRow - 1;
+            // Skip rows that EPPlus considers "used" but carry no data
+            // (formatted or cleared but never deleted — same false-positive
+            // source as the loan product import).
+            if (IsBlankRow(worksheet, excelRow)) continue;
+
+            totalRows++;
+            var rowNumber = excelRow;   // report the real Excel row, not a data index
             var username = GetCellString(worksheet, excelRow, 1);
             var firstName = GetCellString(worksheet, excelRow, 2);
             var middleName = GetCellString(worksheet, excelRow, 3);
@@ -317,6 +325,19 @@ public class UserImportService : IUserImportService
             errors,
             createdUsernames
         );
+    }
+
+    /** True when every cell in the row's used range is null/whitespace. */
+    private static bool IsBlankRow(ExcelWorksheet worksheet, int row)
+    {
+        var endCol = worksheet.Dimension?.End.Column ?? 1;
+        for (var col = 1; col <= endCol; col++)
+        {
+            var value = worksheet.Cells[row, col].Value;
+            if (value != null && !string.IsNullOrWhiteSpace(value.ToString()))
+                return false;
+        }
+        return true;
     }
 
     private static string? GetCellString(ExcelWorksheet worksheet, int row, int col)

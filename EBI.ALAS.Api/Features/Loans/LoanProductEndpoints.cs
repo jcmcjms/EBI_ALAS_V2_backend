@@ -218,7 +218,7 @@ public static class LoanProductEndpoints
                 return Results.BadRequest(ApiResponse.ErrorResponse("Only .xlsx files are supported"));
 
             using var stream = file.OpenReadStream();
-            var result = await importService.ImportAsync(stream, user.GetUserId(), ct);
+            var result = await importService.ImportAsync(stream, user.GetUserId(), $"{user.GetFirstName()} {user.GetLastName()}", ct);
 
             await auditLogService.LogAsync(
                 user.GetUserId(),

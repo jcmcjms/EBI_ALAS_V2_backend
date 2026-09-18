@@ -10,7 +10,7 @@ public interface ILoanProductImportService
 {
     Task<byte[]> ExportAsync(ExportLoanProductsParameters parameters, CancellationToken ct);
     Task<byte[]> GenerateTemplateAsync(CancellationToken ct);
-    Task<LoanProductImportResult> ImportAsync(Stream file, int operatorId, CancellationToken ct);
+    Task<LoanProductImportResult> ImportAsync(Stream file, int operatorId, string operatorName, CancellationToken ct);
 }
 
 public class LoanProductImportService : ILoanProductImportService
@@ -157,7 +157,12 @@ public class LoanProductImportService : ILoanProductImportService
             "",
             "Import behavior: Upsert semantics — existing codes are updated, new codes are created.",
             "Sync-owned fields (Description, IsRetired) from imported products will be overwritten on next sync if the code exists in webloan.",
-            "Checklist documents are NOT imported — use the product edit form to configure document requirements."
+            "Checklist documents are NOT imported — use the product edit form to configure document requirements.",
+            "",
+            "Row numbers in validation errors are the Excel row numbers (header = row 1).",
+            "Completely empty rows are ignored — clear a row's contents to exclude it.",
+            "When updating an existing code, blank cells keep the current value; blank required cells only fail rows for NEW codes.",
+            "Is Retired is ignored on update — retirement is owned by the webloan sync."
         };
 
         for (int i = 0; i < instructionText.Length; i++)
@@ -171,7 +176,8 @@ public class LoanProductImportService : ILoanProductImportService
         return await package.GetAsByteArrayAsync(ct);
     }
 
-    public async Task<LoanProductImportResult> ImportAsync(Stream file, int operatorId, CancellationToken ct)
+    public async Task<LoanProductImportResult> ImportAsync(
+        Stream file, int operatorId, string operatorName, CancellationToken ct)
     {
         var errors = new List<LoanProductImportValidationError>();
         var created = 0;
@@ -180,95 +186,134 @@ public class LoanProductImportService : ILoanProductImportService
 
         using var package = new ExcelPackage(file);
         var worksheet = package.Workbook.Worksheets.FirstOrDefault();
-        if (worksheet == null || worksheet.Dimension == null)
+        if (worksheet?.Dimension == null)
         {
-            errors.Add(new LoanProductImportValidationError(0, "File", "Excel file is empty or corrupted"));
-            return new LoanProductImportResult(0, 0, 0, 0, errors);
+            errors.Add(new LoanProductImportValidationError(1, "File", "Excel file is empty or corrupted."));
+            return new LoanProductImportResult(0, 0, 0, 1, errors);
         }
 
-        totalRows = worksheet.Dimension.Rows - 1;
         var now = _timeProvider.UtcNow;
 
-        for (int excelRow = 2; excelRow <= worksheet.Dimension.Rows; excelRow++)
+        for (var excelRow = 2; excelRow <= worksheet.Dimension.Rows; excelRow++)
         {
-            var rowNumber = excelRow - 1;
+            // Excel's Dimension spans rows that were formatted or cleared but
+            // never deleted. They carry no data and must never surface as
+            // "required" errors — this was the false-positive source.
+            if (IsBlankRow(worksheet, excelRow)) continue;
+
+            totalRows++;
+            var rowErrors = new List<LoanProductImportValidationError>();
+            // Row numbers in the report are the ACTUAL Excel row (header = 1),
+            // so ops can jump straight to the offending line.
+            void Fail(string field, string error) =>
+                rowErrors.Add(new LoanProductImportValidationError(excelRow, field, error));
+
             var code = GetCellString(worksheet, excelRow, 1);
             var description = GetCellString(worksheet, excelRow, 2);
             var minAmount = GetCellDecimal(worksheet, excelRow, 3);
             var maxAmount = GetCellDecimal(worksheet, excelRow, 4);
             var minTermDays = GetCellInt(worksheet, excelRow, 5);
             var maxTermDays = GetCellInt(worksheet, excelRow, 6);
-            var notarialFee = GetCellDecimal(worksheet, excelRow, 7) ?? 0;
-            var docStampFee = GetCellDecimal(worksheet, excelRow, 8) ?? 0;
-            var insuranceFee = GetCellDecimal(worksheet, excelRow, 9) ?? 0;
+            var notarialFee = GetCellDecimal(worksheet, excelRow, 7);
+            var docStampFee = GetCellDecimal(worksheet, excelRow, 8);
+            var insuranceFee = GetCellDecimal(worksheet, excelRow, 9);
             var advanceInterestRate = GetCellDecimal(worksheet, excelRow, 10);
             var applicationChargeRate = GetCellDecimal(worksheet, excelRow, 11);
             var amortizationMode = GetCellString(worksheet, excelRow, 12);
-            var chargeAdvanceInterest = ParseYesNo(GetCellString(worksheet, excelRow, 13));
-            var isRetired = ParseYesNo(GetCellString(worksheet, excelRow, 14)) ?? false;
+            var chargeAdvanceInterestRaw = GetCellString(worksheet, excelRow, 13);
+            var chargeAdvanceInterest = ParseYesNo(chargeAdvanceInterestRaw);
+            var isRetired = ParseYesNo(GetCellString(worksheet, excelRow, 14));
 
-            // ── Validation (mirrors ValidatePolicyFields in LoanProductService) ──
+            // Tracked lookup: updates mutate this instance and save at the end.
+            var existing = string.IsNullOrWhiteSpace(code)
+                ? null
+                : await _context.LoanProducts.FirstOrDefaultAsync(p => p.Code == code, ct);
+            var isUpdate = existing is not null;
+
+            // ── Key + description ─────────────────────────────────────────
             if (string.IsNullOrWhiteSpace(code))
-                errors.Add(new LoanProductImportValidationError(rowNumber, "Code", "Code is required"));
+                Fail("Code", "Code is required.");
             else if (code.Length > 50)
-                errors.Add(new LoanProductImportValidationError(rowNumber, "Code", "Code must be <= 50 characters"));
+                Fail("Code", "Code must be 50 characters or fewer.");
 
-            if (string.IsNullOrWhiteSpace(description))
-                errors.Add(new LoanProductImportValidationError(rowNumber, "Description", "Description is required"));
+            if (!isUpdate && string.IsNullOrWhiteSpace(description))
+                Fail("Description", "Description is required for new products.");
 
-            if (minAmount == null)
-                errors.Add(new LoanProductImportValidationError(rowNumber, "Min Amount", "Min amount is required"));
-            else if (minAmount < 0)
-                errors.Add(new LoanProductImportValidationError(rowNumber, "Min Amount", "Min amount cannot be negative"));
-
-            if (maxAmount == null)
-                errors.Add(new LoanProductImportValidationError(rowNumber, "Max Amount", "Max amount is required"));
-            else if (minAmount.HasValue && maxAmount < minAmount)
-                errors.Add(new LoanProductImportValidationError(rowNumber, "Max Amount", $"Max amount ({maxAmount}) must be >= Min amount ({minAmount})"));
-
-            if (minTermDays == null)
-                errors.Add(new LoanProductImportValidationError(rowNumber, "Min Term Days", "Min term is required"));
-            else if (minTermDays < 0)
-                errors.Add(new LoanProductImportValidationError(rowNumber, "Min Term Days", "Min term cannot be negative"));
-
-            if (maxTermDays == null)
-                errors.Add(new LoanProductImportValidationError(rowNumber, "Max Term Days", "Max term is required"));
-            else if (minTermDays.HasValue && maxTermDays < minTermDays)
-                errors.Add(new LoanProductImportValidationError(rowNumber, "Max Term Days", $"Max term ({maxTermDays}) must be >= Min term ({minTermDays})"));
-            else if (maxTermDays > AbsoluteMaxTermDays)
-                errors.Add(new LoanProductImportValidationError(rowNumber, "Max Term Days", $"Max term ({maxTermDays}) cannot exceed {AbsoluteMaxTermDays} days"));
-
-            if (notarialFee < 0 || docStampFee < 0 || insuranceFee < 0)
-                errors.Add(new LoanProductImportValidationError(rowNumber, "Fees", "Fees cannot be negative"));
-
-            if (advanceInterestRate.HasValue && (advanceInterestRate < 0 || advanceInterestRate > 1))
-                errors.Add(new LoanProductImportValidationError(rowNumber, "Advance Interest Rate", "Rate must be 0-1 (e.g., 0.12 for 12%)"));
-
-            if (applicationChargeRate.HasValue && (applicationChargeRate < 0 || applicationChargeRate > 1))
-                errors.Add(new LoanProductImportValidationError(rowNumber, "Application Charge Rate", "Rate must be 0-1 (e.g., 0.06 for 6%)"));
-
-            if (!string.IsNullOrWhiteSpace(amortizationMode) && amortizationMode != "DIM" && amortizationMode != "MIC")
-                errors.Add(new LoanProductImportValidationError(rowNumber, "Amortization Mode", "Must be DIM or MIC"));
-
-            // Skip this row if there are validation errors
-            if (errors.Any(e => e.RowNumber == rowNumber))
-                continue;
-
-            // ── Upsert ──────────────────────────────────────────────────────
-            // Apply defaults for optional fields
-            var effectiveAdvanceInterestRate = advanceInterestRate ?? 0m;
-            var effectiveApplicationChargeRate = applicationChargeRate ?? 0m;
-            var effectiveAmortizationMode = string.IsNullOrWhiteSpace(amortizationMode) ? "DIM" : amortizationMode;
-            var effectiveChargeAdvanceInterest = chargeAdvanceInterest ?? false;
-
-            var existing = await _context.LoanProducts.FirstOrDefaultAsync(p => p.Code == code, ct);
-
-            if (existing == null)
+            // ── Bounds: required on create; on update blank = keep existing,
+            //    cross-field checks run against the effective (merged) pair. ──
+            if (!isUpdate)
             {
-                // New product — create with LastSyncedAt = MinValue so the
-                // sync can pick it up and overwrite sync-owned fields on
-                // next run if the code exists in webloan.
-                var product = new LoanProduct
+                if (minAmount == null) Fail("Min Amount", "Min amount is required for new products.");
+                if (maxAmount == null) Fail("Max Amount", "Max amount is required for new products.");
+                if (minTermDays == null) Fail("Min Term Days", "Min term is required for new products.");
+                if (maxTermDays == null) Fail("Max Term Days", "Max term is required for new products.");
+                if (advanceInterestRate == null) Fail("Advance Interest Rate", "Advance interest rate is required for new products.");
+                if (applicationChargeRate == null) Fail("Application Charge Rate", "Application charge rate is required for new products.");
+                if (string.IsNullOrWhiteSpace(amortizationMode)) Fail("Amortization Mode", "Amortization mode is required for new products.");
+                if (chargeAdvanceInterest == null) Fail("Charge Advance Interest", "Yes/No is required for new products.");
+            }
+
+            if (minAmount < 0) Fail("Min Amount", "Min amount cannot be negative.");
+            if (maxAmount < 0) Fail("Max Amount", "Max amount cannot be negative.");
+            if (minTermDays < 0) Fail("Min Term Days", "Min term cannot be negative.");
+            if (notarialFee < 0 || docStampFee < 0 || insuranceFee < 0)
+                Fail("Fees", "Fees cannot be negative.");
+            if (advanceInterestRate is < 0 or > 1)
+                Fail("Advance Interest Rate", "Rate must be between 0 and 1 (e.g. 0.12 for 12%).");
+            if (applicationChargeRate is < 0 or > 1)
+                Fail("Application Charge Rate", "Rate must be between 0 and 1 (e.g. 0.06 for 6%).");
+            if (amortizationMode is not null && amortizationMode != "DIM" && amortizationMode != "MIC")
+                Fail("Amortization Mode", "Must be DIM or MIC.");
+            if (chargeAdvanceInterestRaw != null && chargeAdvanceInterest == null)
+                Fail("Charge Advance Interest", "Must be Yes or No.");
+
+            var effMinAmount = minAmount ?? existing?.MinAmount ?? 0;
+            var effMaxAmount = maxAmount ?? existing?.MaxAmount ?? 0;
+            var effMinTerm = minTermDays ?? existing?.MinTermDays ?? 0;
+            var effMaxTerm = maxTermDays ?? existing?.MaxTermDays ?? 0;
+
+            if (effMaxAmount < effMinAmount)
+                Fail("Max Amount", $"Max amount ({effMaxAmount:N2}) must be >= min amount ({effMinAmount:N2}).");
+            if (effMaxTerm < effMinTerm)
+                Fail("Max Term Days", $"Max term ({effMaxTerm}) must be >= min term ({effMinTerm}).");
+            if (effMaxTerm > AbsoluteMaxTermDays)
+                Fail("Max Term Days", $"Max term ({effMaxTerm}) cannot exceed {AbsoluteMaxTermDays} days.");
+
+            if (rowErrors.Count > 0)
+            {
+                errors.AddRange(rowErrors);
+                continue;
+            }
+
+            if (isUpdate)
+            {
+                // Partial update: only cells the file actually provided change.
+                // Blank never silently zeroes a rate or fee on a live product.
+                if (description != null) existing!.Description = description;
+                if (minAmount.HasValue) existing!.MinAmount = minAmount.Value;
+                if (maxAmount.HasValue) existing!.MaxAmount = maxAmount.Value;
+                if (minTermDays.HasValue) existing!.MinTermDays = minTermDays.Value;
+                if (maxTermDays.HasValue) existing!.MaxTermDays = maxTermDays.Value;
+                if (notarialFee.HasValue) existing!.NotarialFee = notarialFee.Value;
+                if (docStampFee.HasValue) existing!.DocStampFee = docStampFee.Value;
+                if (insuranceFee.HasValue) existing!.InsuranceFee = insuranceFee.Value;
+                if (advanceInterestRate.HasValue) existing!.AdvanceInterestRate = advanceInterestRate.Value;
+                if (applicationChargeRate.HasValue) existing!.ApplicationChargeRate = applicationChargeRate.Value;
+                if (amortizationMode != null) existing!.AmortizationMode = amortizationMode;
+                if (chargeAdvanceInterest.HasValue) existing!.ChargeAdvanceInterest = chargeAdvanceInterest.Value;
+                // IsRetired deliberately ignored on update — sync-owned field;
+                // an import must never un-retire a product behind webloan's back.
+                existing!.UpdatedDate = now;
+                existing.UpdatedById = operatorId;
+                updated++;
+
+                await _auditLogService.LogAsync(
+                    operatorId, operatorName, "Import", "LoanProduct", code!, existing.Description,
+                    "Loan product policy fields updated via batch import");
+            }
+            else
+            {
+                _context.LoanProducts.Add(new LoanProduct
                 {
                     Code = code!,
                     Description = description!,
@@ -276,58 +321,41 @@ public class LoanProductImportService : ILoanProductImportService
                     MaxAmount = maxAmount!.Value,
                     MinTermDays = minTermDays!.Value,
                     MaxTermDays = maxTermDays!.Value,
-                    NotarialFee = notarialFee,
-                    DocStampFee = docStampFee,
-                    InsuranceFee = insuranceFee,
-                    AdvanceInterestRate = effectiveAdvanceInterestRate,
-                    ApplicationChargeRate = effectiveApplicationChargeRate,
-                    AmortizationMode = effectiveAmortizationMode,
-                    ChargeAdvanceInterest = effectiveChargeAdvanceInterest,
-                    IsRetired = isRetired,
-                    LastSyncedAt = DateTime.MinValue,
+                    NotarialFee = notarialFee ?? 0,
+                    DocStampFee = docStampFee ?? 0,
+                    InsuranceFee = insuranceFee ?? 0,
+                    AdvanceInterestRate = advanceInterestRate!.Value,
+                    ApplicationChargeRate = applicationChargeRate!.Value,
+                    AmortizationMode = amortizationMode!,
+                    ChargeAdvanceInterest = chargeAdvanceInterest!.Value,
+                    IsRetired = isRetired ?? false,
+                    LastSyncedAt = DateTime.MinValue, // never synced from webloan
                     UpdatedDate = now,
                     UpdatedById = operatorId,
-                };
-                await _context.LoanProducts.AddAsync(product, ct);
+                });
                 created++;
 
                 await _auditLogService.LogAsync(
-                    operatorId, "System", "Import", "LoanProduct", code!, description!,
-                    "Loan product imported via batch upload");
-            }
-            else
-            {
-                // Existing product — update policy fields only. Sync-owned
-                // fields (Description, IsRetired) are also overwritten here
-                // because the import is the source of truth for the batch.
-                // The next sync run will overwrite them again if the code
-                // exists in webloan.
-                existing.Description = description!;
-                existing.MinAmount = minAmount!.Value;
-                existing.MaxAmount = maxAmount!.Value;
-                existing.MinTermDays = minTermDays!.Value;
-                existing.MaxTermDays = maxTermDays!.Value;
-                existing.NotarialFee = notarialFee;
-                existing.DocStampFee = docStampFee;
-                existing.InsuranceFee = insuranceFee;
-                existing.AdvanceInterestRate = effectiveAdvanceInterestRate;
-                existing.ApplicationChargeRate = effectiveApplicationChargeRate;
-                existing.AmortizationMode = effectiveAmortizationMode;
-                existing.ChargeAdvanceInterest = effectiveChargeAdvanceInterest;
-                existing.IsRetired = isRetired;
-                existing.UpdatedDate = now;
-                existing.UpdatedById = operatorId;
-                updated++;
-
-                await _auditLogService.LogAsync(
-                    operatorId, "System", "Import", "LoanProduct", code!, description!,
-                    "Loan product updated via batch import");
+                    operatorId, operatorName, "Import", "LoanProduct", code!, description!,
+                    "Loan product created via batch import");
             }
         }
 
         await _context.SaveChangesAsync(ct);
-
         return new LoanProductImportResult(totalRows, created, updated, errors.Count, errors);
+    }
+
+    /** True when every cell in the row's used range is null/whitespace. */
+    private static bool IsBlankRow(ExcelWorksheet worksheet, int row)
+    {
+        var endCol = worksheet.Dimension?.End.Column ?? 1;
+        for (var col = 1; col <= endCol; col++)
+        {
+            var value = worksheet.Cells[row, col].Value;
+            if (value != null && !string.IsNullOrWhiteSpace(value.ToString()))
+                return false;
+        }
+        return true;
     }
 
     // ─── Cell parsing helpers ───────────────────────────────────────────────

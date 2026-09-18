@@ -377,6 +377,7 @@ builder.Services.AddOutputCache(options =>
 });
 
 builder.Services.AddApplicationServices();
+
 builder.Services.Configure<WorkflowOptions>(
     configuration.GetSection(WorkflowOptions.SectionName));
 

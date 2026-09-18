@@ -1,207 +1,313 @@
 # EBI.ALAS.V2 Backend
 
-A banking-grade **.NET 8 Web API** for end-to-end loan application management, built on ASP.NET Core Minimal APIs with strict role-based authorization, JWT authentication, and a read-only integration into a legacy WebLoan core banking system.
+> **ALAS** — Automated Loan Application System, version 2
 
-> **Project:** ALAS V2 — Automated Loan Application System
-> **Stack:** .NET 8 · ASP.NET Core Minimal APIs · EF Core (SQL Server) · JWT Bearer · FluentValidation · Swashbuckle
+A banking-grade .NET 8 Web API that powers the full loan origination lifecycle for Enterprise Bank Inc. From the moment an encoder drafts a borrower's application to the final disbursement, ALAS enforces a rigorous four-eyes workflow, captures every decision in an immutable audit trail, and keeps everyone in the loop with real-time notifications.
+
+This isn't just another CRUD API. It's the operational backbone of a multi-branch lending operation — designed to handle the messy realities of loan processing: incomplete documents, approver unavailability, revision cycles, deviation approvals, and the occasional "the internet went down at the branch" scenario.
 
 ---
 
 ## Table of Contents
 
-- [Overview](#overview)
-- [Architecture](#architecture)
+- [What Does It Do?](#what-does-it-do)
+- [Architecture at a Glance](#architecture-at-a-glance)
 - [Features](#features)
 - [Project Structure](#project-structure)
 - [Tech Stack](#tech-stack)
 - [Getting Started](#getting-started)
 - [Configuration](#configuration)
-- [Security Model](#security-model)
-- [Loan Workflow](#loan-workflow)
-- [API Reference](#api-reference)
+- [How Security Works](#how-security-works)
+- [The Loan Workflow](#the-loan-workflow)
+- [Real-Time Features](#real-time-features)
+- [API Endpoints](#api-endpoints)
 - [Database](#database)
-- [Cache Topology & Limits](#cache-topology--limits)
+- [Caching Strategy](#caching-strategy)
 - [WebLoan Integration](#webloan-integration)
 - [Seed Data](#seed-data)
-- [Development](#development)
+- [Development Guide](#development-guide)
+- [Testing](#testing)
+- [Deployment Notes](#deployment-notes)
 
 ---
 
-## Overview
+## What Does It Do?
 
-**ALAS V2** (Automated Loan Application System, version 2) is the internal backend that powers a banking institution's loan origination lifecycle. It enforces a four-eyes workflow across multiple user roles — from initial encoding of borrower information, through recommendation, evaluation, and final approval — with full audit logging of every action taken on every loan application.
+At its core, ALAS manages the journey of a loan application through a multi-stage approval pipeline. But the devil is in the details:
 
-The system also integrates with the institution's legacy **WebLoan** core banking database (read-only) to look up existing borrower accounts, outstanding loans, and reloan history when preparing new applications.
+**For Loan Officers (Encoders):**
+- Draft loan applications with borrower details pulled from the legacy WebLoan system
+- Track document completeness in real-time
+- Cancel applications when borrowers change their minds
+- Handle revision requests from reviewers with full context
 
-### Key Capabilities
+**For Branch Heads (Recommenders):**
+- Review queued applications from their branch
+- Recommend or send back for revision with comments
+- See at a glance what's waiting and what's overdue
 
-- **Loan Origination** — Create, review, recommend, evaluate, approve, reject, revise, disburse, and monitor loan applications through a 10-state workflow.
-- **Role-Based Access Control** — Five built-in roles with granular permission policies; admins can override.
-- **User Management** — Create, view, edit, and suspend internal users.
-- **Branch Registry** — 31 pre-seeded branches across the Philippines.
-- **WebLoan Borrower Lookup** — Step-by-step CIS → Account → Active Loans drill-down backed by the WebLoan DB.
-- **JWT Auth with Refresh Tokens** — Short-lived access tokens (15 min) + rotating refresh tokens (7 days) delivered via `HttpOnly` cookies.
-- **Account Self-Service** — View profile, manage active sessions, change password, view activity, processed loans, and recent clients.
-- **Dashboard Summary** — Aggregated metrics scoped to the user's branch and role.
-- **Audit Trail** — Every loan action is timestamped and recorded with from/to status and comments.
-- **Rate-Limited Login** — Built-in protection against brute-force attempts (5 attempts / 60s by default).
+**For Credit Checkers (Evaluators):**
+- Evaluate creditworthiness with access to deviation flags
+- Request additional documents when needed
+- Forward to the appropriate approval tier based on exposure and risk
+
+**For Area Heads (Approvers):**
+- Approve, reject, or request revisions on loans routed to their tier
+- Automatic assignment based on approval authority matrix (tier, exposure limits, deviation severity)
+- Track workload with real-time presence indicators
+
+**For Administrators:**
+- Full visibility across all branches and stages
+- Manage users, roles, and loan products
+- Monitor system health through dashboards
+- Review comprehensive audit logs
+- Configure workflow behavior (e.g., skip recommendation step) without redeployment
 
 ---
 
-## Architecture
+## Architecture at a Glance
 
-The solution uses a **vertical-slice / feature-folder** layout rather than horizontal layers — every concern for a single feature (DTOs, validators, service, repository, endpoints, entity) lives in one folder under `Features/`.
+The system uses a **vertical-slice architecture** — each feature owns its entire stack from endpoint to database query. No sprawling service layers, no anemic models. If you're working on loans, everything you need is in `Features/Loans/`.
 
 ```
-                    ┌──────────────────────────┐
-                    │      Frontend (SPA)      │
-                    │   (consumes this API)    │
-                    └────────────┬─────────────┘
-                                 │  HTTPS + JWT
-                                 ▼
-┌────────────────────────────────────────────────────────────┐
-│                  ASP.NET Core 8 Pipeline                   │
-│                                                            │
-│  CORS → GlobalExceptionHandler → RateLimiter →            │
-│  Authentication (JWT) → Authorization (Policies) →         │
-│  Minimal API Endpoints                                     │
-└────────┬─────────────────────────────────────┬─────────────┘
-         │                                     │
-         ▼                                     ▼
-┌────────────────────┐                ┌──────────────────────┐
-│  AppDbContext      │                │  WebLoanDbContext    │
-│  (ALASv2_DB)       │                │  (webloan DB)        │
-│  Read / Write      │                │  Read-only           │
-└────────────────────┘                └──────────────────────┘
-         │                                     │
-         ▼                                     ▼
-┌────────────────────┐                ┌──────────────────────┐
-│  Audit Interceptor │                │  Read-Only           │
-│  (writes Created/  │                │  Interceptor         │
-│   Modified fields) │                │  (blocks writes)     │
-└────────────────────┘                └──────────────────────┘
+                         ┌──────────────────────────────┐
+                         │        Frontend (SPA)        │
+                         │     React / Next.js / etc.   │
+                         └──────────┬───────────────────┘
+                                    │  HTTPS + JWT
+                                    │  WebSocket (SignalR)
+                                    ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                        ASP.NET Core 8 Pipeline                             │
+│                                                                            │
+│  CORS → Response Compression → Correlation ID → Request Logging →          │
+│  Security Headers → Global Exception Handler → Rate Limiter →              │
+│  Authentication (JWT) → CSRF Validation → Authorization (Policies) →       │
+│  Idempotency → Output Cache → Minimal API Endpoints                        │
+│                                                                            │
+│  SignalR Hub (/hubs/notifications) — real-time WebSocket layer             │
+└────────┬──────────────────────────────────┬────────────────────────────────┘
+         │                                  │
+         ▼                                  ▼
+┌─────────────────────────┐      ┌──────────────────────────┐
+│   AppDbContext          │      │   WebLoanDbContext        │
+│   (ALASv2_DB)           │      │   (webloan — read-only)   │
+│   Read / Write          │      │   DbContextFactory pattern │
+└────────────┬────────────┘      └────────────┬─────────────┘
+             │                                │
+             ▼                                ▼
+┌─────────────────────────┐      ┌──────────────────────────┐
+│  Audit Interceptor      │      │  Read-Only Interceptor    │
+│  (CreatedAt/ModifiedAt) │      │  (blocks non-SELECT)      │
+└─────────────────────────┘      └──────────────────────────┘
+             │
+             ▼
+┌─────────────────────────────────────────────────────────────┐
+│                    Message Bus (MassTransit)                 │
+│                                                             │
+│  ┌─────────────────┐    ┌──────────────────────────────┐   │
+│  │ AuditLogConsumer │    │ NotificationConsumer          │   │
+│  │ (async audit)    │    │ (push notifications + SignalR)│   │
+│  └─────────────────┘    └──────────────────────────────┘   │
+│                                                             │
+│  Backed by RabbitMQ (production) or InMemory (dev)         │
+└─────────────────────────────────────────────────────────────┘
+         │
+         ▼
+┌─────────────────────────────────────────────────────────────┐
+│                    Distributed Cache (Redis)                 │
+│                                                             │
+│  • JTI token revocation blacklist                           │
+│  • Idempotency replay cache                                 │
+│  • Dashboard / branch summary cache                         │
+│  • SignalR backplane (cross-pod WebSocket fan-out)          │
+│                                                             │
+│  Falls back to IMemoryCache if Redis is not configured      │
+└─────────────────────────────────────────────────────────────┘
 ```
 
-### Design Choices
+### Design Philosophy
 
-- **Minimal APIs** over controllers — concise, fast, and uses C# 12 `Results` + `MapGroup` for tidy endpoint composition.
-- **Interface-first repositories & services** for testability and DI seam.
-- **No DDD/MediatR** overhead — simple vertical slices keep cognitive load low for a CRUD-shaped domain.
-- **EF Core Interceptors** for cross-cutting audit and read-only enforcement.
-- **`ITimeProvider` abstraction** with a `PhilippinesTimeProvider` so business dates and the seeded `DateTime.UtcNow` are deterministic in tests.
-- **FluentValidation** for request DTOs — run automatically before the handler executes.
-- **`GlobalExceptionHandler` middleware** converts exceptions to a consistent `{ success, message, errors }` envelope.
+- **Minimal APIs** over controllers — concise endpoint definitions using `MapGroup` and C# 12 `Results`. Less ceremony, more signal.
+- **Vertical slices** — each feature folder contains its own DTOs, validators, services, repositories, and endpoints. Working on loans? You never need to leave `Features/Loans/`.
+- **Interface-first everything** — repositories, services, and time providers are all behind interfaces for testability and DI flexibility.
+- **EF Core interceptors** for cross-cutting concerns — audit timestamps happen automatically, and the WebLoan database is protected by an interceptor that kills any non-SELECT command before it reaches SQL Server.
+- **`ITimeProvider` abstraction** — all time flows through `PhilippinesTimeProvider`, so business logic uses `Asia/Manila` time while storage remains UTC. Tests can inject deterministic time.
+- **FluentValidation** — every request DTO is validated before it touches business logic. No exceptions.
+- **CQRS via MediatR** — endpoints dispatch commands/queries through MediatR, enabling pipeline behaviors for validation, logging, and authorization without cluttering handlers.
+- **Async message processing** — audit logging and notification delivery are offloaded to MassTransit consumers via RabbitMQ. HTTP responses return immediately; the heavy lifting happens in the background.
 
 ---
 
 ## Features
 
-The `Features/` directory is grouped by domain. Each folder is self-contained:
+The `Features/` directory is organized by business domain. Each folder is self-contained:
 
-| Feature | Path | Purpose |
+| Feature | Path | What It Does |
 |---|---|---|
-| **Auth** | `Features/Auth/` | Login, refresh, logout, change-password, JWT issuance & revocation |
-| **Account** | `Features/Account/` | "My Account" page — profile, sessions, activity, processed loans, recent clients |
-| **Users** | `Features/Users/` | Admin: create, view, edit, suspend internal users |
-| **Roles** | `Features/RoleManagement/` | List roles + role × permission matrix |
-| **Branches** | `Features/Branches/` | List / lookup the 31 branches |
-| **Loans** | `Features/Loans/` | Loan applications — list, get, create, update status (workflow) |
-| **WebLoans** | `Features/WebLoans/` | Read-only WebLoan borrower & active-loan lookups |
-| **Dashboard** | `Features/Dashboard/` | Branch- and role-scoped summary metrics |
-| **Common** | `Common/` | Cross-cutting: middleware, exceptions, models, extensions, auth, constants, time |
-| **Infrastructure** | `Infrastructure/` | `AppDbContext`, `WebLoanDbContext`, interceptors, `DbInitializer` |
+| **Auth** | `Features/Auth/` | Login, refresh tokens, logout, password changes, JWT issuance with revocation |
+| **Account** | `Features/Account/` | "My Account" — profile management, active sessions, activity feed, processed loans, recent clients |
+| **Users** | `Features/Users/` | Admin user management — create, view, edit, suspend internal users |
+| **Roles** | `Features/RoleManagement/` | Role listing and the role × permission matrix |
+| **Branches** | `Features/Branches/` | Branch registry — 31+ branches across the Philippines |
+| **Loans** | `Features/Loans/` | The heart of the system — loan applications, workflow engine, document checklists, deviation tracking, loan products, workflow queues, SLA policies |
+| **Approval Matrix** | `Features/ApprovalMatrix/` | Automatic approver routing based on tier, exposure limits, deviation severity, and branch area coverage |
+| **Audit Logs** | `Features/AuditLogs/` | Searchable, paginated audit trail of every state change in the system |
+| **Notifications** | `Features/Notifications/` | In-app notification system with real-time delivery via SignalR |
+| **Presence** | `Features/Presence/` | Who's online right now — org-wide directory and per-record viewer tracking |
+| **Dashboard** | `Features/Dashboard/` | Branch- and role-scoped summary metrics — KPIs, pending queues, trends |
+| **WebLoans** | `Features/WebLoans/` | Read-only integration with the legacy WebLoan core banking system |
+| **System Settings** | `Features/SystemSettings/` | Runtime-configurable system settings |
+
+### Cross-Cutting Concerns (`Common/`)
+
+| Module | Path | Purpose |
+|---|---|---|
+| Authorization | `Common/Authorization/` | Permission-based policy handler |
+| Constants | `Common/Constants/` | Roles (5), Permissions (16), role-permission matrix, role-queue mappings |
+| Exceptions | `Common/Exceptions/` | Domain exceptions (NotFound, Forbidden, InvalidWorkflow) |
+| Extensions | `Common/Extensions/` | Claims helpers, FluentValidation extensions, service registration |
+| Middleware | `Common/Middleware/` | 6 middleware components — correlation ID, request logging, security headers, IP allowlist, idempotency, global exception handling |
+| Models | `Common/Models/` | `ApiResponse<T>` envelope, `PagedResult<T>` |
+| Time | `Common/Time/` | `ITimeProvider`, `PhilippinesTimeProvider`, UTC JSON converter |
+
+### Infrastructure (`Infrastructure/`)
+
+| Module | Path | Purpose |
+|---|---|---|
+| Data | `Infrastructure/Data/` | `AppDbContext`, `WebLoanDbContext`, `DbInitializer` (seeds branches, users, loan products, approval matrix, deviation catalog) |
+| Interceptors | `Infrastructure/Interceptors/` | `AuditSaveChangesInterceptor` (auto-timestamps), `WebLoanReadOnlyInterceptor` (blocks writes) |
+| Messaging | `Infrastructure/Messaging/` | MassTransit event publisher, `AuditLogConsumer`, `NotificationConsumer`, integration events |
+| Security | `Infrastructure/Security/` | `BankingSecurityValidator`, `CachingTokenRevocationRepository` |
+| SignalR | `Infrastructure/SignalR/` | JWT user ID provider for SignalR routing |
 
 ---
 
 ## Project Structure
 
 ```
-alas_v2_backend/
+EBI_ALAS_V2_backend/
 ├── EBI.ALAS.Api/
-│   ├── Program.cs                              # Composition root + pipeline
-│   ├── appsettings.json                        # Default config (placeholder secrets)
-│   ├── EBI.ALAS.Api.csproj                     # Project file (net8.0)
+│   ├── Program.cs                                    # Composition root + full pipeline setup
+│   ├── appsettings.json                              # Config (placeholder secrets)
+│   ├── appsettings.Development.json                  # Local dev overrides (gitignored secrets)
+│   ├── EBI.ALAS.Api.csproj                           # Project file (net8.0)
 │   │
 │   ├── Common/
-│   │   ├── Authorization/
-│   │   │   ├── PermissionRequirement.cs        # IAuthorizationRequirement
-│   │   │   └── PermissionAuthorizationHandler.cs
-│   │   ├── Constants/
-│   │   │   ├── Permissions.cs                  # 14 permission keys
-│   │   │   ├── Roles.cs                        # 5 roles
-│   │   │   └── RolePermissions.cs              # Role → Permission[] matrix
-│   │   ├── Exceptions/
-│   │   │   ├── NotFoundException.cs
-│   │   │   ├── ForbiddenAccessException.cs
-│   │   │   └── InvalidWorkflowException.cs
-│   │   ├── Extensions/
-│   │   │   ├── ClaimsPrincipalExtensions.cs    # GetUserId/GetRole/GetBranchId
-│   │   │   ├── FluentValidationExtensions.cs
-│   │   │   └── ServiceCollectionExtensions.cs  # AddApplicationServices()
-│   │   ├── Middleware/
-│   │   │   └── GlobalExceptionHandler.cs       # Catches & shapes all errors
-│   │   ├── Models/
-│   │   │   ├── ApiResponse.cs                  # { success, message, data, errors }
-│   │   │   └── PagedResult.cs
-│   │   └── Time/
-│   │       ├── ITimeProvider.cs                # Abstraction
-│   │       ├── PhilippinesTimeProvider.cs      # UTC + Asia/Manila helper
-│   │       ├── TimeProviderExtensions.cs
-│   │       └── UtcDateTimeConverter.cs         # JSON: DateTime → "...Z"
+│   │   ├── Authorization/                            # PermissionRequirement + handler
+│   │   ├── Constants/                                # Roles, Permissions, RolePermissions, RoleQueues
+│   │   ├── Exceptions/                               # NotFoundException, ForbiddenAccess, InvalidWorkflow
+│   │   ├── Extensions/                               # Claims helpers, validation, DI registration
+│   │   ├── Middleware/                                # 6 middleware components
+│   │   ├── Models/                                   # ApiResponse, PagedResult
+│   │   └── Time/                                     # ITimeProvider, PhilippinesTimeProvider, UTC converter
 │   │
 │   ├── Features/
-│   │   ├── Auth/             (Endpoints, Repo, Service, Validators, Entities)
-│   │   ├── Account/          (Endpoints, Service, Repo, Validators, DTOs)
-│   │   ├── Users/            (Endpoints, Service, Repo, Validators, DTOs)
-│   │   ├── RoleManagement/   (Endpoints)
-│   │   ├── Branches/         (Endpoints, Service, Repo, DTOs, Entity)
-│   │   ├── Loans/            (Endpoints, Workflow Service, Repo, Audit, Validators)
-│   │   ├── WebLoans/         (Endpoints, Service, Entities, DTOs)
-│   │   └── Dashboard/        (Endpoints, Service, DTOs)
+│   │   ├── Auth/                                     # Login, refresh, logout, change-password, JWT
+│   │   ├── Account/                                  # My Account endpoints
+│   │   ├── Users/                                    # Admin user CRUD
+│   │   ├── RoleManagement/                           # Role listing + permission matrix
+│   │   ├── Branches/                                 # Branch registry
+│   │   ├── Loans/
+│   │   │   ├── Endpoints/                            # Individual endpoint handlers (Get, Create, Update, Cancel, etc.)
+│   │   │   ├── Computation/                          # Loan computation service
+│   │   │   ├── LoanWorkflowService.cs                # 10-state workflow engine
+│   │   │   ├── WorkflowQueueService.cs               # Queue partitioning + head promotion
+│   │   │   ├── LoanProductSyncHostedService.cs       # Background sync from WebLoan
+│   │   │   ├── QueueReconciliationHostedService.cs   # Queue consistency repair
+│   │   │   ├── DocumentCompletenessSyncHostedService.cs
+│   │   │   ├── ChecklistDocumentEndpoints.cs         # Document checklist CRUD
+│   │   │   ├── LoanDeviationEndpoints.cs             # Deviation flag management
+│   │   │   ├── DocumentRemarkEndpoints.cs            # Document remark/annotation
+│   │   │   ├── LoanProductEndpoints.cs               # Product catalog management
+│   │   │   └── ... (50 files total)
+│   │   ├── ApprovalMatrix/                           # Approver routing, deviation catalog, document completeness
+│   │   ├── AuditLogs/                                # Searchable audit trail
+│   │   ├── Notifications/                            # In-app notifications + SignalR hub
+│   │   ├── Presence/                                 # Online directory + entity viewer tracking
+│   │   ├── Dashboard/                                # Aggregated metrics
+│   │   ├── WebLoans/                                 # Legacy WebLoan read-only integration
+│   │   └── SystemSettings/                           # Runtime config
 │   │
 │   ├── Infrastructure/
 │   │   ├── Data/
-│   │   │   ├── AppDbContext.cs                # Main ALAS EF Core context
-│   │   │   ├── WebLoanDbContext.cs            # Read-only EF Core context
-│   │   │   └── DbInitializer.cs               # Seeds branches + users on first run
-│   │   └── Interceptors/
-│   │       ├── AuditSaveChangesInterceptor.cs  # Stamps CreatedAt/ModifiedAt
-│   │       └── WebLoanReadOnlyInterceptor.cs   # Throws on any non-SELECT SQL
+│   │   │   ├── AppDbContext.cs                       # Main ALAS context
+│   │   │   ├── WebLoanDbContext.cs                   # Read-only legacy context
+│   │   │   └── DbInitializer.cs                      # Schema migration + seed data
+│   │   ├── Interceptors/
+│   │   │   ├── AuditSaveChangesInterceptor.cs       # Auto-stamps CreatedAt/ModifiedAt
+│   │   │   └── WebLoanReadOnlyInterceptor.cs        # Blocks non-SELECT SQL
+│   │   ├── Messaging/
+│   │   │   ├── Consumers/                            # AuditLogConsumer, NotificationConsumer
+│   │   │   ├── Events/                               # Integration event definitions
+│   │   │   └── EventPublisher.cs                     # IEventPublisher + MassTransit implementation
+│   │   ├── Security/
+│   │   │   ├── BankingSecurityValidator.cs           # Security hardening
+│   │   │   └── CachingTokenRevocationRepository.cs   # Redis-backed JTI blacklist
+│   │   └── SignalR/
+│   │       └── JwtUserIdProvider.cs                  # Maps JWT claims to SignalR user routing
 │   │
-│   ├── Migrations/                              # EF Core migrations
+│   ├── Migrations/                                   # EF Core migrations
+│   ├── Store/                                        # (reserved)
 │   └── Properties/
-│       └── launchSettings.json                  # Local dev URLs (https://localhost:7220)
+│       └── launchSettings.json                       # Local dev URLs
 │
-├── EBI.ALAS.V2.slnx                            # Solution file
+├── EBI.ALAS.Tests/
+│   ├── EBI.ALAS.Tests.csproj                         # xUnit test project
+│   ├── ApprovalFormConventionsTests.cs               # Approval form validation tests
+│   ├── TempPasswordGeneratorTests.cs                 # Password generation tests
+│   └── UserRepositoryTests.cs                        # User repository integration tests
+│
+├── Database/
+│   └── Migrations/                                   # Database-level migration scripts
+│
+├── scripts/
+│   ├── backfill_workflow_queue.sql                   # One-time queue backfill for existing loans
+│   ├── install-garnet-service.ps1                    # Redis alternative (Garnet) setup
+│   └── install-rabbitmq.ps1                          # RabbitMQ installation script
+│
+├── EBI.ALAS.V2.slnx                                  # Solution file
 ├── .gitignore
-├── swagger.txt                                 # Pointer to local Swagger UI
-└── README.md                                   # You are here
+├── swagger.txt                                       # Pointer to local Swagger UI
+└── README.md                                         # You are here
 ```
 
 ---
 
 ## Tech Stack
 
-| Layer | Technology | Version |
-|---|---|---|
-| Runtime | .NET | **8.0** |
-| Web Framework | ASP.NET Core (Minimal APIs) | 8.0 |
-| ORM | Entity Framework Core | 8.0.0 |
-| Database | Microsoft SQL Server | — |
-| Auth | `Microsoft.AspNetCore.Authentication.JwtBearer` | 8.0.0 |
-| Token Crypto | `System.IdentityModel.Tokens.Jwt` | 7.1.2 |
-| Password Hashing | `BCrypt.Net-Next` | 4.0.3 |
-| Validation | `FluentValidation.AspNetCore` | 11.3.0 |
-| API Docs | `Swashbuckle.AspNetCore` | 6.5.0 |
+| Layer | Technology | Version | Why |
+|---|---|---|---|
+| Runtime | .NET | 8.0 | LTS, performance, C# 12 features |
+| Web Framework | ASP.NET Core Minimal APIs | 8.0 | Low ceremony, high throughput |
+| ORM | Entity Framework Core | 8.0 | Code-first, migrations, interceptors |
+| Database | Microsoft SQL Server | — | Enterprise-grade, ACID compliance |
+| CQRS | MediatR | 12.2 | Command/query separation, pipeline behaviors |
+| Message Bus | MassTransit + RabbitMQ | 8.1 | Async audit logging, notification delivery |
+| Real-Time | SignalR | 8.0 | WebSocket hub for notifications + presence |
+| Distributed Cache | Redis (StackExchange) | 8.0 | Cross-pod cache coherence, SignalR backplane |
+| Auth | JWT Bearer | 8.0 | Stateless auth with refresh token rotation |
+| Password Hashing | BCrypt.Net-Next | 4.0.3 | Industry-standard, timing-attack resistant |
+| Validation | FluentValidation | 11.3 | Declarative, testable validation rules |
+| Object Mapping | Mapster | 7.4 | Fast, convention-based mapping |
+| Excel | EPPlus | 8.7 | Loan product import/export |
+| Resilience | Polly | 8.2 | Retry policies for external calls |
+| Logging | Serilog + Seq | 8.0 / 7.0 | Structured logging with correlation IDs |
+| Tracing | OpenTelemetry | 1.18 | Distributed tracing (ASP.NET + HTTP) |
+| Health Checks | AspNetCore.HealthChecks.* | 8.0 | SQL Server, Redis, RabbitMQ health probes |
+| API Docs | Swashbuckle | 6.5 | Swagger UI in Development |
+| Testing | xUnit | 2.9 | Unit and integration tests |
 
-### Notable C# Features Used
+### C# Language Features
 
-- `Nullable` reference types — **enabled** project-wide
-- `ImplicitUsings` — **enabled**
-- `record` types for immutable DTOs
-- `init`-only setters on request DTOs
-- `JsonStringEnumConverter` and a custom `UtcDateTimeConverter` for stable JSON
-- C# 12 collection expressions
+- **Nullable reference types** — enabled project-wide
+- **Implicit usings** — enabled
+- **`record` types** — immutable DTOs and query parameters
+- **`init`-only setters** — on request DTOs
+- **Primary constructors** — on DI-injected services (C# 12)
+- **Collection expressions** — `[item1, item2]` syntax (C# 12)
+- **`JsonStringEnumConverter`** + custom `UtcDateTimeConverter` — stable JSON serialization
+- **Pattern matching** — used extensively in workflow and routing logic
 
 ---
 
@@ -209,10 +315,10 @@ alas_v2_backend/
 
 ### Prerequisites
 
-- **.NET 8 SDK** (download from [dotnet.microsoft.com](https://dotnet.microsoft.com/download/dotnet/8.0))
-- **SQL Server** (any edition — LocalDB, Express, Developer, or full)
-- A SQL Server database named `ALASv2_DB` (auto-created on first run via `EnsureCreatedAsync`)
-- **Optional**: a SQL Server database named `webloan` containing the legacy WebLoan tables (only needed if you want to exercise the `/api/webloans/*` endpoints)
+- **.NET 8 SDK** — [download here](https://dotnet.microsoft.com/download/dotnet/8.0)
+- **SQL Server** — any edition (LocalDB, Express, Developer, or full)
+- **Redis** — optional but recommended for production (falls back to in-memory cache)
+- **RabbitMQ** — optional but recommended for production (falls back to in-memory transport)
 
 ### 1. Clone & Restore
 
@@ -222,25 +328,26 @@ cd alas_v2_backend
 dotnet restore
 ```
 
-### 2. Configure `appsettings.json`
+### 2. Configure Secrets
 
-Edit `EBI.ALAS.Api/appsettings.json` and replace the placeholders:
+Edit `EBI.ALAS.Api/appsettings.json` or (better) use .NET User Secrets:
 
-```jsonc
-{
-  "ConnectionStrings": {
-    "DefaultConnection":  "Server=YOUR_SQL_HOST;Database=ALASv2_DB;User Id=YOUR_USER;Password=YOUR_PASSWORD;TrustServerCertificate=True",
-    "WebLoanConnection":  "Server=YOUR_SQL_HOST;Database=webloan;User Id=YOUR_USER;Password=YOUR_PASSWORD;TrustServerCertificate=True"
-  },
-  "Jwt": {
-    "SecretKey": "REPLACE_WITH_A_RANDOM_32+_CHAR_SECRET"
-  }
-}
+```powershell
+cd EBI.ALAS.Api
+dotnet user-secrets init
+dotnet user-secrets set "ConnectionStrings:DefaultConnection" "Server=YOUR_HOST;Database=ALASv2_DB;User Id=YOUR_USER;Password=YOUR_PASS;TrustServerCertificate=True;Encrypt=True"
+dotnet user-secrets set "ConnectionStrings:WebLoanConnection" "Server=YOUR_HOST;Database=webloan;User Id=YOUR_USER;Password=YOUR_PASS;TrustServerCertificate=True;Encrypt=True"
+dotnet user-secrets set "Jwt:SecretKey" "your-random-32+-character-secret-key-here"
 ```
 
-> The application will **not start** if `Jwt:SecretKey` is shorter than the algorithm requires. Use `openssl rand -base64 48` or similar.
+**Optional but recommended for production:**
 
-> For production, store secrets in environment variables or a secret manager — **never** commit real credentials. Use `appsettings.Development.json` (gitignored) or `dotnet user-secrets`.
+```powershell
+dotnet user-secrets set "ConnectionStrings:Redis" "localhost:6379,abortConnect=false"
+dotnet user-secrets set "ConnectionStrings:RabbitMQ" "amqp://guest:guest@localhost:5672"
+```
+
+> **Never commit real credentials.** The `appsettings.json` ships with placeholder values. Use `appsettings.Development.json` (gitignored) or `dotnet user-secrets` for local development.
 
 ### 3. Run
 
@@ -248,178 +355,317 @@ Edit `EBI.ALAS.Api/appsettings.json` and replace the placeholders:
 dotnet run --project EBI.ALAS.Api
 ```
 
-The API listens on:
-
+The API starts on:
 - **HTTPS:** `https://localhost:7220`
 - **HTTP:** `http://localhost:5173`
 
-Swagger UI is available at **`https://localhost:7220/swagger/index.html`** when `ASPNETCORE_ENVIRONMENT=Development`.
+**On first start**, `DbInitializer` will:
+1. Run all pending EF Core migrations
+2. Seed 31 branches across the Philippines
+3. Seed the default admin user
+4. Seed loan products and checklist requirements
+5. Seed the approval authority matrix and deviation catalog
 
-On first start, `DbInitializer` will:
-
-1. Create the `ALASv2_DB` schema via `EnsureCreatedAsync`.
-2. Seed 31 branches.
-3. Seed the default users (see [Seed Data](#seed-data)).
+Swagger UI is available at **`https://localhost:7220/swagger/index.html`** in Development mode.
 
 ---
 
 ## Configuration
 
-All settings live in `EBI.ALAS.Api/appsettings.json`. Override per-environment in `appsettings.{Environment}.json` or via environment variables using the standard ASP.NET Core hierarchy.
+All settings live in `EBI.ALAS.Api/appsettings.json`. Override per-environment using `appsettings.{Environment}.json` or environment variables.
 
-### `ConnectionStrings`
+### Connection Strings
 
-| Key | Purpose |
-|---|---|
-| `DefaultConnection` | EF Core `AppDbContext` — read/write primary database |
-| `WebLoanConnection` | EF Core `WebLoanDbContext` — read-only legacy integration |
+| Key | Purpose | Pool Size |
+|---|---|---|
+| `DefaultConnection` | Main ALAS database (read/write) | 50–500 connections |
+| `WebLoanConnection` | Legacy WebLoan database (read-only) | 10–100 connections |
+| `Redis` | Distributed cache + SignalR backplane | — |
+| `RabbitMQ` | Message bus for async processing | — |
 
-### `Jwt`
+### JWT Settings
 
 | Key | Default | Description |
 |---|---|---|
-| `SecretKey` | (placeholder) | HMAC-SHA256 signing key. **Required.** ≥ 32 chars. |
-| `Issuer` | `EBI.ALAS.V2` | `iss` claim |
-| `Audience` | `EBI.ALAS.V2.Frontend` | `aud` claim |
-| `ExpiryMinutes` | `15` | Access token lifetime (short-lived) |
-| `RefreshTokenExpiryDays` | `7` | Refresh token sliding lifetime |
-| `AbsoluteSessionExpiryDays` | `14` | Hard cap on any single login session, regardless of rotation |
+| `SecretKey` | *(placeholder)* | HMAC-SHA256 signing key. **Required.** Min 32 characters. |
+| `Issuer` | `EBI.ALAS.V2` | Token issuer claim |
+| `Audience` | `EBI.ALAS.V2.Frontend` | Token audience claim |
+| `ExpiryMinutes` | `15` | Access token lifetime (short by design) |
+| `RefreshTokenExpiryDays` | `7` | Sliding refresh token lifetime |
+| `AbsoluteSessionExpiryDays` | `14` | Hard cap — session dies regardless of rotation |
 
-`ClockSkew` is set to `TimeSpan.Zero` — tokens expire exactly when their `exp` says they do.
+Clock skew is `TimeSpan.Zero` — tokens expire exactly when `exp` says they do.
 
-### `Cors.AllowedOrigins`
+### Rate Limiting
 
-A whitelist of origins allowed to call the API with credentials. Defaults include common Vite/Next.js dev ports. Add your production frontend domain here.
+| Endpoint | Limit | Window | Notes |
+|---|---|---|---|
+| `POST /api/auth/login` | 5 attempts | 60 seconds | Brute-force protection |
+| All other endpoints | 120 requests | 60 seconds | Per-user (authenticated) or per-IP (anonymous) |
 
-### `RateLimiting.Login`
+Exceeding limits returns `429 Too Many Requests` with a `Retry-After` header.
 
-Fixed-window limiter applied to `POST /api/auth/login`:
+### Workflow Configuration
 
 | Key | Default | Description |
 |---|---|---|
-| `PermitLimit` | `5` | Attempts allowed per window |
-| `WindowSeconds` | `60` | Window length |
+| `Workflow.RequireRecommendation` | `false` | Skip the recommendation step (encoder → evaluator directly) |
+| `WorkflowSlaHours.ForRecommendation` | `4` | SLA hours for recommendation stage |
+| `WorkflowSlaHours.ForChecking` | `8` | SLA hours for evaluation stage |
+| `WorkflowSlaHours.ForApproval` | `8` | SLA hours for approval stage |
+| `WorkflowSlaHours.ForRevision` | `24` | SLA hours for revision stage |
+| `WorkflowSlaHours.ForDisbursement` | `24` | SLA hours for disbursement stage |
 
-Exceeding the limit returns `429 Too Many Requests`.
+All workflow settings are hot-reloadable via `IOptionsMonitor` — flip them without redeploying.
+
+### Background Services
+
+| Service | Interval | Purpose |
+|---|---|---|
+| `LoanProductSyncHostedService` | 6 hours | Syncs loan product catalog from WebLoan |
+| `CleanupExpiredTokensHostedService` | 1 hour | Purges expired refresh tokens and JTI blacklist entries |
+| `QueueReconciliationHostedService` | — | Repairs queue consistency for in-flight loans |
+| `DocumentCompletenessSyncHostedService` | — | Syncs document completeness status |
 
 ---
 
-## Security Model
+## How Security Works
 
-### Authentication
+Security isn't a feature — it's a layer that touches everything. Here's how ALAS protects itself:
 
-- **Access Token (JWT)** — returned in the JSON body on `POST /api/auth/login`. Short-lived (15 min default). The frontend stores it in-memory (e.g., Zustand) — not in `localStorage` — to limit XSS impact.
-- **Refresh Token** — opaque random string, stored only as a **hash** in the DB. Delivered as an `HttpOnly`, `Secure`, `SameSite=Strict` cookie scoped to `/api/auth`. Invisible to JavaScript → XSS-proof.
-- **Refresh Rotation** — every successful `POST /api/auth/refresh` issues a new refresh token and revokes the old one. The previous access token's JTI is also added to a blacklist until its natural expiry.
-- **Token Revocation (Blacklist)** — `RevokedTokens` table stores JTI + user + expiry. `OnTokenValidated` in the JWT pipeline checks this on every request.
-- **Password Hashing** — BCrypt (`BCrypt.Net-Next`).
-- **Timing-Attack Mitigation** — login always runs a BCrypt verify, even when the user does not exist (using a dummy hash).
+### Authentication Flow
 
-### Password Policy (Change Password)
+```
+┌─────────┐     POST /api/auth/login      ┌─────────┐
+│  Client  │ ────────────────────────────►  │  API    │
+│          │  { username, password }        │         │
+│          │                                │         │
+│          │  ◄──────────────────────────── │         │
+│          │  { accessToken (15 min) }      │         │
+│          │  Set-Cookie: refresh_token     │         │
+│          │    (HttpOnly, Secure,          │         │
+│          │     SameSite=Strict, 7 days)   │         │
+└─────────┘                                └─────────┘
 
-- Minimum **8 characters**
+┌─────────┐     POST /api/auth/refresh     ┌─────────┐
+│  Client  │ ────────────────────────────►  │  API    │
+│          │  (cookie sent automatically)   │         │
+│          │                                │  1. Validate refresh token hash
+│          │                                │  2. Revoke old refresh token
+│          │                                │  3. Blacklist old access token JTI
+│          │                                │  4. Issue new pair
+│          │  ◄──────────────────────────── │         │
+│          │  { new accessToken }           │         │
+│          │  Set-Cookie: new refresh_token │         │
+└─────────┘                                └─────────┘
+```
+
+**Key design decisions:**
+- **Access tokens live in memory** (e.g., Zustand store) — never in `localStorage`. This limits XSS impact.
+- **Refresh tokens are HttpOnly cookies** — invisible to JavaScript, immune to XSS.
+- **Refresh rotation** — every refresh invalidates the old token and issues a new one. Token reuse detection can be added.
+- **JTI blacklist** — revoked access tokens are checked on every request via `OnTokenValidated`. Stored in Redis (or in-memory for single-pod).
+- **Timing-attack mitigation** — login always runs BCrypt verify, even for non-existent users (using a dummy hash).
+
+### Password Policy
+
+- Minimum 8 characters
 - Must contain uppercase, lowercase, digit, and one of `!?*.`
-- Must differ from the current password
-- Changing password **globally revokes all sessions** for that user
+- Must differ from current password
+- Changing password **revokes all sessions** globally
 
-### Authorization
+### Authorization Model
 
-Built on ASP.NET Core's policy-based authorization, layered on **14 granular permissions**:
+16 granular permissions mapped to 5 roles:
 
 | Permission | Key |
 |---|---|
-| Create / view / recommend / evaluate / approve / reject loans | `loans.create`, `loans.view`, `loans.recommend`, `loans.evaluate`, `loans.approve`, `loans.reject` |
-| Manage / view loan products | `loan_product.manage`, `loan_product.view` |
-| Create / view / edit / suspend users | `user.create`, `user.view`, `user.edit`, `user.suspend` |
-| Manage / view roles | `role.manage`, `role.view` |
+| Loan workflow | `loans.create`, `loans.view`, `loans.recommend`, `loans.evaluate`, `loans.approve`, `loans.reject` |
+| Loan products | `loan_product.manage`, `loan_product.view` |
+| User management | `user.create`, `user.view`, `user.edit`, `user.suspend` |
+| Roles | `role.manage`, `role.view` |
+| Audit logs | `auditLogs.view` |
+| Workflow config | `workflow.manage` |
 
-These are bound to **named policies** (`CanCreateLoan`, `CanViewUsers`, etc.) and enforced per-endpoint via `.RequireAuthorization("PolicyName")`.
+### The Five Roles
 
-### Five Roles
-
-| Role | Display | Stage of workflow |
-|---|---|---|
-| **Encoder** | Encoder (AO/CAA) | Creates loan applications |
-| **Recommender** | Branch Head | Reviews & recommends |
-| **Evaluator** | Credit Checker | Evaluates credit worthiness |
-| **Approver** | Area Head | Final approval / rejection / revision |
-| **Admin** | Administrator | Full access; can perform any workflow transition; manages users |
-
-The role × permission matrix is exposed via `GET /api/roles/matrix`.
+| Role | Display Name | Typical Title | Workflow Stage |
+|---|---|---|---|
+| **Encoder** | Encoder (AO/CAA) | Account Officer / Credit Analyst Assistant | Creates and revises applications |
+| **Recommender** | Recommender (Branch Head) | Branch Head | Reviews and recommends |
+| **Evaluator** | Evaluator (Credit Checker) | Credit Analyst | Evaluates creditworthiness |
+| **Approver** | Approver (Area Head) | Area Head / Branch Head | Approves, rejects, or requests revision |
+| **Admin** | Administrator | IT / Operations | Full access, manages users and system |
 
 ### Defense-in-Depth Layers
 
-1. **HTTPS** enforced in non-Development environments.
-2. **CORS** whitelist with credentials.
-3. **Rate limiting** on login.
-4. **JWT Bearer** authentication on every endpoint except `/health` and `/api/auth/login`, `/api/auth/refresh`.
-5. **Policy-based authorization** with `[PermissionRequirement]` → `PermissionAuthorizationHandler`.
-6. **Workflow validation** in `LoanWorkflowService.IsValidTransition` — even if a role had the HTTP permission, they cannot transition a loan outside the defined state machine.
-7. **FluentValidation** on every input DTO.
-8. **Global exception handler** — never leaks stack traces in non-Development.
-9. **Audit interceptor** — every `SaveChanges` stamps `CreatedAt`/`ModifiedAt`.
-10. **Read-only interceptor** on `WebLoanDbContext` — throws before any non-`SELECT` SQL hits the legacy DB.
+1. **HTTPS** enforced in non-Development
+2. **CORS** whitelist with credentials
+3. **Response compression** (Brotli + Gzip) — 6× bandwidth reduction
+4. **Security headers middleware** — CSP, X-Frame-Options, etc.
+5. **Rate limiting** — login-specific + global per-user/IP
+6. **IP allowlisting** — admin endpoints restricted by IP
+7. **JWT Bearer** authentication
+8. **CSRF validation** middleware
+9. **Policy-based authorization** with permission requirements
+10. **Workflow validation** — even authorized users can't make invalid transitions
+11. **FluentValidation** on every input
+12. **Global exception handler** — never leaks stack traces in production
+13. **Audit interceptor** — every `SaveChanges` timestamps mutations
+14. **Read-only interceptor** — blocks writes to WebLoan database
+15. **Idempotency middleware** — prevents duplicate side effects on retries
+16. **Request body size limits** — 10MB max, configurable per endpoint
+17. **Kestrel hardening** — request header timeouts, connection limits
 
 ---
 
-## Loan Workflow
+## The Loan Workflow
 
-A loan application flows through a strict 10-state machine. Each transition is gated by both the **user's role** and the **from/to status pair**. Admins bypass role gates but the transition itself must still be valid.
+A loan application flows through a strict state machine. Each transition is gated by both the **user's role** and the **validity of the from/to status pair**. Admins bypass role checks but the transition itself must still be valid in the state machine.
 
 ```
-                        ┌─────────┐
-                        │  Draft  │
-                        └────┬────┘
-                             │  Encoder
-                             ▼
-              ┌──────────────────────────┐
-              │   ForRecommendation      │
-              └────────────┬─────────────┘
-                           │  Recommender
-                           ▼
-              ┌──────────────────────────┐
-              │       ForChecking        │
-              └────────────┬─────────────┘
-                           │  Evaluator
-                           ▼
-              ┌──────────────────────────┐
-              │       ForApproval        │
-              └────┬──────┬─────────┬────┘
-       Approver   │      │ Approver│  Approver
-        ┌──────────┘      │         └──────────┐
-        ▼                 ▼                    ▼
-   ┌─────────┐      ┌──────────┐         ┌──────────┐
-   │ Approved│      │ Rejected │         │ForRevision│
-   └────┬────┘      └──────────┘         └─────┬─────┘
-   Admin│                                       │ Encoder
-        ▼                                        ▼
-   ┌───────────────┐                  ┌────────────────────┐
-   │ForDisbursement│                  │ ForRecommendation  │
-   └───────┬───────┘                  └────────────────────┘
-       Admin│
-           ▼
-     ┌──────────┐
-     │ Disbursed│
-     └────┬─────┘
-       Admin│
-           ▼
-     ┌─────────┐
-     │ OnGoing │
-     └─────────┘
+                    ┌──────────┐
+                    │  Draft   │
+                    └────┬─────┘
+                         │  Encoder
+                         ▼
+          ┌──────────────────────────┐
+          │   ForRecommendation *    │  ← Skippable via Workflow.RequireRecommendation
+          └────────────┬─────────────┘
+                       │  Recommender
+                       ▼
+          ┌──────────────────────────┐
+          │      ForChecking         │
+          └────────────┬─────────────┘
+                       │  Evaluator
+                       ▼
+          ┌──────────────────────────┐
+          │      ForApproval         │
+          └───┬────────┬─────────┬───┘
+   Approver  │        │  Approver│  Approver
+    ┌────────┘        │          └──────────┐
+    ▼                 ▼                     ▼
+┌─────────┐    ┌──────────┐         ┌────────────┐
+│ Approved │    │ Rejected │         │ ForRevision │
+└────┬─────┘    └──────────┘         └──────┬─────┘
+     │ Admin                                │ Encoder
+     ▼                                      ▼
+┌────────────────┐                ┌─────────────────────┐
+│ForDisbursement │                │  (back to entry)     │
+└───────┬────────┘                └─────────────────────┘
+    Admin│
+        ▼
+  ┌──────────┐
+  │ Disbursed│
+  └────┬─────┘
+   Admin│
+        ▼
+  ┌──────────┐
+  │ OnGoing  │
+  └──────────┘
+
+  * Encoder can cancel from: Draft, ForRecommendation, ForChecking,
+    ForApproval, ForRevision (ownership enforced in endpoint)
 ```
 
-Implemented in `Features/Loans/LoanWorkflowService.cs`. Every transition is recorded in `LoanAction` with `FromStatus`, `ToStatus`, `Comments`, `ActionByUserId`, and `ActionDate`.
+### Additional Loan States
+
+- **Cancelled** — Encoder can cancel their own loans at any in-flight stage
+- **Revision cycle** — ForRevision → Encoder revises → re-enters at ForRecommendation (or ForChecking if recommendation is skipped)
+
+### Workflow Queue System
+
+Loans in active review stages are automatically placed into partitioned queues:
+
+| Stage | Partition Key | Purpose |
+|---|---|---|
+| Recommendation | `REC:{branchCode}` | Branch-scoped recommendation queue |
+| Evaluation | `EVA:{branchCode}` | Branch-scoped evaluation queue |
+| Approval | `APP:{branchCode}:{tier}` | Tier-specific approval queue |
+
+The queue system handles:
+- **Head promotion** — the oldest loan in each partition becomes the "head" (first to be served)
+- **Assignment/release** — approvers can "lease" a loan for review, preventing duplicate work
+- **Reconciliation** — background service repairs queue consistency for edge cases
+
+### Approval Authority Matrix
+
+Loans are automatically routed to the appropriate approval tier based on:
+
+- **Loan type** (New vs. Renewal)
+- **Total exposure** (proposed amount + outstanding balance)
+- **Deviation severity** (None, Minor, Major)
+- **Approval authority tier** (1–5, with priority-based fallback within each tier)
+- **Branch area coverage** (branch-level, area-level, or global authority)
+
+### Document Completeness
+
+Each loan product has a checklist of required documents. The system tracks:
+- Which documents have been submitted
+- Which are missing or incomplete
+- Whether the loan is "document-complete" (a prerequisite for certain workflow transitions)
+
+### Deviation Tracking
+
+Loans can have deviation flags (e.g., exceeded exposure limits, missing collateral). Deviations affect:
+- Which approval tier is required
+- Who can approve the loan
+- Whether additional documentation is needed
 
 ---
 
-## API Reference
+## Real-Time Features
 
-All endpoints return an `ApiResponse<T>` envelope:
+ALAS uses SignalR WebSocket connections for instant updates. No polling required.
+
+### Notifications
+
+When a loan status changes, relevant users get instant notifications:
+
+- **Loan submitted** → Recommender gets notified
+- **Loan recommended** → Evaluator gets notified
+- **Loan approved** → Encoder + Admin get notified
+- **Loan requires revision** → Encoder gets notified
+- **Document remark added** → Loan owner gets notified
+
+Notifications are persisted in the database and delivered via SignalR in real-time. The frontend can also poll `GET /api/notifications` as a fallback.
+
+### Presence System
+
+Who's online right now?
+
+- **Online directory** — see which colleagues are active, scoped to your branch (admins see everyone)
+- **Entity viewer tracking** — see who else is looking at a specific loan, document, or deviation in real-time
+- **Connection limits** — max 10 connections per user to prevent resource exhaustion
+
+### SignalR Hub Events
+
+| Event | Payload | When |
+|---|---|---|
+| `ReceiveNotification` | Notification object | New notification for the user |
+| `PresenceSnapshot` | Full online directory | On connect |
+| `PresenceChanged` | User + online/offline | User connects or disconnects |
+| `EntityViewersChanged` | Entity type/id + viewer list | Someone opens/closes an entity |
+
+### SignalR Groups
+
+| Group | Scope | Events |
+|---|---|---|
+| `Branch_{branchCode}` | Branch-scoped | Loan updates, branch events |
+| `All_Users` | System-wide | Presence changes, workflow broadcasts |
+| `Approvers` | Approver-specific | Assignment notifications |
+| `watch:{entityType}:{entityId}` | Per-record | Entity viewer changes |
+
+---
+
+## API Endpoints
+
+All endpoints return a consistent `ApiResponse<T>` envelope:
 
 ```json
 {
   "success": true,
-  "message": "Loan created successfully",
+  "message": "Operation completed",
   "data": { ... },
   "errors": null
 }
@@ -429,46 +675,44 @@ All endpoints return an `ApiResponse<T>` envelope:
 
 | Method | Path | Auth | Description |
 |---|---|---|---|
-| `GET` | `/health` | Public | Liveness probe |
+| `GET` | `/health` | Public | Detailed health check (SQL Server, Redis, RabbitMQ) |
 
 ### Authentication `/api/auth`
 
-| Method | Path | Auth | Rate-Limited | Description |
-|---|---|---|---|---|
-| `POST` | `/api/auth/login` | Public | Yes (`LoginLimiter`) | Login → access token (body) + refresh cookie |
-| `POST` | `/api/auth/refresh` | Public (cookie) | No | Silent rotation |
-| `POST` | `/api/auth/logout` | JWT | No | Revoke access + refresh, clear cookie |
-| `POST` | `/api/auth/change-password` | JWT | No | Change password; revokes all sessions |
+| Method | Path | Rate-Limited | Description |
+|---|---|---|---|
+| `POST` | `/api/auth/login` | Yes (5/60s) | Login → access token + refresh cookie |
+| `POST` | `/api/auth/refresh` | No | Silent token rotation (uses cookie) |
+| `POST` | `/api/auth/logout` | No | Revoke tokens, clear cookie |
+| `POST` | `/api/auth/change-password` | No | Change password, revoke all sessions |
 
-### Account `/api/account` *(My Account)*
+### Account `/api/account`
 
 | Method | Path | Description |
 |---|---|---|
-| `GET` | `/api/account/me` | Get current user profile |
+| `GET` | `/api/account/me` | Current user profile |
 | `PUT` | `/api/account/me` | Update profile |
-| `GET` | `/api/account/me/sessions` | List active sessions (paged) |
+| `GET` | `/api/account/me/sessions` | Active sessions (paged) |
 | `DELETE` | `/api/account/me/sessions/{id}` | Revoke a session |
-| `GET` | `/api/account/me/activity` | Recent activity |
+| `GET` | `/api/account/me/activity` | Recent activity feed |
 | `GET` | `/api/account/me/loans` | Recently processed loans |
 | `GET` | `/api/account/me/clients` | Recently handled clients |
-
-All require JWT.
 
 ### Users `/api/users`
 
 | Method | Path | Policy | Description |
 |---|---|---|---|
 | `GET` | `/api/users` | `CanViewUsers` | List users (paged, filterable) |
-| `GET` | `/api/users/{id}` | `CanViewUsers` | Get user |
+| `GET` | `/api/users/{id}` | `CanViewUsers` | Get user details |
 | `POST` | `/api/users` | `CanCreateUsers` | Create user |
 | `PUT` | `/api/users/{id}` | `CanEditUsers` | Update user |
-| `PATCH` | `/api/users/{id}/status` | `CanSuspendUsers` | Suspend / activate |
+| `PATCH` | `/api/users/{id}/status` | `CanSuspendUsers` | Suspend/activate user |
 
 ### Roles `/api/roles`
 
 | Method | Path | Policy | Description |
 |---|---|---|---|
-| `GET` | `/api/roles` | `CanViewRoles` | List roles |
+| `GET` | `/api/roles` | `CanViewRoles` | List all roles |
 | `GET` | `/api/roles/matrix` | `CanViewRoles` | Role × permission matrix |
 
 ### Branches `/api/branches`
@@ -477,32 +721,111 @@ All require JWT.
 |---|---|---|---|
 | `GET` | `/api/branches` | `CanViewUsers` | Paged branch list |
 | `GET` | `/api/branches/all` | `CanViewUsers` | All branches (no paging) |
-| `GET` | `/api/branches/{id}` | `CanViewUsers` | Get by numeric id |
-| `GET` | `/api/branches/code/{code}` | `CanViewUsers` | Get by branch code (e.g., `007`) |
+| `GET` | `/api/branches/{id}` | `CanViewUsers` | Get by numeric ID |
+| `GET` | `/api/branches/code/{code}` | `CanViewUsers` | Get by branch code |
 
 ### Loans `/api/loans`
 
 | Method | Path | Policy | Description |
 |---|---|---|---|
-| `GET` | `/api/loans` | `CanViewLoan` | Paged list of loan submissions; returns the same `LoanSubmissionResponse` envelope as POST (one item per `ApplicationGroupNo`, grouped from the requested page). Each `CreatedLoan` row carries list-view enrichment (`BranchCode`, `Product`, `CreationTypeCode`/`CreationTypeLabel`, `FirstName`/`MiddleName`/`LastName`/`Suffix`) — populated by GET, null on POST. Query params: `page`, `pageSize`, `search`, `status` (comma-sep), `branchCode` (admin-only), `sortBy` (`applicationdate`/`proposedamount`/`status`/`customername`), `sortDesc`. Scoped by user's branch & role. |
-| `GET` | `/api/loans/{id}` | `CanViewLoan` | Full loan detail incl. actions & WebLoan traceability |
-| `POST` | `/api/loans` | `CanCreateLoan` | Create draft loan |
-| `PUT` | `/api/loans/{id}/status` | (workflow role) | Transition status (validates role + transition) |
+| `GET` | `/api/loans` | `CanViewLoan` | Paged, filterable, sortable loan list. Scoped by branch/role. |
+| `GET` | `/api/loans/{id}` | `CanViewLoan` | Full loan detail with actions, WebLoan traceability, routing info |
+| `POST` | `/api/loans` | `CanCreateLoan` | Create draft loan application |
+| `PUT` | `/api/loans/{id}/status` | Workflow role | Transition loan status |
+| `POST` | `/api/loans/{id}/cancel` | `CanCreateLoan` | Cancel a loan (encoder, own loans only) |
+| `GET` | `/api/loans/{id}/history` | `CanViewLoan` | Full audit trail for a loan |
+| `GET` | `/api/loans/{id}/routing` | `CanViewLoan` | Approval routing: tier, matched rule, completeness, assigned approver |
+| `POST` | `/api/loans/{id}/assignment/release` | `CanViewLoan` | Release an active lease |
+| `GET` | `/api/loans/sla-policy` | Authenticated | Current SLA hours per workflow stage |
+| `GET` | `/api/loans/queue-default` | Authenticated | Default queue configuration |
 
-### WebLoans `/api/webloans` *(read-only, integration)*
+### Loan Products `/api/loan-products`
+
+| Method | Path | Policy | Description |
+|---|---|---|---|
+| `GET` | `/api/loan-products` | `CanViewLoanProduct` | List all products (including retired) |
+| `GET` | `/api/loan-products/{code}` | `CanViewLoanProduct` | Get product by code |
+| `POST` | `/api/loan-products` | `CanManageLoanProduct` | Create product |
+| `PUT` | `/api/loan-products/{code}` | `CanManageLoanProduct` | Update product |
+| `POST` | `/api/loan-products/import` | `CanManageLoanProduct` | Import from Excel |
+
+### Checklist Documents `/api/loans/{id}/checklist`
 
 | Method | Path | Description |
 |---|---|---|
-| `GET` | `/api/webloans/cis/{cisNo}/search` | Step 1 — borrower + account list |
-| `GET` | `/api/webloans/cis/{cisNo}/accounts/{accountNo}` | Step 2 — PN records for an account |
-| `GET` | `/api/webloans/cis/{cisNo}/accounts/{accountNo}/active-loans` | Up to 10 active loans for the (CIS, account) pair; each row carries a CASE-computed `amortAmount` (C35/C23 → `principal`, otherwise `amort_data.total_amort`) |
-| `GET` | `/api/webloans/cis/{cisNo}` | Full borrower profile (backward compatible) |
+| `GET` | `/api/loans/{id}/checklist` | Get document checklist for a loan |
+| `POST` | `/api/loans/{id}/checklist` | Mark document as submitted |
+| `DELETE` | `/api/loans/{id}/checklist/{docId}` | Remove document submission |
+
+### Loan Deviations `/api/loans/{id}/deviations`
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/api/loans/{id}/deviations` | List deviation flags |
+| `POST` | `/api/loans/{id}/deviations` | Add deviation flag |
+| `DELETE` | `/api/loans/{id}/deviations/{deviationId}` | Remove deviation flag |
+
+### Document Remarks `/api/loans/{id}/remarks`
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/api/loans/{id}/remarks` | List document remarks |
+| `POST` | `/api/loans/{id}/remarks` | Add remark |
+
+### Workflow Configuration `/api/workflow`
+
+| Method | Path | Policy | Description |
+|---|---|---|---|
+| `GET` | `/api/workflow/config` | `CanManageWorkflow` | Get current workflow configuration |
+| `PUT` | `/api/workflow/config` | `CanManageWorkflow` | Update workflow configuration |
+
+### Notifications `/api/notifications`
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/api/notifications` | Most recent notifications for the calling user |
+
+### Presence `/api/presence`
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/api/presence/online` | Full online directory (branch-scoped for non-admins) |
+| `GET` | `/api/presence?userIds=1,2,3` | Batch liveness flags for specific users |
+
+### Approval Matrix `/api/approval-matrix`
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/api/approval-matrix` | List approval authorities |
+| `GET` | `/api/approval-matrix/approvers` | Available approvers with presence status |
+
+### Audit Logs `/api/audit-logs`
+
+| Method | Path | Policy | Description |
+|---|---|---|---|
+| `GET` | `/api/audit-logs` | `CanViewAuditLogs` | Paginated, filterable audit trail |
+| `GET` | `/api/audit-logs/{id}` | `CanViewAuditLogs` | Single audit log entry |
 
 ### Dashboard `/api/dashboard`
 
 | Method | Path | Description |
 |---|---|---|
-| `GET` | `/api/dashboard/overview` | One cached (15s TTL, per-branch) aggregate payload powering the whole dashboard page: KPIs + pending queue + now-serving + pushbacks + approved loans + 7-day trend. Branch-scoped for non-admins; admin sees all. |
+| `GET` | `/api/dashboard/overview` | Cached (30s) aggregate: KPIs, pending queue, trends |
+
+### WebLoans `/api/webloans` *(read-only, legacy integration)*
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/api/webloans/cis/{cisNo}/search` | Borrower + account list lookup |
+| `GET` | `/api/webloans/cis/{cisNo}/accounts/{accountNo}` | PN records for an account |
+| `GET` | `/api/webloans/cis/{cisNo}/accounts/{accountNo}/active-loans` | Up to 10 active loans |
+| `GET` | `/api/webloans/cis/{cisNo}` | Full borrower profile |
+
+### WebSocket
+
+| Path | Protocol | Description |
+|---|---|---|
+| `/hubs/notifications` | WebSocket (SignalR) | Real-time notifications, presence, entity viewer tracking |
 
 ---
 
@@ -510,86 +833,124 @@ All require JWT.
 
 ### Primary Database — `ALASv2_DB`
 
-Owned by this application. Created via `EnsureCreatedAsync` on first run. Core tables include:
+Owned by this application. Schema managed via EF Core Migrations.
 
-- `Users` — system users
-- `Branches` — branch registry
+**Core Tables:**
+- `Users` — system users with role assignments
+- `Branches` — 31+ branch registry
 - `RefreshTokens` — hashed refresh tokens with absolute expiry
-- `RevokedTokens` — JTI blacklist for access tokens
-- `LoanApplications` — main loan entities
-- `LoanActions` — audit log of every status change
-- *(Plus EF Core migrations under `Migrations/`)*
+- `RevokedTokens` — JTI blacklist for access token revocation
+- `LoanApplications` — main loan entities with workflow state
+- `LoanActions` — immutable audit log of every status change
+- `LoanProducts` — product catalog (synced from WebLoan)
+- `LoanProductChecklist` — required documents per product
+- `LoanDeviations` — deviation flags on loans
+- `LoanChecklistDocuments` — submitted documents
+- `DocumentRemarks` — annotations on loan documents
+- `ApprovalAuthorities` — approval tier configuration
+- `DeviationCatalog` — deviation severity definitions
+- `WorkflowQueueItems` — partitioned workflow queues
+- `WorkflowConfigurations` — runtime workflow settings
+- `AuditLogs` — comprehensive audit trail
+- `Notifications` — user notifications
+- `SystemSettings` — runtime configuration
+- `IdempotencyKeys` — idempotency tracking
 
 ### Secondary Database — `webloan` *(read-only)*
 
-The legacy WebLoan core banking system. Tables include (per `WebLoanDbContext`):
+The legacy WebLoan core banking system. Accessed via `WebLoanDbContext` with `DbContextFactory` pattern for thread-safe parallel queries.
 
+**Key Tables:**
 - `cis_info` / `cis_info_misdata` — borrower master data
 - `mis_group` — group/membership info
 - `loan_acct_info` — loan account master
-- `loan_data` — loan detail records
+- `loan_data` — loan detail records (PN records)
 - `loan_product` / `loan_status` — lookup tables
 - `creation_types` — disbursement types
+- `amort_data` — amortization schedules
 
-This DB is **accessed read-only**. The `WebLoanReadOnlyInterceptor` blocks any non-`SELECT` command before it reaches SQL Server, providing application-level enforcement independent of SQL Server permissions.
+The `WebLoanReadOnlyInterceptor` provides application-level enforcement — any non-`SELECT` command is blocked before it reaches SQL Server, regardless of database permissions.
 
 ### Audit & Time
 
-- `AuditSaveChangesInterceptor` automatically populates `CreatedAt` / `ModifiedAt` for entities that expose these properties.
-- All times flow through `ITimeProvider` — the default implementation is `PhilippinesTimeProvider`, which produces UTC values while exposing helpers for `Asia/Manila` business logic.
+- `AuditSaveChangesInterceptor` automatically populates `CreatedAt` / `ModifiedAt` for entities that expose these properties
+- All times flow through `ITimeProvider` — the `PhilippinesTimeProvider` produces UTC values while exposing helpers for `Asia/Manila` business logic
+- `AuditLog` entries capture: user, action, entity type/id, summary, raw changes, IP address, user agent, and timestamp
 
 ---
 
-## Cache Topology & Limits
+## Caching Strategy
 
-The API uses `IMemoryCache` — the in-process `Microsoft.Extensions.Caching.Memory` cache — for everything that needs a hot path. There is no Redis or other out-of-process cache. This is a deliberate design choice for the current single-pod deployment.
+ALAS uses a **two-tier caching architecture**:
 
-### Consumers
+### L1: In-Process Cache (IMemoryCache)
 
-| Consumer | Key prefix | TTL | Purpose |
+Hot-path data that benefits from zero-latency access:
+
+| Consumer | Key Pattern | TTL | Purpose |
 |---|---|---|---|
-| `CachingTokenRevocationRepository` | `revoked:` | ≤ remaining access-token lifetime (15 min default, 1 day max) | JTI revocation blacklist. Every authenticated request hits this. |
-| `IdempotencyMiddleware` | `idem:` | 90 s | Replayed POST / PUT / PATCH responses, so retried requests return the original response instead of re-executing the side effect. |
-| Dashboard / branch summary | (none) | 30 s | Read-mostly aggregates where 30s staleness is acceptable. |
+| Token Revocation | `revoked:{jti}` | ≤ access token lifetime | JTI blacklist check on every request |
+| Dashboard | Branch-scoped | 30 seconds | Aggregated metrics |
+| Branch List | `branches:all` | 5 minutes | Rarely changes |
 
-`SizeLimit = 10_000` is set on the `MemoryCacheOptions` (in `ServiceCollectionExtensions`). Every entry declares its `Size` (JTI = 1, idempotency = body-length in KB floored at 1) so the LRU eviction policy can shed entries under pressure.
+### L2: Distributed Cache (Redis)
 
-### Trade-offs of the in-process design
+Cross-pod coherent data:
 
-**Single-pod deployment only.** `IMemoryCache` lives in the API process's memory. A multi-replica deployment would lose:
+| Consumer | Key Pattern | TTL | Purpose |
+|---|---|---|---|
+| JTI Blacklist | `ALAS_revoked:{jti}` | ≤ access token lifetime | Multi-pod token revocation |
+| Idempotency | `ALAS_idem:{key}` | 90 seconds | Replay protection across pods |
+| Dashboard | `ALAS_dashboard:{branch}` | 30 seconds | Shared across pods |
+| SignalR Backplane | `ALAS_SignalR:*` | — | WebSocket message fan-out |
 
-- **JTI blacklist coherence.** A token revoked on pod A would still be accepted on pod B for up to 15 minutes — a real auth bypass.
-- **Idempotency replay.** A retried request landing on a different pod would re-execute the side effect (e.g. duplicate loan submission).
+**When Redis is not configured**, the system falls back to `DistributedMemoryCache` — functional for single-pod development but not suitable for production multi-replica deployments.
 
-If a future deployment scales out to multiple replicas, this layer needs to be backed by a cross-process cache (Redis or a SQL Server shared row) — the middleware is already isolated behind `IDistributedCache`-shaped seams so the swap is local.
+### Trade-offs
 
-**State lost on restart.** All entries evaporate when the process recycles (deploy, crash, OOM-kill). After a restart:
+**Single-pod (IMemoryCache only):**
+- JTI blacklist is local — a revoked token might be accepted on another pod for up to 15 minutes
+- Idempotency replay only works within the same pod
+- State lost on process restart (mitigated by short token lifetimes)
 
-- A token revoked 5 seconds before the recycle would be accepted again immediately. The 15-minute JWT access-token expiry caps the exposure window.
-- An idempotency key used before the recycle could see its side effect re-executed if the retry arrives after the recycle (within the 90s window). Realistic client retry budgets (≤ 30s) make this unlikely.
-
-**No horizontal scalability for the cache itself.** Hot keys (e.g. the dashboard summary) are recomputed independently on each pod. With a single pod this is irrelevant; with multiple pods each would do the work.
+**Multi-pod (Redis):**
+- Full cache coherence across all pods
+- SignalR backplane enables WebSocket message fan-out
+- Shared idempotency replay protection
 
 ---
-
-
 
 ## WebLoan Integration
 
-The WebLoan feature exposes a **drill-down flow** designed for the loan-origination UI:
+The WebLoan feature provides a **drill-down flow** for the loan origination UI:
 
-1. **Search CIS** — `GET /api/webloans/cis/{cisNo}/search` returns the borrower (`cis_info` + `mis_group`) and a flat list of their accounts (`loan_acct_info`). The frontend renders these as cards.
-2. **Pick an account** — `GET /api/webloans/cis/{cisNo}/accounts/{accountNo}` returns all `loan_data` rows (PN records) for that account. The frontend renders the PN table.
-3. **Pull active loans** — `GET /api/webloans/cis/{cisNo}/accounts/{accountNo}/active-loans` returns up to 10 active loans (filters `bch='000'`, `is_loan=1`, `loan_status != 10`, ordered by `date_granted desc`). 404 if the account does not belong to the given CIS — prevents cross-tenant enumeration. Each loan row carries a CASE-computed `amortAmount` sourced from `amort_data.total_amort` (first installment, `amort_no = 1`), falling back to `principal` for `C35`/`C23` products.
-4. **Full profile** — `GET /api/webloans/cis/{cisNo}` returns everything in one response for backward compatibility.
+```
+Step 1: Search CIS
+  GET /api/webloans/cis/{cisNo}/search
+  → Returns borrower info + list of accounts
 
-When a loan is created referencing a WebLoan CIS/account, the resulting `LoanApplication` stores the WebLoan `cis_no`, `bch_code`, `account_no`s, and `pn_no`s for full traceability — visible on `GET /api/loans/{id}` under `WebLoanCisNo`, `WebLoanBranchCode`, `WebLoanAccountNumbers`, `WebLoanPnNumbers`, `WebLoanLastSyncedAt`.
+Step 2: Pick an Account
+  GET /api/webloans/cis/{cisNo}/accounts/{accountNo}
+  → Returns PN records (loan_data rows)
+
+Step 3: Pull Active Loans
+  GET /api/webloans/cis/{cisNo}/accounts/{accountNo}/active-loans
+  → Returns up to 10 active loans with computed amortization amounts
+
+Step 4: Full Profile (backward compatible)
+  GET /api/webloans/cis/{cisNo}
+  → Returns everything in one response
+```
+
+When a loan is created referencing a WebLoan CIS/account, the `LoanApplication` stores the WebLoan `cis_no`, `bch_code`, `account_no`s, and `pn_no`s for full traceability. These are visible on `GET /api/loans/{id}` under the WebLoan traceability fields.
+
+The `DbContextFactory` pattern is used for WebLoan queries — each parallel lookup gets its own `DbContext` instance, since `DbContext` is not thread-safe and the search endpoint fires 3–6 concurrent queries.
 
 ---
 
 ## Seed Data
 
-On first run, `DbInitializer` seeds the following if the `Users` table is empty:
+On first run, `DbInitializer` seeds the following:
 
 ### Default Admin
 
@@ -597,26 +958,21 @@ On first run, `DbInitializer` seeds the following if the `Users` table is empty:
 |---|---|---|---|
 | `admin` | `admin123` | `011` (Head Office) | Admin |
 
-### Test Users (one per workflow role, branch `007` Tandag)
+### Additional Seed Data
 
-| Username | Password | Role |
-|---|---|---|
-| `encoder1` | `encoder123` | Encoder |
-| `recommender1` | `recommender1` | Recommender |
-| `evaluator1` | `evaluator123` | Evaluator |
-| `approver1` | `approver123` | Approver |
+- **31 branches** across the Philippines (including Corporate Center and Head Office)
+- **Loan products** with checklist requirements
+- **Approval authority matrix** — tiered approver configuration
+- **Deviation severity catalog** — deviation classification
+- **Branch area codes** — area-level grouping for approver routing
 
-> **All default passwords must be changed immediately in any non-development environment.** Also note the `MustChangePassword` flag pattern — first-login flows can use this to force a credential reset.
-
-### Branches
-
-31 branches across the Philippines are pre-seeded, including a Corporate Center (`991`) and Head Office (`011`).
+> **All default passwords must be changed immediately in any non-development environment.**
 
 ---
 
-## Development
+## Development Guide
 
-### Useful Commands
+### Common Commands
 
 ```powershell
 # Build
@@ -625,59 +981,126 @@ dotnet build
 # Run
 dotnet run --project EBI.ALAS.Api
 
-# Hot-reload
+# Hot-reload (watches for file changes)
 dotnet watch run --project EBI.ALAS.Api
 
-# EF Core migrations (if you change entity models)
+# EF Core migrations
 dotnet ef migrations add MyChange --project EBI.ALAS.Api
 dotnet ef database update --project EBI.ALAS.Api
 
+# Run tests
+dotnet test EBI.ALAS.Tests
+
 # Run on a custom port
 dotnet run --project EBI.ALAS.Api --urls "https://localhost:8443"
-
-# Swagger UI (after running)
-# https://localhost:7220/swagger/index.html
 ```
 
 ### Testing Auth with Swagger
 
-1. Open `https://localhost:7220/swagger`.
-2. Call `POST /api/auth/login` with `{ "username": "admin", "password": "admin123" }`.
-3. The response body contains `data.accessToken`.
-4. Click **Authorize** at the top of Swagger UI, paste the access token (the `Bearer` prefix is added automatically).
-5. All subsequent authorized calls will include the token. Refresh happens transparently via the `HttpOnly` cookie.
+1. Open `https://localhost:7220/swagger`
+2. Call `POST /api/auth/login` with `{ "username": "admin", "password": "admin123" }`
+3. Copy `data.accessToken` from the response
+4. Click **Authorize** at the top, paste the token (the `Bearer` prefix is added automatically)
+5. All subsequent calls will include the token
 
-### Adding a New Loan Workflow Transition
+### Adding a New Workflow Transition
 
-1. Update `Features/Loans/LoanWorkflowService.cs` `ValidTransitions` dictionary.
-2. Add any new permission string to `Common/Constants/Permissions.cs`.
-3. Add the policy binding in `Program.cs` (`options.AddPolicy(...)`).
-4. Map the permission to the responsible role in `Common/Constants/RolePermissions.cs`.
-5. The endpoint automatically enforces the new transition on next save.
+1. Update `Features/Loans/LoanWorkflowService.cs` — add the transition to `BuildTransitions()`
+2. Add any new permission to `Common/Constants/Permissions.cs`
+3. Register the policy in `Program.cs` (`options.AddPolicy(...)`)
+4. Map the permission to the role in `Common/Constants/RolePermissions.cs`
+5. The endpoint automatically enforces the new transition
 
-### Environment Variables (alternative to `appsettings`)
+### Adding a New Feature
 
-ASP.NET Core picks these up automatically:
+1. Create a folder under `Features/` (e.g., `Features/MyFeature/`)
+2. Add your entity, DTOs, validators, service, repository, and endpoints
+3. Register services in `Common/Extensions/ServiceCollectionExtensions.cs`
+4. Map endpoints in `Program.cs` (`app.MapMyFeatureEndpoints()`)
+5. Add any new permissions and policies
+
+### Environment Variables
+
+ASP.NET Core picks these up automatically (double-underscore separator):
 
 ```powershell
 $env:ConnectionStrings__DefaultConnection = "Server=...;Database=ALASv2_DB;..."
 $env:Jwt__SecretKey = "your-strong-secret-here"
 $env:Jwt__ExpiryMinutes = "15"
+$env:Workflow__RequireRecommendation = "false"
 dotnet run --project EBI.ALAS.Api
 ```
 
-### Local Swagger Note
+---
 
-A `swagger.txt` file at the solution root contains a pointer to the local Swagger URL for convenience. Open it after starting the API.
+## Testing
+
+The test project (`EBI.ALAS.Tests`) uses xUnit with EF Core InMemory provider for integration tests.
+
+### Running Tests
+
+```powershell
+# Run all tests
+dotnet test EBI.ALAS.Tests
+
+# Run with verbose output
+dotnet test EBI.ALAS.Tests --logger "console;verbosity=detailed"
+
+# Run specific test class
+dotnet test EBI.ALAS.Tests --filter "FullyQualifiedName~UserRepositoryTests"
+```
+
+### Test Coverage
+
+- `ApprovalFormConventionsTests` — validates approval form conventions
+- `TempPasswordGeneratorTests` — validates temporary password generation
+- `UserRepositoryTests` — integration tests for user repository operations
+
+---
+
+## Deployment Notes
+
+### Production Checklist
+
+- [ ] Change all default passwords
+- [ ] Set strong `Jwt:SecretKey` (32+ characters, random)
+- [ ] Configure Redis for distributed caching
+- [ ] Configure RabbitMQ for async message processing
+- [ ] Set `ASPNETCORE_ENVIRONMENT=Production`
+- [ ] Enable HTTPS and configure SSL certificates
+- [ ] Set up SQL Server with proper backup strategy
+- [ ] Configure CORS origins for production frontend domain
+- [ ] Set up health check monitoring (`/health`)
+- [ ] Configure structured logging (Seq, ELK, etc.)
+- [ ] Review and adjust rate limiting thresholds
+- [ ] Set up OpenTelemetry exporters (Jaeger, Zipkin, etc.)
+
+### Multi-Pod Considerations
+
+When deploying multiple replicas:
+
+- **Redis is required** for JTI blacklist coherence, idempotency replay, and SignalR backplane
+- **RabbitMQ is required** for async message processing across pods
+- **SQL Server connection pooling** is configured with `Max Pool Size=500` and `Min Pool Size=50` — adjust based on pod count
+- **SignalR Redis backplane** ensures WebSocket messages fan out to all pods
+
+### Health Checks
+
+The `/health` endpoint returns detailed status for:
+
+- **SQL Server** — connection and query capability
+- **Redis** — connectivity and responsiveness (if configured)
+- **RabbitMQ** — connectivity (if configured)
+- **Application** — self-check
 
 ---
 
 ## License
 
-Internal project — all rights reserved.
+Internal project — Enterprise Bank Inc. All rights reserved.
 
 ---
 
-**Maintained by:** EBI SD
-**Repository:** `alas_v2_backend`
+**Maintained by:** EBI Software Development  
+**Repository:** `EBI_ALAS_V2_backend`  
 **Solution:** `EBI.ALAS.V2.slnx`
