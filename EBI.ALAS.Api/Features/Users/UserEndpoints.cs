@@ -162,5 +162,67 @@ public static class UserEndpoints
             var auditLog = await userService.GetAuditLogAsync(id, pageNumber, pageSize);
             return Results.Ok(ApiResponse<List<UserAuditLogResponse>>.SuccessResponse(auditLog));
         }).WithName("GetUserAuditLog").RequireAuthorization("CanViewUsers");
+
+        // ─── Import/Export Endpoints ────────────────────────────────────────
+
+        group.MapGet("/export", async (
+            [AsParameters] ExportUsersParameters parameters,
+            IUserImportService importService,
+            CancellationToken ct) =>
+        {
+            var bytes = await importService.ExportUsersAsync(parameters, ct);
+            return Results.File(bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                $"users-export-{DateTime.UtcNow:yyyyMMdd}.xlsx");
+        })
+        .WithName("ExportUsers")
+        .RequireAuthorization("CanViewUsers");
+
+        group.MapGet("/import/template", async (
+            IUserImportService importService,
+            CancellationToken ct) =>
+        {
+            var bytes = await importService.GenerateTemplateAsync(ct);
+            return Results.File(bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                "user-import-template.xlsx");
+        })
+        .WithName("GetUserImportTemplate")
+        .RequireAuthorization("CanCreateUsers");
+
+        group.MapPost("/import", async (
+            IFormFile file,
+            IUserImportService importService,
+            IAuditLogService auditLogService,
+            ClaimsPrincipal principal,
+            CancellationToken ct) =>
+        {
+            if (file == null || file.Length == 0)
+                return Results.BadRequest(ApiResponse.ErrorResponse("No file uploaded"));
+
+            if (file.Length > 10 * 1024 * 1024) // 10 MB limit
+                return Results.BadRequest(ApiResponse.ErrorResponse("File size exceeds 10 MB limit"));
+
+            if (!file.FileName.EndsWith(".xlsx", StringComparison.OrdinalIgnoreCase))
+                return Results.BadRequest(ApiResponse.ErrorResponse("Only .xlsx files are supported"));
+
+            using var stream = file.OpenReadStream();
+            var result = await importService.ImportUsersAsync(stream, principal.GetUserId(),
+                $"{principal.GetFirstName()} {principal.GetLastName()}", ct);
+
+            // Batch audit
+            await auditLogService.LogAsync(
+                principal.GetUserId(),
+                $"{principal.GetFirstName()} {principal.GetLastName()}",
+                "Import",
+                "UserBatch",
+                result.TotalRows.ToString(),
+                $"{result.SuccessfulImports} imported",
+                $"Imported {result.SuccessfulImports} users ({result.FailedImports} failed)");
+
+            return Results.Ok(ApiResponse<UserImportResult>.SuccessResponse(result,
+                $"Imported {result.SuccessfulImports} of {result.TotalRows} users"));
+        })
+        .WithName("ImportUsers")
+        .RequireAuthorization("CanCreateUsers")
+        .DisableAntiforgery(); // For multipart/form-data uploads
     }
 }

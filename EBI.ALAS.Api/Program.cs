@@ -34,6 +34,7 @@ using OpenTelemetry.Resources;
 using OpenTelemetry.Trace;
 using Serilog;
 using MassTransit;
+using OfficeOpenXml;
 
 // ─── Serilog structured logging ─────────────────────────────────────
 // Enriches logs with correlation IDs, request context, and structured
@@ -50,6 +51,11 @@ Log.Logger = new LoggerConfiguration()
     .CreateLogger();
 
 var builder = WebApplication.CreateBuilder(args);
+
+// EPPlus 8 licensing — set NonCommercial for dev; for banking production,
+// set the EPPLUS_LICENSE_KEY environment variable to your license key
+// and use: ExcelPackage.License.SetCommercialLicense(Environment.GetEnvironmentVariable("EPPLUS_LICENSE_KEY"));
+ExcelPackage.License.SetNonCommercialOrganization("EBI Internal Use");
 
 // Replace default logging with Serilog
 builder.Host.UseSerilog();

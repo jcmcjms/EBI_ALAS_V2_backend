@@ -129,6 +129,7 @@ public static class ServiceCollectionExtensions
         // ─── User Management Services ────────────────────────────────────
         services.AddScoped<IUserRepository, UserRepository>();
         services.AddScoped<IUserService, UserService>();
+        services.AddScoped<IUserImportService, UserImportService>();
         services.AddSingleton<ITempPasswordGenerator, TempPasswordGenerator>();
 
         // ─── Branch Services ──────────────────────────────────────────────
