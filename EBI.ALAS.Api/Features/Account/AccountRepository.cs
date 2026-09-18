@@ -55,7 +55,7 @@ public class AccountRepository : IAccountRepository
         return true;
     }
 
-    public async Task<PagedSessionsResponse> GetActiveSessionsAsync(int userId, int currentSessionId, int pageNumber = 1, int pageSize = 10)
+    public async Task<PagedSessionsResponse> GetActiveSessionsAsync(int userId, int? currentSessionId, int pageNumber = 1, int pageSize = 10)
     {
         var query = _context.RefreshTokens
             .Where(t => t.UserId == userId && !t.IsRevoked && t.ExpiresAt > _timeProvider.UtcNow)
@@ -80,7 +80,7 @@ public class AccountRepository : IAccountRepository
                 t.DeviceInfo,
                 t.CreatedAt,
                 t.ExpiresAt,
-                IsCurrent = t.Id == currentSessionId
+                IsCurrent = currentSessionId.HasValue && t.Id == currentSessionId.Value
             })
             .ToListAsync();
 
@@ -109,17 +109,43 @@ public class AccountRepository : IAccountRepository
         );
     }
 
-    public async Task<bool> RevokeSessionAsync(int userId, int sessionId)
+    public async Task<SessionRevokeResult> RevokeSessionAsync(int userId, int sessionId, int? currentSessionId)
     {
+        // Guard: revoking your own live session orphans the caller mid-request-flow.
+        if (currentSessionId == sessionId) return SessionRevokeResult.CurrentSession;
+
         var token = await _context.RefreshTokens
             .FirstOrDefaultAsync(t => t.Id == sessionId && t.UserId == userId && !t.IsRevoked);
 
-        if (token == null) return false;
+        if (token == null) return SessionRevokeResult.NotFound;
 
         token.IsRevoked = true;
         token.RevokedAt = _timeProvider.UtcNow;
         await _context.SaveChangesAsync();
-        return true;
+        return SessionRevokeResult.Revoked;
+    }
+
+    public async Task<int> RevokeOtherSessionsAsync(int userId, int? currentSessionId)
+    {
+        var now = _timeProvider.UtcNow;
+        var query = _context.RefreshTokens
+            .Where(t => t.UserId == userId && !t.IsRevoked && t.ExpiresAt > now);
+
+        // Deliberately conditional: `t.Id != null-param` translates to `Id <> NULL`
+        // in SQL (UNKNOWN → row filtered out), which would revoke nothing.
+        if (currentSessionId.HasValue)
+            query = query.Where(t => t.Id != currentSessionId.Value);
+
+        var tokens = await query.ToListAsync();
+        if (tokens.Count == 0) return 0;
+
+        foreach (var token in tokens)
+        {
+            token.IsRevoked = true;
+            token.RevokedAt = now;
+        }
+        await _context.SaveChangesAsync();
+        return tokens.Count;
     }
 
     public async Task<List<ActivityResponse>> GetRecentActivityAsync(int userId, int limit = 10)

@@ -13,17 +13,21 @@ public class AccountService : IAccountService
         await _repository.GetProfileAsync(userId);
 
     public async Task<bool> UpdateProfileAsync(int userId, UpdateProfileRequest request) =>
-        await _repository.UpdateProfileAsync(userId, request);
+        await _repository.UpdateProfileAsync(userId, request with
+        {
+            Email = Normalize(request.Email),
+            Phone = Normalize(request.Phone),
+            EmergencyContact = Normalize(request.EmergencyContact),
+        });
 
-    public async Task<PagedSessionsResponse> GetActiveSessionsAsync(int userId, string currentJti, int pageNumber = 1, int pageSize = 10)
-    {
-        // For now, pass 0 as currentSessionId since we don't have direct JTI→RefreshToken mapping
-        // TODO: Add Jti field to RefreshToken entity for proper current session detection
-        return await _repository.GetActiveSessionsAsync(userId, 0, pageNumber, pageSize);
-    }
+    public async Task<PagedSessionsResponse> GetActiveSessionsAsync(int userId, int? currentSessionId, int pageNumber = 1, int pageSize = 10) =>
+        await _repository.GetActiveSessionsAsync(userId, currentSessionId, pageNumber, pageSize);
 
-    public async Task<bool> RevokeSessionAsync(int userId, int sessionId) =>
-        await _repository.RevokeSessionAsync(userId, sessionId);
+    public async Task<SessionRevokeResult> RevokeSessionAsync(int userId, int sessionId, int? currentSessionId) =>
+        await _repository.RevokeSessionAsync(userId, sessionId, currentSessionId);
+
+    public async Task<int> RevokeOtherSessionsAsync(int userId, int? currentSessionId) =>
+        await _repository.RevokeOtherSessionsAsync(userId, currentSessionId);
 
     public async Task<List<ActivityResponse>> GetRecentActivityAsync(int userId, int limit = 10) =>
         await _repository.GetRecentActivityAsync(userId, limit);
@@ -33,4 +37,7 @@ public class AccountService : IAccountService
 
     public async Task<List<RecentClientResponse>> GetRecentClientsAsync(int userId, int limit = 5) =>
         await _repository.GetRecentClientsAsync(userId, limit);
+
+    private static string? Normalize(string? value) =>
+        string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 }

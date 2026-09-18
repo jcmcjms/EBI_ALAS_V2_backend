@@ -75,3 +75,5 @@ public record RecentClientResponse(
     string Agency,
     DateTime LastInteraction
 );
+
+public record RevokedSessionsResponse(int RevokedCount);

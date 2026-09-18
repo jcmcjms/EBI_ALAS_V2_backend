@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Security.Cryptography;
@@ -29,7 +30,7 @@ public class JwtTokenService : IJwtTokenService
         return accessToken;
     }
 
-    public (string AccessToken, string XsrfToken) GenerateTokenWithXsrf(User user)
+    public (string AccessToken, string XsrfToken) GenerateTokenWithXsrf(User user, int? sessionId = null)
     {
         var jwtSettings = _configuration.GetSection("Jwt").Get<JwtSettings>()!;
         var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtSettings.SecretKey));
@@ -58,6 +59,13 @@ public class JwtTokenService : IJwtTokenService
             new Claim("mustChangePassword", user.MustChangePassword.ToString().ToLower()),
             new Claim(XsrfTokenClaim, xsrfToken)
         };
+
+        // Session id claim — ties the access token to the refresh token row
+        // so the Account endpoints can detect "this is your own session".
+        if (sessionId.HasValue)
+        {
+            claims.Add(new Claim("sid", sessionId.Value.ToString(CultureInfo.InvariantCulture)));
+        }
 
         // Add middle name if present
         if (!string.IsNullOrEmpty(user.MiddleName))

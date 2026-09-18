@@ -9,6 +9,9 @@ public static class ClaimsPrincipalExtensions
         return claim != null ? int.Parse(claim.Value) : 0;
     }
 
+    public static int? GetCurrentSessionId(this ClaimsPrincipal principal) =>
+        int.TryParse(principal.FindFirstValue("sid"), out var id) ? id : null;
+
     public static string GetUsername(this ClaimsPrincipal principal)
     {
         return principal.FindFirst("username")?.Value ?? string.Empty;

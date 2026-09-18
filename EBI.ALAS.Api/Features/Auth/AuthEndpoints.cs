@@ -50,17 +50,19 @@ public static class AuthEndpoints
                 return Results.Unauthorized();
             }
 
-            var (accessToken, xsrfToken) = jwtTokenService.GenerateTokenWithXsrf(user);
             var jwtSettings = configuration.GetSection("Jwt").Get<JwtSettings>()!;
-            var accessExpiresAt = timeProvider.UtcNow.AddMinutes(jwtSettings.ExpiryMinutes);
-
             var rawRefreshToken = jwtTokenService.GenerateRefreshToken();
             var refreshTokenHash = jwtTokenService.HashRefreshToken(rawRefreshToken);
             var refreshExpiry = timeProvider.UtcNow.AddDays(jwtSettings.RefreshTokenExpiryDays);
             var absoluteExpiry = timeProvider.UtcNow.AddDays(jwtSettings.AbsoluteSessionExpiryDays);
             var deviceInfo = GetDeviceInfo(http);
 
-            await refreshTokenRepository.CreateRefreshTokenAsync(user.Id, refreshTokenHash, refreshExpiry, absoluteExpiry, deviceInfo);
+            // Create the refresh token row first so we have its Id for the
+            // `sid` claim — ties the access token to this specific session.
+            var refreshToken = await refreshTokenRepository.CreateRefreshTokenAsync(user.Id, refreshTokenHash, refreshExpiry, absoluteExpiry, deviceInfo);
+
+            var (accessToken, xsrfToken) = jwtTokenService.GenerateTokenWithXsrf(user, refreshToken.Id);
+            var accessExpiresAt = timeProvider.UtcNow.AddMinutes(jwtSettings.ExpiryMinutes);
 
             var cookieOptions = new CookieOptions
             {
@@ -139,15 +141,20 @@ public static class AuthEndpoints
                 await tokenRevocationRepository.RevokeTokenAsync(currentJti, currentUserId, currentExpiry);
             }
 
-            var (newAccessToken, newXsrfToken) = jwtTokenService.GenerateTokenWithXsrf(user);
-            var newAccessExpiresAt = timeProvider.UtcNow.AddMinutes(jwtSettings.ExpiryMinutes);
+            var newDeviceInfo = GetDeviceInfo(http);
+
+            // Generate the new refresh token values.
             var newRawRefreshToken = jwtTokenService.GenerateRefreshToken();
             var newRefreshTokenHash = jwtTokenService.HashRefreshToken(newRawRefreshToken);
             var newRefreshExpiry = timeProvider.UtcNow.AddDays(jwtSettings.RefreshTokenExpiryDays);
             var newAbsoluteExpiry = timeProvider.UtcNow.AddDays(jwtSettings.AbsoluteSessionExpiryDays);
-            var newDeviceInfo = GetDeviceInfo(http);
 
-            await refreshTokenRepository.CreateRefreshTokenAsync(user.Id, newRefreshTokenHash, newRefreshExpiry, newAbsoluteExpiry, newDeviceInfo);
+            // Create the new refresh token row first so we have its Id for the
+            // `sid` claim on the new access token.
+            var newRefreshToken = await refreshTokenRepository.CreateRefreshTokenAsync(user.Id, newRefreshTokenHash, newRefreshExpiry, newAbsoluteExpiry, newDeviceInfo);
+
+            var (newAccessToken, newXsrfToken) = jwtTokenService.GenerateTokenWithXsrf(user, newRefreshToken.Id);
+            var newAccessExpiresAt = timeProvider.UtcNow.AddMinutes(jwtSettings.ExpiryMinutes);
 
             var cookieOptions = new CookieOptions
             {

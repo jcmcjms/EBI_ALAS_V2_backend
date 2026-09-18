@@ -47,23 +47,39 @@ public static class AccountEndpoints
         group.MapGet("/me/sessions", async (ClaimsPrincipal principal, IAccountService accountService, [AsParameters] SessionsQueryParameters parameters) =>
         {
             var userId = principal.GetUserId();
-            var jti = principal.FindFirstValue(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Jti) ?? "";
-            var sessions = await accountService.GetActiveSessionsAsync(userId, jti, parameters.PageNumber, parameters.PageSize);
+            var currentSessionId = principal.GetCurrentSessionId();
+            var sessions = await accountService.GetActiveSessionsAsync(userId, currentSessionId, parameters.PageNumber, parameters.PageSize);
             return Results.Ok(ApiResponse<PagedSessionsResponse>.SuccessResponse(sessions));
         })
         .WithName("GetAccountSessions")
         .Produces<ApiResponse<PagedSessionsResponse>>(200);
 
+        group.MapDelete("/me/sessions/others", async (ClaimsPrincipal principal, IAccountService accountService) =>
+        {
+            var userId = principal.GetUserId();
+            var currentSessionId = principal.GetCurrentSessionId();
+            var count = await accountService.RevokeOtherSessionsAsync(userId, currentSessionId);
+            return Results.Ok(ApiResponse<RevokedSessionsResponse>.SuccessResponse(new RevokedSessionsResponse(count)));
+        })
+        .WithName("RevokeOtherAccountSessions")
+        .Produces<ApiResponse<RevokedSessionsResponse>>(200);
+
         group.MapDelete("/me/sessions/{id:int}", async (int id, ClaimsPrincipal principal, IAccountService accountService) =>
         {
             var userId = principal.GetUserId();
-            var success = await accountService.RevokeSessionAsync(userId, id);
-            return success
-                ? Results.Ok(ApiResponse.SuccessResponse("Session revoked successfully"))
-                : Results.NotFound(ApiResponse.ErrorResponse("Session not found or already revoked"));
+            var currentSessionId = principal.GetCurrentSessionId();
+            var result = await accountService.RevokeSessionAsync(userId, id, currentSessionId);
+            return result switch
+            {
+                SessionRevokeResult.Revoked => Results.Ok(ApiResponse.SuccessResponse("Session revoked successfully")),
+                SessionRevokeResult.CurrentSession => Results.BadRequest(
+                    ApiResponse.ErrorResponse("You cannot sign out the session you are currently using.")),
+                _ => Results.NotFound(ApiResponse.ErrorResponse("Session not found or already revoked")),
+            };
         })
         .WithName("RevokeAccountSession")
         .Produces<ApiResponse>(200)
+        .Produces<ApiResponse>(400)
         .Produces<ApiResponse>(404);
 
         group.MapGet("/me/activity", async (ClaimsPrincipal principal, IAccountService accountService, [AsParameters] ActivityQueryParameters parameters) =>
