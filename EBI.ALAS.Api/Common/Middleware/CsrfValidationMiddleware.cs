@@ -2,7 +2,7 @@ using System.Text.Json;
 using EBI.ALAS.Api.Common.Models;
 using EBI.ALAS.Api.Features.Auth;
 
-namespace EBI.ALAS.Api.Features.Auth;
+namespace EBI.ALAS.Api.Common.Middleware;
 
 public sealed class CsrfValidationMiddleware
 {
