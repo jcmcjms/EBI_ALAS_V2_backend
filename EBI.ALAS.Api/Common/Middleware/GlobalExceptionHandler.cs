@@ -3,6 +3,7 @@ using System.Text.Json;
 using EBI.ALAS.Api.Common.Exceptions;
 using EBI.ALAS.Api.Common.Models;
 using FluentValidation;
+using Microsoft.EntityFrameworkCore;
 
 namespace EBI.ALAS.Api.Common.Middleware;
 
@@ -42,6 +43,17 @@ public sealed class GlobalExceptionHandler
             UnauthorizedAccessException unauthorizedEx => (HttpStatusCode.Unauthorized, ApiResponse.ErrorResponse(unauthorizedEx.Message)),
             ArgumentException argEx => (HttpStatusCode.BadRequest, ApiResponse.ErrorResponse(argEx.Message)),
             InvalidOperationException opEx => (HttpStatusCode.BadRequest, ApiResponse.ErrorResponse(opEx.Message)),
+
+            // EF Core concurrency conflicts — two users editing the same record
+            DbUpdateConcurrencyException concurrencyEx =>
+                (HttpStatusCode.Conflict, ApiResponse.ErrorResponse("The record was modified by another user. Please refresh and try again.")),
+
+            // EF Core database errors — FK violations, unique constraint violations, etc.
+            DbUpdateException dbEx => HandleDbUpdateException(dbEx),
+
+            // OperationCanceledException — client disconnected or request timed out
+            OperationCanceledException => (HttpStatusCode.BadRequest, ApiResponse.ErrorResponse("Request was cancelled.")),
+
             _ => HandleUnhandledException(exception)
         };
 
@@ -54,6 +66,34 @@ public sealed class GlobalExceptionHandler
         context.Response.ContentType = "application/json; charset=utf-8";
         var payload = JsonSerializer.Serialize(response, JsonOptions);
         await context.Response.WriteAsync(payload);
+    }
+
+    private (HttpStatusCode statusCode, ApiResponse response) HandleDbUpdateException(DbUpdateException dbEx)
+    {
+        // Check for common SQL Server error codes
+        var innerMessage = dbEx.InnerException?.Message ?? dbEx.Message;
+
+        // Unique constraint violation (SQL Server error 2627/2601)
+        if (innerMessage.Contains("2627") || innerMessage.Contains("2601") || innerMessage.Contains("UNIQUE"))
+        {
+            _logger.LogWarning(dbEx, "Unique constraint violation: {Message}", innerMessage);
+            return (HttpStatusCode.Conflict, ApiResponse.ErrorResponse("A record with this value already exists."));
+        }
+
+        // Foreign key constraint violation (SQL Server error 547)
+        if (innerMessage.Contains("547") || innerMessage.Contains("FOREIGN KEY"))
+        {
+            _logger.LogWarning(dbEx, "Foreign key constraint violation: {Message}", innerMessage);
+            return (HttpStatusCode.BadRequest, ApiResponse.ErrorResponse("Referenced record does not exist."));
+        }
+
+        // In development, include details for debugging
+        if (_environment.IsDevelopment())
+        {
+            return (HttpStatusCode.InternalServerError, ApiResponse.ErrorResponse($"Database error: {innerMessage}"));
+        }
+
+        return (HttpStatusCode.InternalServerError, ApiResponse.ErrorResponse("A database error occurred. Please try again later."));
     }
 
     private (HttpStatusCode statusCode, ApiResponse response) HandleUnhandledException(Exception exception)
