@@ -268,6 +268,30 @@ public sealed record CreatedLoan
     /// <summary>Display name of the assigned approver.
     /// Null when unassigned. Populated by GET /api/loans.</summary>
     public string? AssignedApproverName { get; init; }
+
+    // ── Workflow queue enrichment (GET /api/loans only) ─────────────
+    // These fields drive the queue-aware "Assigned To" column and the
+    // "My turn" filter in the monitoring table.
+
+    /// <summary>Current review desk stage (Recommendation/Evaluation/Approval).
+    /// Null when not in a review desk. Populated by GET /api/loans.</summary>
+    public string? QueueStage { get; init; }
+
+    /// <summary>Position in the queue (1 = on the desk right now).
+    /// Null when not in a review desk. Populated by GET /api/loans.</summary>
+    public int? QueuePosition { get; init; }
+
+    /// <summary>Total items in this desk's queue.
+    /// Null when not in a review desk. Populated by GET /api/loans.</summary>
+    public int? QueueLength { get; init; }
+
+    /// <summary>Display name of the head owner (who is reviewing).
+    /// Null when not in a review desk or desk is unowned. Populated by GET /api/loans.</summary>
+    public string? QueueOwnerName { get; init; }
+
+    /// <summary>True when this loan is the head of its desk queue.
+    /// Populated by GET /api/loans.</summary>
+    public bool IsQueueHead { get; init; }
 }
 
 // ─── GET /api/loans/{id}/history — timeline entries ─────────────────────

@@ -26,6 +26,7 @@ public class LoanSubmissionService : ILoanSubmissionService
     private readonly ILoanComputationService _computationService;
     private readonly ILoanProductRepository _productRepository;
     private readonly IWorkflowConfiguration _workflowConfig;
+    private readonly IWorkflowQueueService _queueService;
 
     public LoanSubmissionService(
         ILoanRepository loanRepository,
@@ -37,7 +38,8 @@ public class LoanSubmissionService : ILoanSubmissionService
         IRealtimeNotificationService realtimeService,
         ILoanComputationService computationService,
         ILoanProductRepository productRepository,
-        IWorkflowConfiguration workflowConfig)
+        IWorkflowConfiguration workflowConfig,
+        IWorkflowQueueService queueService)
     {
         _loanRepository = loanRepository;
         _lamIdGenerator = lamIdGenerator;
@@ -49,6 +51,7 @@ public class LoanSubmissionService : ILoanSubmissionService
         _computationService = computationService;
         _productRepository = productRepository;
         _workflowConfig = workflowConfig;
+        _queueService = queueService;
     }
 
     public async Task<(LoanSubmissionResponse Response, bool Replayed)> SubmitAsync(
@@ -207,6 +210,12 @@ public class LoanSubmissionService : ILoanSubmissionService
         // applications + idempotency row go in ONE transaction: a crash can
         // never leave applications without their replay guard (or vice versa).
         await _loanRepository.CreateSubmissionAsync(applications, idempotency, ct);
+
+        // ── Enqueue each loan into its initial review desk ──
+        foreach (var application in applications)
+        {
+            await _queueService.EnqueueAsync(application, _workflowService.InitialStatus, ct);
+        }
 
         // Stamp real ids onto the response, persist the JSON so a replay returns it verbatim.
         response = response with

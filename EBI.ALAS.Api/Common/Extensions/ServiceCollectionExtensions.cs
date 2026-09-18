@@ -95,6 +95,11 @@ public static class ServiceCollectionExtensions
         services.AddScoped<ILamIdGenerator, LamIdGenerator>();
         services.AddScoped<ILoanSubmissionService, LoanSubmissionService>();
 
+        // ── Workflow Queue (materialized-head FIFO desk) ──────────────
+        // Server-owned queue that enforces FIFO ordering and deterministic
+        // ownership for review desk transitions.
+        services.AddScoped<IWorkflowQueueService, WorkflowQueueService>();
+
         // Checklist documents from BPB_BINARY_SERVER (read-only integration).
         services.AddScoped<IChecklistDocumentRepository, ChecklistDocumentRepository>();
 
@@ -168,6 +173,11 @@ public static class ServiceCollectionExtensions
         // loans. Keeps the stamp honest for legacy rows and post-stamp drift.
         // Same pattern as LoanProductSyncHostedService.
         services.AddHostedService<DocumentCompletenessSyncHostedService>();
+
+        // Background job that reconciles the workflow queue every 5 minutes.
+        // Promotes heads of partitions with no Active item and dequeues stale
+        // items whose loan status no longer matches their stage.
+        services.AddHostedService<QueueReconciliationHostedService>();
 
         // ─── Authorization ───────────────────────────────────────────────
         services.AddScoped<IAuthorizationHandler, PermissionAuthorizationHandler>();

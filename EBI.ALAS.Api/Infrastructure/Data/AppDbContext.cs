@@ -37,6 +37,7 @@ public class AppDbContext : DbContext
     public DbSet<ApprovalAuthority> ApprovalAuthorities => Set<ApprovalAuthority>();
     public DbSet<DeviationCatalogItem> DeviationCatalog => Set<DeviationCatalogItem>();
     public DbSet<UserBranchCoverage> UserBranchCoverages => Set<UserBranchCoverage>();
+    public DbSet<WorkflowQueueItem> WorkflowQueueItems => Set<WorkflowQueueItem>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -1004,6 +1005,53 @@ public class AppDbContext : DbContext
             entity.HasOne(e => e.ApprovalAuthority)
                 .WithMany()
                 .HasForeignKey(e => e.ApprovalAuthorityKey)
+                .OnDelete(DeleteBehavior.SetNull);
+        });
+
+        // ─── WorkflowQueueItem Entity ─────────────────────────────────
+        // Materialized-head FIFO desk. One live row (Queued|Active) per
+        // (loan, stage); completed rows remain for audit.
+        modelBuilder.Entity<WorkflowQueueItem>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).ValueGeneratedOnAdd();
+
+            entity.Property(e => e.Stage)
+                .HasConversion<string>()
+                .HasMaxLength(20);
+
+            entity.Property(e => e.State)
+                .HasConversion<string>()
+                .HasMaxLength(20);
+
+            entity.Property(e => e.PartitionKey)
+                .IsRequired()
+                .HasMaxLength(64);
+
+            entity.Property(e => e.EnqueuedAt)
+                .IsRequired();
+
+            // One live queue row per (loan, stage); completed rows remain for audit.
+            // SQL Server filtered unique index — prevents double-enqueue at DB level.
+            entity.HasIndex(e => new { e.LoanApplicationId, e.Stage })
+                .IsUnique()
+                .HasFilter("[State] IN ('Queued','Active')")
+                .HasDatabaseName("IX_WorkflowQueueItems_Loan_Stage_Live");
+
+            // Head lookup + rank scan per desk.
+            entity.HasIndex(e => new { e.PartitionKey, e.State, e.EnqueuedAt, e.Id })
+                .HasDatabaseName("IX_WorkflowQueueItems_Partition_Head");
+
+            // FK to LoanApplication. Cascade — deleting a loan cleans its queue rows.
+            entity.HasOne(e => e.LoanApplication)
+                .WithMany()
+                .HasForeignKey(e => e.LoanApplicationId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // FK to User (owner). SetNull — deleting a user releases the desk slot.
+            entity.HasOne(e => e.OwnerUser)
+                .WithMany()
+                .HasForeignKey(e => e.OwnerUserId)
                 .OnDelete(DeleteBehavior.SetNull);
         });
 

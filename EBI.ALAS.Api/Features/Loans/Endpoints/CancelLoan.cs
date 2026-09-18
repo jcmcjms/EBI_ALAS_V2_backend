@@ -29,6 +29,7 @@ public static class CancelLoan
             IRealtimeNotificationService realtimeService,
             ClaimsPrincipal user,
             ITimeProvider timeProvider,
+            HttpContext ctx,
             CancellationToken ct) =>
         {
             var validation = await validator.ValidateAsync(request, ct);
@@ -58,6 +59,10 @@ public static class CancelLoan
             loan.Status = "Cancelled";
             loan.LastActionDate = timeProvider.UtcNow;
             await loanRepository.UpdateAsync(loan);
+
+            // ── Queue lifecycle: dequeue from the review desk ──
+            var queueService = ctx.RequestServices.GetRequiredService<IWorkflowQueueService>();
+            await queueService.DequeueAndPromoteAsync(loan, fromStatus, ct);
 
             await auditLogger.LogActionAsync(id, userId, "ApplicationCancelled",
                 fromStatus, "Cancelled", request.Reason);

@@ -27,6 +27,7 @@ public static class GetLoans
             bool? sortDesc,
             DateTime? fromDate,
             DateTime? toDate,
+            bool? myTurn,
             CancellationToken ct) =>
         {
             var p = Math.Max(page ?? 1, 1);
@@ -39,6 +40,7 @@ public static class GetLoans
 
             var userRole = ctx.User.GetRole();
             var userBranchCode = ctx.User.GetBranchCode();
+            var userId = ctx.User.GetUserId();
 
             if (!string.IsNullOrEmpty(userBranchCode)
                 && !string.Equals(userRole, Roles.Admin, StringComparison.Ordinal))
@@ -82,6 +84,14 @@ public static class GetLoans
             {
                 var endDate = toDate.Value.Date.AddDays(1).AddTicks(-1);
                 query = query.Where(l => l.ApplicationDate <= endDate);
+            }
+
+            // ── "My turn" filter: only loans where the current user is the head owner ──
+            if (myTurn == true)
+            {
+                query = query.Where(l => db.WorkflowQueueItems.Any(i =>
+                    i.LoanApplicationId == l.Id && i.State == QueueItemState.Active
+                    && i.OwnerUserId == userId));
             }
 
             query = sortBy?.ToLower() switch
@@ -145,39 +155,54 @@ public static class GetLoans
                 .Take(ps)
                 .ToListAsync(ct);
 
+            // ── Resolve queue positions for this page ──
+            var queueService = ctx.RequestServices.GetRequiredService<IWorkflowQueueService>();
+            var loanIds = rows.Select(r => r.Id).ToList();
+            var positions = await queueService.GetPositionsAsync(loanIds, ct);
+
             var submissions = rows
                 .GroupBy(r => r.ApplicationGroupNo)
                 .Select(g => new LoanSubmissionResponse
                 {
                     ApplicationGroupNo = g.Key,
                     Loans = g
-                        .Select(r => new CreatedLoan
+                        .Select(r =>
                         {
-                            Id = r.Id,
-                            LamId = r.LamId,
-                            LoanNo = r.LoanNo,
-                            ProductCode = r.ProductCode,
-                            Product = r.Product,
-                            ProposedAmount = r.ProposedAmount,
-                            Status = r.Status,
-                            BranchCode = r.BranchCode,
-                            CreationTypeCode = r.CreationTypeCode,
-                            CreationTypeLabel = r.CreationTypeLabel,
-                            FirstName = r.FirstName,
-                            MiddleName = r.MiddleName,
-                            LastName = r.LastName,
-                            Suffix = r.Suffix,
-                            ApplicationDate = r.ApplicationDate,
-                            LastActionDate = r.LastActionDate,
-                            CreatedById = r.CreatedById,
-                            CreatedByName = r.CreatedByName,
-                            LastActionByName = r.LastActionInfo != null ? r.LastActionInfo.Name : r.CreatedByName,
-                            LastAction = r.LastActionInfo != null ? r.LastActionInfo.Action : null,
-                            DocumentsComplete = r.DocumentsCompleteAt != null,
-                            DocumentsCompleteAt = r.DocumentsCompleteAt,
-                            RequiredApprovalTier = r.RequiredApprovalTier,
-                            AssignedApproverId = r.AssignedApproverId,
-                            AssignedApproverName = r.AssignedApproverName,
+                            positions.TryGetValue(r.Id, out var queueInfo);
+                            return new CreatedLoan
+                            {
+                                Id = r.Id,
+                                LamId = r.LamId,
+                                LoanNo = r.LoanNo,
+                                ProductCode = r.ProductCode,
+                                Product = r.Product,
+                                ProposedAmount = r.ProposedAmount,
+                                Status = r.Status,
+                                BranchCode = r.BranchCode,
+                                CreationTypeCode = r.CreationTypeCode,
+                                CreationTypeLabel = r.CreationTypeLabel,
+                                FirstName = r.FirstName,
+                                MiddleName = r.MiddleName,
+                                LastName = r.LastName,
+                                Suffix = r.Suffix,
+                                ApplicationDate = r.ApplicationDate,
+                                LastActionDate = r.LastActionDate,
+                                CreatedById = r.CreatedById,
+                                CreatedByName = r.CreatedByName,
+                                LastActionByName = r.LastActionInfo != null ? r.LastActionInfo.Name : r.CreatedByName,
+                                LastAction = r.LastActionInfo != null ? r.LastActionInfo.Action : null,
+                                DocumentsComplete = r.DocumentsCompleteAt != null,
+                                DocumentsCompleteAt = r.DocumentsCompleteAt,
+                                RequiredApprovalTier = r.RequiredApprovalTier,
+                                AssignedApproverId = r.AssignedApproverId,
+                                AssignedApproverName = r.AssignedApproverName,
+                                // ── Queue position fields ──
+                                QueueStage = queueInfo?.Stage.ToString(),
+                                QueuePosition = queueInfo?.Position,
+                                QueueLength = queueInfo?.QueueLength,
+                                QueueOwnerName = queueInfo?.OwnerName,
+                                IsQueueHead = queueInfo?.IsHead ?? false,
+                            };
                         })
                         .ToList(),
                 })

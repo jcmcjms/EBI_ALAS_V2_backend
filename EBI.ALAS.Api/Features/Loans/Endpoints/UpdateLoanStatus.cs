@@ -64,6 +64,17 @@ public static class UpdateLoanStatus
                     $"Invalid status transition from {loan.Status} to {request.Status} for role {userRole}"));
             }
 
+            // ── Queue ownership guard (review desks only; Admin bypass) ──
+            var queueService = ctx.RequestServices.GetRequiredService<IWorkflowQueueService>();
+            if (WorkflowQueueService.StageForStatus(loan.Status) != null
+                && userRole != Roles.Admin
+                && !await queueService.IsHeadOwnerAsync(loan.Id, userId, loan.Status, ct))
+            {
+                return Results.Json(ApiResponse.ErrorResponse(
+                    "It is not your turn: this application is queued behind the file currently on the desk."),
+                    statusCode: StatusCodes.Status403Forbidden);
+            }
+
             var fromStatus = loan.Status;
 
             if (fromStatus == "Draft" && request.Status == "ForRecommendation")
@@ -139,6 +150,15 @@ public static class UpdateLoanStatus
             loan.LastActionDate = timeProvider.UtcNow;
 
             await loanRepository.UpdateAsync(loan);
+
+            // ── Queue lifecycle: dequeue old desk, enqueue new desk ──
+            var oldStage = WorkflowQueueService.StageForStatus(fromStatus);
+            var newStage = WorkflowQueueService.StageForStatus(request.Status);
+
+            if (oldStage != null)
+                await queueService.DequeueAndPromoteAsync(loan, fromStatus, ct);
+            if (newStage != null)
+                await queueService.EnqueueAsync(loan, request.Status, ct);
 
             await auditLogger.LogActionAsync(
                 id, userId, actionName, fromStatus, request.Status, request.Comments);
