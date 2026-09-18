@@ -76,6 +76,7 @@ public static class ServiceCollectionExtensions
                 sp.GetRequiredService<ITimeProvider>(),
                 sp.GetRequiredService<ILogger<CachingTokenRevocationRepository>>()));
         services.AddScoped<IRefreshTokenRepository, RefreshTokenRepository>();
+        services.AddScoped<IAuthService, AuthService>();
 
         // Hourly cleanup of expired refresh tokens + expired JTI
         // revocations. Without this, both tables grow forever (one row
