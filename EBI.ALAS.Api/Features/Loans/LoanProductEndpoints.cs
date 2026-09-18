@@ -153,5 +153,90 @@ public static class LoanProductEndpoints
         .Produces<ApiResponse<LoanProductSyncResult>>(200)
         .Produces<ApiResponse>(401)
         .RequireAuthorization("CanManageLoanProduct");
+
+        // ─── Export products to Excel (View permission) ─────────────
+        // Downloads the full product catalog as an .xlsx file. Retired
+        // products are included by default so ops can see the full
+        // history; pass IncludeRetired=false to get only active ones.
+        group.MapGet("/export", async (
+            [AsParameters] ExportLoanProductsParameters parameters,
+            ILoanProductImportService importService,
+            CancellationToken ct) =>
+        {
+            var bytes = await importService.ExportAsync(parameters, ct);
+            return Results.File(
+                bytes,
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                $"loan-products-export-{DateTime.UtcNow:yyyyMMdd}.xlsx");
+        })
+        .WithName("ExportLoanProducts")
+        .Produces(200)
+        .Produces<ApiResponse>(401)
+        .RequireAuthorization("CanViewLoanProduct");
+
+        // ─── Download import template (Manage permission) ───────────
+        // Returns a blank .xlsx template with headers, example rows,
+        // and an instructions sheet describing the import rules.
+        group.MapGet("/import/template", async (
+            ILoanProductImportService importService,
+            CancellationToken ct) =>
+        {
+            var bytes = await importService.GenerateTemplateAsync(ct);
+            return Results.File(
+                bytes,
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                "loan-product-import-template.xlsx");
+        })
+        .WithName("GetLoanProductImportTemplate")
+        .Produces(200)
+        .Produces<ApiResponse>(401)
+        .RequireAuthorization("CanManageLoanProduct");
+
+        // ─── Import products from Excel (Manage permission) ─────────
+        // Accepts an .xlsx file and upserts loan products. Existing
+        // codes are updated (policy fields + Description + IsRetired);
+        // new codes are created with LastSyncedAt = MinValue so the
+        // sync can pick them up on the next run.
+        //
+        // Returns a summary with created/updated counts and per-row
+        // validation errors. The caller should show the error report
+        // so ops can fix the spreadsheet and re-upload.
+        group.MapPost("/import", async (
+            IFormFile file,
+            ILoanProductImportService importService,
+            IAuditLogService auditLogService,
+            ClaimsPrincipal user,
+            CancellationToken ct) =>
+        {
+            if (file == null || file.Length == 0)
+                return Results.BadRequest(ApiResponse.ErrorResponse("No file uploaded"));
+
+            if (file.Length > 10 * 1024 * 1024)
+                return Results.BadRequest(ApiResponse.ErrorResponse("File size exceeds 10 MB limit"));
+
+            if (!file.FileName.EndsWith(".xlsx", StringComparison.OrdinalIgnoreCase))
+                return Results.BadRequest(ApiResponse.ErrorResponse("Only .xlsx files are supported"));
+
+            using var stream = file.OpenReadStream();
+            var result = await importService.ImportAsync(stream, user.GetUserId(), ct);
+
+            await auditLogService.LogAsync(
+                user.GetUserId(),
+                $"{user.GetFirstName()} {user.GetLastName()}",
+                "Import", "LoanProductBatch",
+                result.TotalRows.ToString(),
+                $"{result.Created} created, {result.Updated} updated",
+                $"Imported {result.Created + result.Updated} products ({result.Failed} failed)");
+
+            return Results.Ok(ApiResponse<LoanProductImportResult>.SuccessResponse(
+                result,
+                $"Imported {result.Created + result.Updated} products ({result.Created} created, {result.Updated} updated)"));
+        })
+        .WithName("ImportLoanProducts")
+        .Produces<ApiResponse<LoanProductImportResult>>(200)
+        .Produces<ApiResponse>(400)
+        .Produces<ApiResponse>(401)
+        .RequireAuthorization("CanManageLoanProduct")
+        .DisableAntiforgery();
     }
 }

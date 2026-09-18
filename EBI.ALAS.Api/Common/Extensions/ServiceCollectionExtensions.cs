@@ -109,6 +109,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<ILoanProductRepository, LoanProductRepository>();
         services.AddScoped<ILoanProductSyncService, LoanProductSyncService>();
         services.AddScoped<ILoanProductService, LoanProductService>();
+        services.AddScoped<ILoanProductImportService, LoanProductImportService>();
 
         // Background job that runs the sync on a configurable interval.
         // Hosted services are singletons by ASP.NET Core convention.
