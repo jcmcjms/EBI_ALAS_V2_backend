@@ -32,8 +32,27 @@ using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 using OpenTelemetry.Resources;
 using OpenTelemetry.Trace;
+using Serilog;
+using MassTransit;
+
+// ─── Serilog structured logging ─────────────────────────────────────
+// Enriches logs with correlation IDs, request context, and structured
+// properties. Seq sink is optional — falls back to console if Seq
+// is not configured.
+Log.Logger = new LoggerConfiguration()
+    .ReadFrom.Configuration(new ConfigurationBuilder()
+        .AddJsonFile("appsettings.json")
+        .AddJsonFile($"appsettings.{Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT") ?? "Production"}.json", optional: true)
+        .Build())
+    .Enrich.FromLogContext()
+    .Enrich.WithProperty("Application", "EBI.ALAS.V2.API")
+    .WriteTo.Console(outputTemplate: "[{Timestamp:HH:mm:ss} {Level:u3}] {Message:lj} {Properties:j}{NewLine}{Exception}")
+    .CreateLogger();
 
 var builder = WebApplication.CreateBuilder(args);
+
+// Replace default logging with Serilog
+builder.Host.UseSerilog();
 
 var configuration = builder.Configuration;
 var jwtSettings = configuration.GetSection("Jwt").Get<JwtSettings>()!;
@@ -57,6 +76,10 @@ builder.Services.AddDbContext<AppDbContext>((sp, options) =>
                 // herd exposed to login-throttling (40613) and
                 // database-going-offline (40197) outages.
                 errorNumbersToAdd: new[] { 4060, 40197, 40501, 40613, 49918, 49919, 49920 });
+            // Global split query behavior — prevents cartesian explosion
+            // on complex Include() queries. Can be overridden per-query
+            // with .AsSingleQuery() when needed.
+            sqlOptions.UseQuerySplittingBehavior(QuerySplittingBehavior.SplitQuery);
         });
     options.AddInterceptors(sp.GetRequiredService<AuditSaveChangesInterceptor>());
 });
@@ -229,6 +252,15 @@ builder.Services.AddRateLimiter(options =>
     });
 });
 
+// ─── Request Body Size Limits ───────────────────────────────────────
+// Prevents denial-of-service via oversized payloads.
+// 10MB limit covers document uploads; adjust per endpoint if needed.
+builder.WebHost.ConfigureKestrel(options =>
+{
+    options.Limits.MaxRequestBodySize = 10 * 1024 * 1024; // 10MB
+    options.Limits.RequestHeadersTimeout = TimeSpan.FromSeconds(30);
+});
+
 builder.Services.ConfigureHttpJsonOptions(options =>
 {
     options.SerializerOptions.DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull;
@@ -260,10 +292,83 @@ builder.Services.Configure<Microsoft.AspNetCore.Mvc.JsonOptions>(options =>
 //
 //   3. Dashboard summary + branch cache — read-mostly aggregates.
 //
-// Single-pod deployment only. A multi-replica deployment would
-// need a cross-process cache so the JTI blacklist and idempotency
-// replays stay coherent across pods. See README §"Cache topology
-// & limits" for the trade-off.
+// Multi-pod: Redis distributed cache is added below for cross-process
+// coherence. IMemoryCache remains for hot-path L1; Redis is L2.
+
+// ─── Redis Distributed Cache ────────────────────────────────────────
+// Replaces single-process IMemoryCache for multi-pod deployments.
+// JTI blacklist, idempotency replays, and dashboard cache stay
+// coherent across all pods via Redis.
+var redisConnection = configuration.GetConnectionString("Redis");
+if (!string.IsNullOrWhiteSpace(redisConnection))
+{
+    builder.Services.AddStackExchangeRedisCache(options =>
+    {
+        options.Configuration = redisConnection;
+        options.InstanceName = "ALAS_";
+    });
+}
+else
+{
+    // Fallback to in-memory if Redis is not configured (dev/single-pod)
+    builder.Services.AddDistributedMemoryCache();
+}
+
+// ─── MediatR (CQRS) ────────────────────────────────────────────────
+// Decouples endpoints from handlers. Enables pipeline behaviors
+// for cross-cutting concerns (validation, logging, authorization).
+builder.Services.AddMediatR(cfg => cfg.RegisterServicesFromAssembly(typeof(Program).Assembly));
+
+// ─── MassTransit (Message Queue) ────────────────────────────────────
+// Decouples audit logging and notification delivery from the HTTP
+// response path. Loan status updates return immediately; audit and
+// notification consumers process asynchronously via RabbitMQ.
+var rabbitMqConnection = configuration.GetConnectionString("RabbitMQ");
+if (!string.IsNullOrWhiteSpace(rabbitMqConnection))
+{
+    builder.Services.AddMassTransit(x =>
+    {
+        x.AddConsumer<EBI.ALAS.Api.Infrastructure.Messaging.Consumers.AuditLogConsumer>();
+        x.AddConsumer<EBI.ALAS.Api.Infrastructure.Messaging.Consumers.NotificationConsumer>();
+
+        x.UsingRabbitMq((context, cfg) =>
+        {
+            cfg.Host(rabbitMqConnection);
+            cfg.ConfigureEndpoints(context);
+        });
+    });
+
+    // Event publisher — wraps IPublishEndpoint for domain code
+    builder.Services.AddScoped<EBI.ALAS.Api.Infrastructure.Messaging.IEventPublisher,
+        EBI.ALAS.Api.Infrastructure.Messaging.MassTransitEventPublisher>();
+}
+else
+{
+    // Fallback: in-memory publisher for dev without RabbitMQ
+    builder.Services.AddMassTransit(x =>
+    {
+        x.AddConsumer<EBI.ALAS.Api.Infrastructure.Messaging.Consumers.AuditLogConsumer>();
+        x.AddConsumer<EBI.ALAS.Api.Infrastructure.Messaging.Consumers.NotificationConsumer>();
+        x.UsingInMemory((context, cfg) =>
+        {
+            cfg.ConfigureEndpoints(context);
+        });
+    });
+
+    builder.Services.AddScoped<EBI.ALAS.Api.Infrastructure.Messaging.IEventPublisher,
+        EBI.ALAS.Api.Infrastructure.Messaging.MassTransitEventPublisher>();
+}
+
+// ─── Output Caching ────────────────────────────────────────────────
+// Reduces DB load for read-heavy endpoints (branches, dashboard).
+// 10s default TTL; branch list cached 5min; dashboard cached 30s.
+builder.Services.AddOutputCache(options =>
+{
+    options.AddBasePolicy(builder => builder.Expire(TimeSpan.FromSeconds(10)));
+    options.AddPolicy("BranchCache", builder => builder.Expire(TimeSpan.FromMinutes(5)));
+    options.AddPolicy("DashboardCache", builder => builder.Expire(TimeSpan.FromSeconds(30)));
+    options.AddPolicy("LoanProductCache", builder => builder.Expire(TimeSpan.FromMinutes(10)));
+});
 
 builder.Services.AddApplicationServices();
 builder.Services.Configure<WorkflowOptions>(
@@ -276,7 +381,7 @@ builder.Services.Configure<WorkflowOptions>(
 builder.Services.AddSingleton<Microsoft.AspNetCore.SignalR.IUserIdProvider,
     EBI.ALAS.Api.Infrastructure.SignalR.JwtUserIdProvider>();
 
-builder.Services.AddSignalR(options =>
+var signalRBuilder = builder.Services.AddSignalR(options =>
 {
     options.EnableDetailedErrors = builder.Environment.IsDevelopment();
     // Keep-alive tuned for banking proxies/load balancers that drop
@@ -284,6 +389,17 @@ builder.Services.AddSignalR(options =>
     options.KeepAliveInterval = TimeSpan.FromSeconds(15);
     options.ClientTimeoutInterval = TimeSpan.FromSeconds(30);
 });
+
+// SignalR Redis backplane — enables message fan-out across multiple
+// pods. Without this, a notification sent on Pod A never reaches
+// connections on Pod B. Required for horizontal scaling.
+if (!string.IsNullOrWhiteSpace(redisConnection))
+{
+    signalRBuilder.AddStackExchangeRedis(redisConnection, options =>
+    {
+        options.Configuration.ChannelPrefix = StackExchange.Redis.RedisChannel.Literal("ALAS_SignalR");
+    });
+}
 builder.Services.AddFluentValidationAutoValidation();
 builder.Services.AddFluentValidationClientsideAdapters();
 builder.Services.AddValidatorsFromAssemblyContaining<Program>();
@@ -296,7 +412,36 @@ builder.Services.AddSwaggerGen(options =>
     options.AddSecurityRequirement(new OpenApiSecurityRequirement { { new OpenApiSecurityScheme { Reference = new OpenApiReference { Type = ReferenceType.SecurityScheme, Id = "Bearer" } }, Array.Empty<string>() } });
 });
 
-builder.Services.AddHealthChecks();
+// ─── Health Checks ──────────────────────────────────────────────────
+// Detailed health checks for SQL Server, Redis, RabbitMQ, and the application.
+// /health endpoint returns JSON with individual check statuses.
+var healthChecksBuilder = builder.Services.AddHealthChecks()
+    .AddSqlServer(
+        configuration.GetConnectionString("DefaultConnection")!,
+        name: "sqlserver",
+        tags: new[] { "db", "sql" },
+        timeout: TimeSpan.FromSeconds(5))
+    .AddCheck("self", () => Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult.Healthy("API is running"),
+        tags: new[] { "api" });
+
+if (!string.IsNullOrWhiteSpace(redisConnection))
+{
+    healthChecksBuilder.AddRedis(
+        redisConnection,
+        name: "redis",
+        tags: new[] { "cache" },
+        timeout: TimeSpan.FromSeconds(5));
+}
+
+if (!string.IsNullOrWhiteSpace(rabbitMqConnection))
+{
+    healthChecksBuilder.AddRabbitMQ(
+        rabbitMqConnection,
+        name: "rabbitmq",
+        tags: new[] { "messaging" },
+        timeout: TimeSpan.FromSeconds(5));
+}
+
 builder.Services.AddBankingSecurityHardening(builder.Configuration, builder.Environment);
 
 // HTTP response compression (brotli + gzip). Brings the average JSON
@@ -344,15 +489,39 @@ if (!app.Environment.IsDevelopment())
 
 app.UseResponseCompression();  // MUST be before UseCors — works on the wire, not on the framework response object
 app.UseMiddleware<CorrelationIdMiddleware>();  // FIRST — every later log line gets the correlation scope
+app.UseMiddleware<RequestLoggingMiddleware>();  // Structured request/response logging
 app.UseCors("AllowFrontend");
 app.UseMiddleware<GlobalExceptionHandler>();
 app.UseMiddleware<SecurityHeadersMiddleware>();
+app.UseMiddleware<IpAllowlistMiddleware>();  // IP allowlisting for admin endpoints
 app.UseIdempotency();  // Must be before rate limiter to catch all requests
+app.UseOutputCache();  // Response caching for read-heavy endpoints
 app.UseRateLimiter();
 app.UseAuthentication();
+app.UseMiddleware<CsrfValidationMiddleware>();  // CSRF protection — AFTER auth (needs JWT claims), BEFORE authorization
 app.UseAuthorization();
 
-app.MapHealthChecks("/health");
+app.MapHealthChecks("/health", new Microsoft.AspNetCore.Diagnostics.HealthChecks.HealthCheckOptions
+{
+    ResponseWriter = async (context, report) =>
+    {
+        context.Response.ContentType = "application/json; charset=utf-8";
+        var result = new
+        {
+            status = report.Status.ToString(),
+            totalDuration = report.TotalDuration.TotalMilliseconds,
+            checks = report.Entries.Select(e => new
+            {
+                name = e.Key,
+                status = e.Value.Status.ToString(),
+                duration = e.Value.Duration.TotalMilliseconds,
+                description = e.Value.Description,
+                exception = e.Value.Exception?.Message
+            })
+        };
+        await context.Response.WriteAsJsonAsync(result);
+    }
+});
 app.MapHub<EBI.ALAS.Api.Features.Notifications.NotificationHub>("/hubs/notifications");
 app.MapAuthEndpoints();
 app.MapUserEndpoints();
