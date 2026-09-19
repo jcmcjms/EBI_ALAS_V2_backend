@@ -1,5 +1,10 @@
 namespace EBI.ALAS.Api.Common.Exceptions;
-public class InvalidWorkflowException : Exception
+
+/// <summary>
+/// Thrown when a workflow state transition is not allowed.
+/// Carries from/to status and the user's role for structured error responses.
+/// </summary>
+public sealed class InvalidWorkflowException : Exception
 {
     public string FromStatus { get; }
     public string ToStatus { get; }
@@ -23,13 +28,8 @@ public class InvalidWorkflowException : Exception
 
     private static string BuildMessage(string fromStatus, string toStatus, string? userRole)
     {
-        if (!string.IsNullOrEmpty(userRole))
-        {
-            return $"Invalid status transition from '{fromStatus}' to '{toStatus}' for role '{userRole}'. " +
-                   $"This transition is not allowed by the loan workflow rules.";
-        }
-
-        return $"Invalid status transition from '{fromStatus}' to '{toStatus}'. " +
-               $"This transition is not allowed by the loan workflow rules.";
+        return string.IsNullOrEmpty(userRole)
+            ? $"Invalid status transition from '{fromStatus}' to '{toStatus}'. This transition is not allowed by the loan workflow rules."
+            : $"Invalid status transition from '{fromStatus}' to '{toStatus}' for role '{userRole}'. This transition is not allowed by the loan workflow rules.";
     }
 }

@@ -4,13 +4,17 @@ using EBI.ALAS.Api.Features.Auth;
 
 namespace EBI.ALAS.Api.Common.Middleware;
 
-public sealed class CsrfValidationMiddleware
+/// <summary>
+/// CSRF validation middleware. Validates X-XSRF-TOKEN header against the JWT claim.
+/// Uses primary constructor for dependency injection.
+/// </summary>
+public sealed class CsrfValidationMiddleware(
+    RequestDelegate next,
+    ILogger<CsrfValidationMiddleware> logger)
 {
     private static readonly HashSet<string> SafeMethods = new(StringComparer.OrdinalIgnoreCase) { "GET", "HEAD", "OPTIONS" };
     public const string XsrfHeaderName = "X-XSRF-TOKEN";
     private const string RefreshEndpointPath = "/api/auth/refresh";
-    private readonly RequestDelegate _next;
-    private readonly ILogger<CsrfValidationMiddleware> _logger;
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -18,32 +22,26 @@ public sealed class CsrfValidationMiddleware
         DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull
     };
 
-    public CsrfValidationMiddleware(RequestDelegate next, ILogger<CsrfValidationMiddleware> logger)
-    {
-        _next = next;
-        _logger = logger;
-    }
-
     public async Task InvokeAsync(HttpContext context)
     {
         var request = context.Request;
 
         if (SafeMethods.Contains(request.Method))
         {
-            await _next(context);
+            await next(context);
             return;
         }
 
         if (request.Path.StartsWithSegments(RefreshEndpointPath, StringComparison.OrdinalIgnoreCase))
         {
-            await _next(context);
+            await next(context);
             return;
         }
 
         var user = context.User;
         if (user?.Identity?.IsAuthenticated != true)
         {
-            await _next(context);
+            await next(context);
             return;
         }
 
@@ -51,14 +49,14 @@ public sealed class CsrfValidationMiddleware
 
         if (string.IsNullOrEmpty(xsrfClaim))
         {
-            _logger.LogWarning("CSRF check failed: missing claim on {Path}", request.Path);
+            logger.LogWarning("CSRF check failed: missing claim on {Path}", request.Path);
             await WriteForbiddenAsync(context, "CSRF token missing from access token.");
             return;
         }
 
         if (!request.Headers.TryGetValue(XsrfHeaderName, out var headerValues) || headerValues.Count == 0 || string.IsNullOrEmpty(headerValues[0]))
         {
-            _logger.LogWarning("CSRF check failed: missing header on {Method} {Path}", request.Method, request.Path);
+            logger.LogWarning("CSRF check failed: missing header on {Method} {Path}", request.Method, request.Path);
             await WriteForbiddenAsync(context, $"Missing {XsrfHeaderName} header.");
             return;
         }
@@ -66,12 +64,12 @@ public sealed class CsrfValidationMiddleware
         var headerToken = headerValues[0]!;
         if (!CryptographicOperationsFixedTimeEquals(xsrfClaim, headerToken))
         {
-            _logger.LogWarning("CSRF check failed: token mismatch on {Method} {Path}", request.Method, request.Path);
+            logger.LogWarning("CSRF check failed: token mismatch on {Method} {Path}", request.Method, request.Path);
             await WriteForbiddenAsync(context, "CSRF token does not match access token.");
             return;
         }
 
-        await _next(context);
+        await next(context);
     }
 
     private static bool CryptographicOperationsFixedTimeEquals(string a, string b)
@@ -94,5 +92,6 @@ public sealed class CsrfValidationMiddleware
 
 public static class CsrfValidationMiddlewareExtensions
 {
-    public static IApplicationBuilder UseCsrfValidation(this IApplicationBuilder builder) => builder.UseMiddleware<CsrfValidationMiddleware>();
+    public static IApplicationBuilder UseCsrfValidation(this IApplicationBuilder builder)
+        => builder.UseMiddleware<CsrfValidationMiddleware>();
 }

@@ -1,5 +1,10 @@
 namespace EBI.ALAS.Api.Common.Exceptions;
-public class NotFoundException : Exception
+
+/// <summary>
+/// Thrown when a requested resource does not exist.
+/// Carries the resource name and key for structured error responses.
+/// </summary>
+public sealed class NotFoundException : Exception
 {
     public string ResourceName { get; }
     public object? Key { get; }

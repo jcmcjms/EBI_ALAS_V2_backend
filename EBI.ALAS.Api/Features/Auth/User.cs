@@ -1,7 +1,12 @@
 using EBI.ALAS.Api.Features.ApprovalMatrix;
 
 namespace EBI.ALAS.Api.Features.Auth;
-public class User
+
+/// <summary>
+/// User entity. Represents a system user with authentication and profile data.
+/// Navigation properties are nullable to support lazy loading.
+/// </summary>
+public sealed class User
 {
     public int Id { get; set; }
     public string Username { get; set; } = string.Empty;
@@ -12,35 +17,27 @@ public class User
     public string BranchId { get; set; } = string.Empty;
     public string Role { get; set; } = string.Empty;
     public bool IsActive { get; set; } = true;
-    public bool MustChangePassword { get; set; } = false;
+    public bool MustChangePassword { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
-    
-    // New profile fields for My Account page
+
+    // Profile fields for My Account page
     public string? Email { get; set; }
     public string? Phone { get; set; }
     public string? EmergencyContact { get; set; }
     public string? ProfilePhotoUrl { get; set; }
     public DateTime? PasswordChangedAt { get; set; }
 
-    // Profile fields added for workflow audit context (JobTitle) and
-    // document signing (ESignature). JobTitle is a free-text role label
-    // that complements the workflow `Role` (Encoder/Recommender/etc.).
-    // ESignature is a base64-encoded PNG (small, <100KB) suitable for
-    // stamping on generated PDF documents.
+    // Workflow audit context (JobTitle) and document signing (ESignature)
     public string? JobTitle { get; set; }
     public string? ESignature { get; set; }
 
     // ── Delegation-of-authority routing ──────────────────────────────
-    /// <summary>FK to ApprovalAuthorities.Key. Null for non-approvers
-    /// (Encoder, Recommender, Evaluator, Admin). Determines which tier
-    /// of the approval matrix this user belongs to.</summary>
+    /// <summary>FK to ApprovalAuthorities.Key. Null for non-approvers.</summary>
     public string? ApprovalAuthorityKey { get; set; }
 
-    /// <summary>Navigation property to the approval authority row.
-    /// Null when ApprovalAuthorityKey is null (non-approvers).</summary>
+    /// <summary>Navigation property to the approval authority row.</summary>
     public ApprovalAuthority? ApprovalAuthority { get; set; }
 
-    /// <summary>Multi-branch coverage for Branch-scope approvers.
-    /// Empty for Area/Global scope approvers and non-approvers.</summary>
+    /// <summary>Multi-branch coverage for Branch-scope approvers.</summary>
     public ICollection<UserBranchCoverage> BranchCoverages { get; set; } = new List<UserBranchCoverage>();
 }

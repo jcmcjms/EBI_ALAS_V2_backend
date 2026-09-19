@@ -1,5 +1,10 @@
 namespace EBI.ALAS.Api.Common.Exceptions;
-public class ForbiddenAccessException : Exception
+
+/// <summary>
+/// Thrown when an authenticated user lacks the required permission.
+/// Optionally carries the permission key for audit logging.
+/// </summary>
+public sealed class ForbiddenAccessException : Exception
 {
     public string? RequiredPermission { get; }
 

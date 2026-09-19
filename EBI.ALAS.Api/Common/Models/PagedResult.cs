@@ -1,11 +1,16 @@
 namespace EBI.ALAS.Api.Common.Models;
-public class PagedResult<T>
+
+/// <summary>
+/// Generic paged result with computed pagination metadata.
+/// Immutable after construction — all properties use init setters.
+/// </summary>
+public sealed record PagedResult<T>
 {
-    public List<T> Items { get; set; } = new();
-    public int CurrentPage { get; set; }
-    public int PageSize { get; set; }
-    public int TotalCount { get; set; }
-    public int TotalPages => (int)Math.Ceiling(TotalCount / (double)PageSize);
+    public List<T> Items { get; init; } = [];
+    public int CurrentPage { get; init; }
+    public int PageSize { get; init; }
+    public int TotalCount { get; init; }
+    public int TotalPages => PageSize <= 0 ? 0 : (int)Math.Ceiling(TotalCount / (double)PageSize);
     public bool HasPreviousPage => CurrentPage > 1;
     public bool HasNextPage => CurrentPage < TotalPages;
 
@@ -20,26 +25,34 @@ public class PagedResult<T>
     }
 
     public static PagedResult<T> Create(IEnumerable<T> source, int totalCount, int currentPage, int pageSize)
-    {
-        return new PagedResult<T>
+        => new()
         {
             Items = source.ToList(),
             TotalCount = totalCount,
             CurrentPage = currentPage,
             PageSize = pageSize
         };
-    }
 }
-public class PaginationParams
+
+/// <summary>
+/// Pagination parameters with a hard ceiling on page size.
+/// Immutable after construction.
+/// </summary>
+public sealed record PaginationParams
 {
     private const int MaxPageSize = 100;
-    private int _pageSize = 20;
 
-    public int Page { get; set; } = 1;
+    public int Page { get; init; } = 1;
+    public int PageSize { get; init; } = 20;
 
-    public int PageSize
+    public PaginationParams Sanitized() => this with
     {
-        get => _pageSize;
-        set => _pageSize = Math.Min(value, MaxPageSize);
-    }
+        Page = Page < 1 ? 1 : Page,
+        PageSize = PageSize switch
+        {
+            < 1 => 1,
+            > MaxPageSize => MaxPageSize,
+            _ => PageSize
+        }
+    };
 }

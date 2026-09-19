@@ -1,61 +1,61 @@
-using EBI.ALAS.Api.Common.Time;
-
 namespace EBI.ALAS.Api.Common.Models;
-public class ApiResponse<T>
+
+/// <summary>
+/// Generic API response wrapper with success/error factory methods.
+/// Immutable after construction — all properties use init setters.
+/// </summary>
+public sealed record ApiResponse<T>
 {
-    public bool Success { get; set; }
-    public string Message { get; set; } = string.Empty;
-    public T? Data { get; set; }
-    public List<string> Errors { get; set; } = new();
-    public DateTime Timestamp { get; set; } = DateTime.UtcNow;
+    public bool Success { get; init; }
+    public string Message { get; init; } = string.Empty;
+    public T? Data { get; init; }
+    public List<string> Errors { get; init; } = [];
+    public DateTime Timestamp { get; init; } = DateTime.UtcNow;
 
     public static ApiResponse<T> SuccessResponse(T data, string message = "Operation completed successfully")
-    {
-        return new ApiResponse<T>
+        => new()
         {
             Success = true,
             Message = message,
             Data = data,
             Timestamp = DateTime.UtcNow
         };
-    }
 
     public static ApiResponse<T> ErrorResponse(string message, List<string>? errors = null)
-    {
-        return new ApiResponse<T>
+        => new()
         {
             Success = false,
             Message = message,
-            Errors = errors ?? new List<string>(),
+            Errors = errors ?? [],
             Timestamp = DateTime.UtcNow
         };
-    }
 }
-public class ApiResponse
+
+/// <summary>
+/// Non-generic API response for operations that return no data.
+/// Immutable after construction — all properties use init setters.
+/// </summary>
+public sealed record ApiResponse
 {
-    public bool Success { get; set; }
-    public string Message { get; set; } = string.Empty;
-    public List<string> Errors { get; set; } = new();
-    public DateTime Timestamp { get; set; } = DateTime.UtcNow;
+    public bool Success { get; init; }
+    public string Message { get; init; } = string.Empty;
+    public List<string> Errors { get; init; } = [];
+    public DateTime Timestamp { get; init; } = DateTime.UtcNow;
 
     public static ApiResponse SuccessResponse(string message = "Operation completed successfully")
-    {
-        return new ApiResponse
+        => new()
         {
             Success = true,
             Message = message,
             Timestamp = DateTime.UtcNow
         };
-    }
 
     public static ApiResponse ErrorResponse(string message, List<string>? errors = null)
-    {
-        return new ApiResponse
+        => new()
         {
             Success = false,
             Message = message,
-            Errors = errors ?? new List<string>(),
+            Errors = errors ?? [],
             Timestamp = DateTime.UtcNow
         };
-    }
 }
