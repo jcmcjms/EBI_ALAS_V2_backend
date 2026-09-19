@@ -1,16 +1,20 @@
 namespace EBI.ALAS.Api.Features.Branches;
 
-public record BranchResponse(
+/// <summary>
+/// Branch response DTO. Immutable record.
+/// </summary>
+public sealed record BranchResponse(
     int Id,
     string Code,
     string Name,
     bool IsActive,
-    DateTime CreatedAt
-);
+    DateTime CreatedAt);
 
-public record BranchListResponse(
+/// <summary>
+/// Branch list response DTO (lightweight). Immutable record.
+/// </summary>
+public sealed record BranchListResponse(
     int Id,
     string Code,
     string Name,
-    bool IsActive
-);
+    bool IsActive);

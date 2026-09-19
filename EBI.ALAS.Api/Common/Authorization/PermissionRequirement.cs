@@ -1,12 +1,12 @@
 using Microsoft.AspNetCore.Authorization;
 
 namespace EBI.ALAS.Api.Common.Authorization;
-public class PermissionRequirement : IAuthorizationRequirement
-{
-    public string Permission { get; }
 
-    public PermissionRequirement(string permission)
-    {
-        Permission = permission;
-    }
+/// <summary>
+/// Authorization requirement that checks for a specific permission claim.
+/// Immutable — permission is set at construction time.
+/// </summary>
+public sealed class PermissionRequirement(string permission) : IAuthorizationRequirement
+{
+    public string Permission { get; } = permission;
 }

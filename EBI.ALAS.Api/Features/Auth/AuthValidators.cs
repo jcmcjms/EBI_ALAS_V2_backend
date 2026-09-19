@@ -1,8 +1,9 @@
-using FluentValidation;
-
 namespace EBI.ALAS.Api.Features.Auth;
 
-public class LoginValidator : AbstractValidator<LoginRequest>
+/// <summary>
+/// Validates login requests. Username and password are required with reasonable length limits.
+/// </summary>
+public sealed class LoginValidator : AbstractValidator<LoginRequest>
 {
     public LoginValidator()
     {
@@ -16,7 +17,10 @@ public class LoginValidator : AbstractValidator<LoginRequest>
     }
 }
 
-public class ChangePasswordValidator : AbstractValidator<ChangePasswordRequest>
+/// <summary>
+/// Validates change password requests. Enforces complexity requirements.
+/// </summary>
+public sealed class ChangePasswordValidator : AbstractValidator<ChangePasswordRequest>
 {
     public ChangePasswordValidator()
     {

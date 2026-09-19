@@ -1,4 +1,8 @@
 namespace EBI.ALAS.Api.Features.Loans;
+
+/// <summary>
+/// Loan workflow service interface. Manages status transitions and workflow rules.
+/// </summary>
 public interface ILoanWorkflowService
 {
     /// <summary>Status a brand-new submission lands in (follows the feature flag).</summary>

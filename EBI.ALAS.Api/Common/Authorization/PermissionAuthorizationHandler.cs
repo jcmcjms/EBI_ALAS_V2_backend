@@ -2,22 +2,22 @@ using EBI.ALAS.Api.Common.Extensions;
 using Microsoft.AspNetCore.Authorization;
 
 namespace EBI.ALAS.Api.Common.Authorization;
-public class PermissionAuthorizationHandler : AuthorizationHandler<PermissionRequirement>
+
+/// <summary>
+/// Authorization handler that checks for permission claims.
+/// Succeeds if the authenticated user has the required permission.
+/// </summary>
+public sealed class PermissionAuthorizationHandler : AuthorizationHandler<PermissionRequirement>
 {
     protected override Task HandleRequirementAsync(
         AuthorizationHandlerContext context,
         PermissionRequirement requirement)
     {
-        if (context.User == null || !(context.User.Identity?.IsAuthenticated ?? false))
-        {
+        if (context.User?.Identity?.IsAuthenticated != true)
             return Task.CompletedTask;
-        }
 
-        // Check if user has the required permission
-        if (context.User!.HasPermission(requirement.Permission))
-        {
+        if (context.User.HasPermission(requirement.Permission))
             context.Succeed(requirement);
-        }
 
         return Task.CompletedTask;
     }

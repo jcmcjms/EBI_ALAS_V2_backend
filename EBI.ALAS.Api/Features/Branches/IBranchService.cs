@@ -2,6 +2,9 @@ using EBI.ALAS.Api.Common.Models;
 
 namespace EBI.ALAS.Api.Features.Branches;
 
+/// <summary>
+/// Branch service interface. Handles branch business logic.
+/// </summary>
 public interface IBranchService
 {
     Task<PagedResult<BranchListResponse>> GetBranchesAsync(int pageNumber, int pageSize, bool? isActive = null);

@@ -4,44 +4,27 @@ namespace EBI.ALAS.Api.Features.Notifications;
 
 /// <summary>
 /// Persistent, per-user notification row. Inserted whenever a workflow event
-/// happens that the recipient needs to know about (loan submitted, status
-/// changed, returned for revision). Surfaced via the header bell on the
-/// frontend and persisted in <c>Notifications</c> table.
+/// happens that the recipient needs to know about.
+/// EF Core entity — uses init setters for immutability after construction.
 /// </summary>
-public class Notification
+public sealed class Notification
 {
-    public int Id { get; set; }
-
-    /// <summary>
-    /// Recipient's <c>User.Id</c>. The header bell query filters on this
-    /// column via an index — see <see cref="Infrastructure.Data.AppDbContext"/>.
-    /// </summary>
-    public int UserId { get; set; }
-
+    public int Id { get; init; }
+    public int UserId { get; init; }
     public string Title { get; set; } = string.Empty;
-
     public string Description { get; set; } = string.Empty;
-
-    /// <summary>
-    /// Optional SPA route — the FE uses it to deep-link from the bell
-    /// straight to the loan monitoring page for the affected application.
-    /// </summary>
     public string? Link { get; set; }
+    public bool IsRead { get; set; }
+    public DateTime CreatedAt { get; init; }
 
-    public bool IsRead { get; set; } = false;
-
-    public DateTime CreatedAt { get; set; }
-
-    // ─── Navigation Property ───────────────────────────────────────────────
+    // Navigation Property
     public User? User { get; set; }
 }
 
 /// <summary>
-/// Wire format for GET /api/notifications. A record so the JSON
-/// serializer emits the camelCased fields the FE expects
-/// (id, title, description, link, isRead, createdAt).
+/// Wire format for GET /api/notifications. Immutable record.
 /// </summary>
-public record NotificationResponse(
+public sealed record NotificationResponse(
     int Id,
     string Title,
     string Description,

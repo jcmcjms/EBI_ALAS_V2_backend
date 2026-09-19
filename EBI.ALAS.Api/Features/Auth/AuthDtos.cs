@@ -1,15 +1,24 @@
 namespace EBI.ALAS.Api.Features.Auth;
 
-public record LoginRequest
+/// <summary>
+/// Login request payload. Immutable record — all properties use init setters.
+/// </summary>
+public sealed record LoginRequest
 {
     public string Username { get; init; } = string.Empty;
     public string Password { get; init; } = string.Empty;
 }
 
-public class LoginResponse
+/// <summary>
+/// Login response payload. Immutable record — all properties use init setters.
+/// </summary>
+public sealed record LoginResponse
 {
-    public string AccessToken { get; set; } = string.Empty;
-    public DateTime ExpiresAt { get; set; }
+    public string AccessToken { get; init; } = string.Empty;
+    public DateTime ExpiresAt { get; init; }
 }
 
-public record ChangePasswordRequest(string CurrentPassword, string NewPassword);
+/// <summary>
+/// Change password request payload. Positional record for immutability.
+/// </summary>
+public sealed record ChangePasswordRequest(string CurrentPassword, string NewPassword);
