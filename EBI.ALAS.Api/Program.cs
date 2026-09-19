@@ -1,554 +1,151 @@
-using System.IdentityModel.Tokens.Jwt;
-using System.Security.Claims;
-using System.Text;
-using System.Threading.RateLimiting;
-using Microsoft.AspNetCore.ResponseCompression;
-using Microsoft.AspNetCore.RateLimiting;
-using EBI.ALAS.Api.Common.Authorization;
-using EBI.ALAS.Api.Common.Constants;
 using EBI.ALAS.Api.Common.Extensions;
-using EBI.ALAS.Api.Common.Middleware;
-using EBI.ALAS.Api.Common.Models;
 using EBI.ALAS.Api.Common.Time;
-using EBI.ALAS.Api.Features.Account;
-using EBI.ALAS.Api.Features.ApprovalMatrix;
-using EBI.ALAS.Api.Features.Auth;
-using EBI.ALAS.Api.Features.AuditLogs;
-using EBI.ALAS.Api.Features.Branches;
-using EBI.ALAS.Api.Features.Dashboard;
 using EBI.ALAS.Api.Features.Loans;
-using EBI.ALAS.Api.Features.Notifications;
-using EBI.ALAS.Api.Features.RoleManagement;
-using EBI.ALAS.Api.Features.Users;
-using EBI.ALAS.Api.Features.WebLoans;
-using EBI.ALAS.Api.Features.Presence;
 using EBI.ALAS.Api.Infrastructure.Data;
-using EBI.ALAS.Api.Infrastructure.Interceptors;
 using EBI.ALAS.Api.Infrastructure.Security;
 using FluentValidation;
 using FluentValidation.AspNetCore;
-using Microsoft.AspNetCore.Authentication.JwtBearer;
-using Microsoft.EntityFrameworkCore;
-using Microsoft.IdentityModel.Tokens;
-using Microsoft.OpenApi.Models;
-using OpenTelemetry.Resources;
-using OpenTelemetry.Trace;
-using Serilog;
-using MassTransit;
 using OfficeOpenXml;
+using Serilog;
 
 // ─── Serilog structured logging ─────────────────────────────────────
-// Enriches logs with correlation IDs, request context, and structured
-// properties. Seq sink is optional — falls back to console if Seq
-// is not configured.
-Log.Logger = new LoggerConfiguration()
-    .ReadFrom.Configuration(new ConfigurationBuilder()
-        .AddJsonFile("appsettings.json")
-        .AddJsonFile($"appsettings.{Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT") ?? "Production"}.json", optional: true)
-        .Build())
-    .Enrich.FromLogContext()
-    .Enrich.WithProperty("Application", "EBI.ALAS.V2.API")
-    .WriteTo.Console(outputTemplate: "[{Timestamp:HH:mm:ss} {Level:u3}] {Message:lj} {Properties:j}{NewLine}{Exception}")
-    .CreateLogger();
+ObservabilityExtensions.ConfigureSerilog();
 
 var builder = WebApplication.CreateBuilder(args);
 
 // EPPlus 8 licensing — set NonCommercial for dev; for banking production,
-// set the EPPLUS_LICENSE_KEY environment variable to your license key
-// and use: ExcelPackage.License.SetCommercialLicense(Environment.GetEnvironmentVariable("EPPLUS_LICENSE_KEY"));
+// set the EPPLUS_LICENSE_KEY environment variable to your license key.
 ExcelPackage.License.SetNonCommercialOrganization("EBI Internal Use");
 
 // Replace default logging with Serilog
 builder.Host.UseSerilog();
 
 var configuration = builder.Configuration;
-var jwtSettings = configuration.GetSection("Jwt").Get<JwtSettings>()!;
+
+// ─── Infrastructure Services ────────────────────────────────────────
+builder.Services
+    .AddAppDatabase(configuration)
+    .AddWebLoanDatabase(configuration);
+
+// ─── Authentication & Authorization ─────────────────────────────────
+builder.Services
+    .AddJwtAuthentication(configuration)
+    .AddAuthorizationPolicies();
+
+// ─── CORS ───────────────────────────────────────────────────────────
 var corsOrigins = configuration.GetSection("Cors:AllowedOrigins").Get<string[]>()!;
-
-builder.Services.AddScoped<AuditSaveChangesInterceptor>();
-
-builder.Services.AddDbContext<AppDbContext>((sp, options) =>
-{
-    options.UseSqlServer(
-        configuration.GetConnectionString("DefaultConnection"),
-        sqlOptions =>
-        {
-            sqlOptions.CommandTimeout(30);
-            sqlOptions.EnableRetryOnFailure(
-                maxRetryCount: 3,
-                maxRetryDelay: TimeSpan.FromSeconds(10),
-                // Azure SQL transient errors. Without this list the
-                // retry policy only triggers on the default network/
-                // deadlock codes — missing these leaves a thundering
-                // herd exposed to login-throttling (40613) and
-                // database-going-offline (40197) outages.
-                errorNumbersToAdd: new[] { 4060, 40197, 40501, 40613, 49918, 49919, 49920 });
-            // Global split query behavior — prevents cartesian explosion
-            // on complex Include() queries. Can be overridden per-query
-            // with .AsSingleQuery() when needed.
-            sqlOptions.UseQuerySplittingBehavior(QuerySplittingBehavior.SplitQuery);
-        });
-    options.AddInterceptors(sp.GetRequiredService<AuditSaveChangesInterceptor>());
-});
-
-// Each parallel query against webloan gets its own DbContext via the
-// factory. DbContext is not thread-safe; the search endpoint fires 3-6
-// concurrent lookups, all of which need an isolated context.
-//
-// We register ONLY the factory (not AddDbContext<>) because:
-//   * Nothing else injects WebLoanDbContext directly — the factory
-//     produces short-lived contexts on demand.
-//   * AddDbContext registers DbContextOptions<T> as scoped, which makes
-//     the singleton IDbContextFactory capture it — captive dependency.
-//     AddDbContextFactory wires DbContextOptions<T> as singleton, which
-//     is what the factory needs.
-builder.Services.AddDbContextFactory<WebLoanDbContext>(options =>
-{
-    options.UseSqlServer(
-        configuration.GetConnectionString("WebLoanConnection"),
-        sqlOptions =>
-        {
-            sqlOptions.CommandTimeout(60);
-            sqlOptions.EnableRetryOnFailure(
-                maxRetryCount: 3,
-                maxRetryDelay: TimeSpan.FromSeconds(10),
-                errorNumbersToAdd: new[] { 4060, 40197, 40501, 40613, 49918, 49919, 49920 });
-        });
-    options.UseQueryTrackingBehavior(QueryTrackingBehavior.NoTracking);
-    options.AddInterceptors(new WebLoanReadOnlyInterceptor());
-});
-
-builder.Services.AddAuthentication(options =>
-{
-    options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
-    options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
-})
-.AddJwtBearer(options =>
-{
-    options.RequireHttpsMetadata = !builder.Environment.IsDevelopment();
-    options.SaveToken = true;
-    options.TokenValidationParameters = new TokenValidationParameters
-    {
-        ValidateIssuer = true,
-        ValidateAudience = true,
-        ValidateLifetime = true,
-        ValidateIssuerSigningKey = true,
-        ValidIssuer = jwtSettings.Issuer,
-        ValidAudience = jwtSettings.Audience,
-        IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtSettings.SecretKey)),
-        ClockSkew = TimeSpan.Zero
-    };
-
-    options.Events = new JwtBearerEvents
-    {
-        // SignalR WebSockets cannot set HTTP headers, so the client
-        // passes the JWT as ?access_token=... during the handshake.
-        // This handler copies it into the standard Authorization header
-        // so the normal Bearer validation pipeline picks it up.
-        OnMessageReceived = context =>
-        {
-            var accessToken = context.Request.Query["access_token"];
-            var path = context.HttpContext.Request.Path;
-
-            if (!string.IsNullOrEmpty(accessToken)
-                && path.StartsWithSegments("/hubs/notifications"))
-            {
-                context.Token = accessToken;
-            }
-
-            return Task.CompletedTask;
-        },
-        OnTokenValidated = async context =>
-        {
-            var jti = context.Principal?.FindFirstValue(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Jti);
-            if (string.IsNullOrEmpty(jti))
-            {
-                context.Fail("Token missing JTI claim");
-                return;
-            }
-
-            var tokenRevocationRepo = context.HttpContext.RequestServices.GetRequiredService<ITokenRevocationRepository>();
-            if (await tokenRevocationRepo.IsTokenRevokedAsync(jti))
-                context.Fail("Token has been revoked");
-        }
-    };
-});
-
-builder.Services.AddAuthorization(options =>
-{
-    options.AddPolicy("CanCreateLoan", policy => policy.Requirements.Add(new PermissionRequirement(Permissions.LoansCreate)));
-    options.AddPolicy("CanViewLoan", policy => policy.Requirements.Add(new PermissionRequirement(Permissions.LoansView)));
-    options.AddPolicy("CanRecommendLoan", policy => policy.Requirements.Add(new PermissionRequirement(Permissions.LoansRecommend)));
-    options.AddPolicy("CanEvaluateLoan", policy => policy.Requirements.Add(new PermissionRequirement(Permissions.LoansEvaluate)));
-    options.AddPolicy("CanApproveLoan", policy => policy.Requirements.Add(new PermissionRequirement(Permissions.LoansApprove)));
-    options.AddPolicy("CanRejectLoan", policy => policy.Requirements.Add(new PermissionRequirement(Permissions.LoansReject)));
-    options.AddPolicy("CanViewUsers", policy => policy.Requirements.Add(new PermissionRequirement(Permissions.UserView)));
-    options.AddPolicy("CanCreateUsers", policy => policy.Requirements.Add(new PermissionRequirement(Permissions.UserCreate)));
-    options.AddPolicy("CanEditUsers", policy => policy.Requirements.Add(new PermissionRequirement(Permissions.UserEdit)));
-    options.AddPolicy("CanSuspendUsers", policy => policy.Requirements.Add(new PermissionRequirement(Permissions.UserSuspend)));
-    options.AddPolicy("CanViewRoles", policy => policy.Requirements.Add(new PermissionRequirement(Permissions.RoleView)));
-    options.AddPolicy("CanViewAuditLogs", policy => policy.Requirements.Add(new PermissionRequirement(Permissions.AuditLogsView)));
-    options.AddPolicy("CanViewLoanProduct", policy => policy.Requirements.Add(new PermissionRequirement(Permissions.LoanProductView)));
-    options.AddPolicy("CanManageLoanProduct", policy => policy.Requirements.Add(new PermissionRequirement(Permissions.LoanProductManage)));
-    options.AddPolicy("CanManageWorkflow", policy => policy.Requirements.Add(new PermissionRequirement(Permissions.WorkflowManage)));
-});
-
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowFrontend", policy =>
     {
-        policy.WithOrigins(corsOrigins).AllowAnyHeader().AllowAnyMethod().AllowCredentials();
+        policy.WithOrigins(corsOrigins)
+              .AllowAnyHeader()
+              .AllowAnyMethod()
+              .AllowCredentials();
     });
 });
 
-builder.Services.AddRateLimiter(options =>
-{
-    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+// ─── Rate Limiting ──────────────────────────────────────────────────
+builder.Services.AddBankingRateLimiting(configuration);
 
-    options.OnRejected = async (context, cancellationToken) =>
-    {
-        if (context.Lease.TryGetMetadata(MetadataName.RetryAfter, out var retryAfter))
-            context.HttpContext.Response.Headers.RetryAfter = ((int)Math.Ceiling(retryAfter.TotalSeconds)).ToString();
-
-        context.HttpContext.Response.ContentType = "application/json; charset=utf-8";
-        var payload = ApiResponse.ErrorResponse("Too many requests. Please slow down and retry.");
-        await context.HttpContext.Response.WriteAsJsonAsync(payload, cancellationToken);
-    };
-
-    options.AddFixedWindowLimiter("LoginLimiter", limiterOptions =>
-    {
-        limiterOptions.PermitLimit = configuration.GetValue<int>("RateLimiting:Login:PermitLimit", 5);
-        limiterOptions.Window = TimeSpan.FromSeconds(configuration.GetValue<int>("RateLimiting:Login:WindowSeconds", 60));
-        limiterOptions.QueueLimit = 0;
-    });
-
-    options.AddPolicy("DataLimiter", context =>
-    {
-        var partitionKey = context.User?.Identity?.IsAuthenticated == true
-            ? (context.User.Identity.Name ?? context.User.FindFirst(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Sub)?.Value ?? "anonymous")
-            : (context.Connection.RemoteIpAddress?.ToString() ?? "unknown-ip");
-
-        return RateLimitPartition.GetFixedWindowLimiter(partitionKey, _ => new FixedWindowRateLimiterOptions
-        {
-            PermitLimit = configuration.GetValue<int>("RateLimiting:Data:PermitLimit", 120),
-            Window = TimeSpan.FromSeconds(configuration.GetValue<int>("RateLimiting:Data:WindowSeconds", 60)),
-            QueueLimit = 0,
-            QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
-            AutoReplenishment = true
-        });
-    });
-
-    options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(context =>
-    {
-        var path = context.Request.Path.Value ?? string.Empty;
-        if (path.StartsWith("/api/auth", StringComparison.OrdinalIgnoreCase) || path.StartsWith("/health", StringComparison.OrdinalIgnoreCase))
-            return RateLimitPartition.GetNoLimiter("no-limit");
-
-        var partitionKey = context.User?.Identity?.IsAuthenticated == true
-            ? (context.User.Identity.Name ?? context.User.FindFirst(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Sub)?.Value ?? "anonymous")
-            : (context.Connection.RemoteIpAddress?.ToString() ?? "unknown-ip");
-
-        return RateLimitPartition.GetFixedWindowLimiter(partitionKey, _ => new FixedWindowRateLimiterOptions
-        {
-            PermitLimit = configuration.GetValue<int>("RateLimiting:Data:PermitLimit", 120),
-            Window = TimeSpan.FromSeconds(configuration.GetValue<int>("RateLimiting:Data:WindowSeconds", 60)),
-            QueueLimit = 0,
-            QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
-            AutoReplenishment = true
-        });
-    });
-});
-
-// ─── Request Body Size Limits ───────────────────────────────────────
-// Prevents denial-of-service via oversized payloads.
-// 10MB limit covers document uploads; adjust per endpoint if needed.
+// ─── Kestrel hardening ──────────────────────────────────────────────
 builder.WebHost.ConfigureKestrel(options =>
 {
     options.Limits.MaxRequestBodySize = 10 * 1024 * 1024; // 10MB
     options.Limits.RequestHeadersTimeout = TimeSpan.FromSeconds(30);
 });
 
+// ─── JSON Serialization ────────────────────────────────────────────
 builder.Services.ConfigureHttpJsonOptions(options =>
 {
-    options.SerializerOptions.DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull;
-    options.SerializerOptions.Converters.Add(new System.Text.Json.Serialization.JsonStringEnumConverter());
+    options.SerializerOptions.DefaultIgnoreCondition =
+        System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull;
+    options.SerializerOptions.Converters.Add(
+        new System.Text.Json.Serialization.JsonStringEnumConverter());
     options.SerializerOptions.Converters.Add(new UtcDateTimeConverter());
 });
 
 builder.Services.Configure<Microsoft.AspNetCore.Mvc.JsonOptions>(options =>
 {
-    options.JsonSerializerOptions.DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull;
-    options.JsonSerializerOptions.Converters.Add(new System.Text.Json.Serialization.JsonStringEnumConverter());
+    options.JsonSerializerOptions.DefaultIgnoreCondition =
+        System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull;
+    options.JsonSerializerOptions.Converters.Add(
+        new System.Text.Json.Serialization.JsonStringEnumConverter());
     options.JsonSerializerOptions.Converters.Add(new UtcDateTimeConverter());
 });
 
-// ─── In-process cache (IMemoryCache) ────────────────────────────────
-//
-// IMemoryCache is registered in AddApplicationServices()
-// (ServiceCollectionExtensions). It backs three consumers, all
-// per-process by design:
-//
-//   1. JTI revocation blacklist — every authenticated request
-//      hits it via CachingTokenRevocationRepository. A token
-//      revoked on this pod is rejected for the rest of its 15-min
-//      access-token window.
-//
-//   2. Idempotency middleware — replayed POST/PUT/PATCH responses
-//      cached for 90s so a retried request returns the original
-//      response instead of re-executing the side effect.
-//
-//   3. Dashboard summary + branch cache — read-mostly aggregates.
-//
-// Multi-pod: Redis distributed cache is added below for cross-process
-// coherence. IMemoryCache remains for hot-path L1; Redis is L2.
+// ─── Caching (IMemoryCache + Redis + Output Cache) ──────────────────
+builder.Services.AddBankingCaching(configuration);
 
-// ─── Redis Distributed Cache ────────────────────────────────────────
-// Replaces single-process IMemoryCache for multi-pod deployments.
-// JTI blacklist, idempotency replays, and dashboard cache stay
-// coherent across all pods via Redis.
-var redisConnection = configuration.GetConnectionString("Redis");
-if (!string.IsNullOrWhiteSpace(redisConnection))
-{
-    builder.Services.AddStackExchangeRedisCache(options =>
-    {
-        options.Configuration = redisConnection;
-        options.InstanceName = "ALAS_";
-    });
-}
-else
-{
-    // Fallback to in-memory if Redis is not configured (dev/single-pod)
-    builder.Services.AddDistributedMemoryCache();
-}
-
-// ─── MediatR (CQRS) ────────────────────────────────────────────────
-// Decouples endpoints from handlers. Enables pipeline behaviors
-// for cross-cutting concerns (validation, logging, authorization).
-builder.Services.AddMediatR(cfg => cfg.RegisterServicesFromAssembly(typeof(Program).Assembly));
-
-// ─── MassTransit (Message Queue) ────────────────────────────────────
-// Decouples audit logging and notification delivery from the HTTP
-// response path. Loan status updates return immediately; audit and
-// notification consumers process asynchronously via RabbitMQ.
-var rabbitMqConnection = configuration.GetConnectionString("RabbitMQ");
-if (!string.IsNullOrWhiteSpace(rabbitMqConnection))
-{
-    builder.Services.AddMassTransit(x =>
-    {
-        x.AddConsumer<EBI.ALAS.Api.Infrastructure.Messaging.Consumers.AuditLogConsumer>();
-        x.AddConsumer<EBI.ALAS.Api.Infrastructure.Messaging.Consumers.NotificationConsumer>();
-
-        x.UsingRabbitMq((context, cfg) =>
-        {
-            cfg.Host(rabbitMqConnection);
-            cfg.ConfigureEndpoints(context);
-        });
-    });
-
-    // Event publisher — wraps IPublishEndpoint for domain code
-    builder.Services.AddScoped<EBI.ALAS.Api.Infrastructure.Messaging.IEventPublisher,
-        EBI.ALAS.Api.Infrastructure.Messaging.MassTransitEventPublisher>();
-}
-else
-{
-    // Fallback: in-memory publisher for dev without RabbitMQ
-    builder.Services.AddMassTransit(x =>
-    {
-        x.AddConsumer<EBI.ALAS.Api.Infrastructure.Messaging.Consumers.AuditLogConsumer>();
-        x.AddConsumer<EBI.ALAS.Api.Infrastructure.Messaging.Consumers.NotificationConsumer>();
-        x.UsingInMemory((context, cfg) =>
-        {
-            cfg.ConfigureEndpoints(context);
-        });
-    });
-
-    builder.Services.AddScoped<EBI.ALAS.Api.Infrastructure.Messaging.IEventPublisher,
-        EBI.ALAS.Api.Infrastructure.Messaging.MassTransitEventPublisher>();
-}
-
-// ─── Output Caching ────────────────────────────────────────────────
-// Reduces DB load for read-heavy endpoints (branches, dashboard).
-// 10s default TTL; branch list cached 5min; dashboard cached 30s.
-builder.Services.AddOutputCache(options =>
-{
-    options.AddBasePolicy(builder => builder.Expire(TimeSpan.FromSeconds(10)));
-    options.AddPolicy("BranchCache", builder => builder.Expire(TimeSpan.FromMinutes(5)));
-    options.AddPolicy("DashboardCache", builder => builder.Expire(TimeSpan.FromSeconds(30)));
-    options.AddPolicy("LoanProductCache", builder => builder.Expire(TimeSpan.FromMinutes(10)));
-});
-
+// ─── Application Services ───────────────────────────────────────────
 builder.Services.AddApplicationServices();
-
 builder.Services.Configure<WorkflowOptions>(
     configuration.GetSection(WorkflowOptions.SectionName));
 
-// ─── SignalR (real-time notifications) ────────────────────────────────
-// Custom User ID provider maps the "userId" JWT claim to SignalR's
-// user-based routing so IHubContext.Clients.User(id) targets the
-// correct connection.
-builder.Services.AddSingleton<Microsoft.AspNetCore.SignalR.IUserIdProvider,
-    EBI.ALAS.Api.Infrastructure.SignalR.JwtUserIdProvider>();
+// ─── Messaging (MassTransit/RabbitMQ + SignalR) ─────────────────────
+builder.Services.AddBankingMessaging(configuration);
 
-var signalRBuilder = builder.Services.AddSignalR(options =>
-{
-    options.EnableDetailedErrors = builder.Environment.IsDevelopment();
-    // Keep-alive tuned for banking proxies/load balancers that drop
-    // idle WebSocket connections after 30–60s.
-    options.KeepAliveInterval = TimeSpan.FromSeconds(15);
-    options.ClientTimeoutInterval = TimeSpan.FromSeconds(30);
-});
-
-// SignalR Redis backplane — enables message fan-out across multiple
-// pods. Without this, a notification sent on Pod A never reaches
-// connections on Pod B. Required for horizontal scaling.
-if (!string.IsNullOrWhiteSpace(redisConnection))
-{
-    signalRBuilder.AddStackExchangeRedis(redisConnection, options =>
-    {
-        options.Configuration.ChannelPrefix = StackExchange.Redis.RedisChannel.Literal("ALAS_SignalR");
-    });
-}
+// ─── Validation ─────────────────────────────────────────────────────
 builder.Services.AddFluentValidationAutoValidation();
 builder.Services.AddFluentValidationClientsideAdapters();
 builder.Services.AddValidatorsFromAssemblyContaining<Program>();
 
+// ─── API Documentation ──────────────────────────────────────────────
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(options =>
 {
-    options.SwaggerDoc("v1", new OpenApiInfo { Title = "EBI.ALAS.V2 API", Version = "v1", Description = "Banking-grade .NET 8 Web API for loan application management" });
-    options.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme { Name = "Authorization", Type = SecuritySchemeType.Http, Scheme = "Bearer", BearerFormat = "JWT", In = ParameterLocation.Header, Description = "Enter your JWT token" });
-    options.AddSecurityRequirement(new OpenApiSecurityRequirement { { new OpenApiSecurityScheme { Reference = new OpenApiReference { Type = ReferenceType.SecurityScheme, Id = "Bearer" } }, Array.Empty<string>() } });
+    options.SwaggerDoc("v1", new Microsoft.OpenApi.Models.OpenApiInfo
+    {
+        Title = "EBI.ALAS.V2 API",
+        Version = "v1",
+        Description = "Banking-grade .NET 8 Web API for loan application management"
+    });
+    options.AddSecurityDefinition("Bearer", new Microsoft.OpenApi.Models.OpenApiSecurityScheme
+    {
+        Name = "Authorization",
+        Type = Microsoft.OpenApi.Models.SecuritySchemeType.Http,
+        Scheme = "Bearer",
+        BearerFormat = "JWT",
+        In = Microsoft.OpenApi.Models.ParameterLocation.Header,
+        Description = "Enter your JWT token"
+    });
+    options.AddSecurityRequirement(new Microsoft.OpenApi.Models.OpenApiSecurityRequirement
+    {
+        {
+            new Microsoft.OpenApi.Models.OpenApiSecurityScheme
+            {
+                Reference = new Microsoft.OpenApi.Models.OpenApiReference
+                {
+                    Type = Microsoft.OpenApi.Models.ReferenceType.SecurityScheme,
+                    Id = "Bearer"
+                }
+            },
+            Array.Empty<string>()
+        }
+    });
 });
 
-// ─── Health Checks ──────────────────────────────────────────────────
-// Detailed health checks for SQL Server, Redis, RabbitMQ, and the application.
-// /health endpoint returns JSON with individual check statuses.
-var healthChecksBuilder = builder.Services.AddHealthChecks()
-    .AddSqlServer(
-        configuration.GetConnectionString("DefaultConnection")!,
-        name: "sqlserver",
-        tags: new[] { "db", "sql" },
-        timeout: TimeSpan.FromSeconds(5))
-    .AddCheck("self", () => Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult.Healthy("API is running"),
-        tags: new[] { "api" });
+// ─── Observability (OpenTelemetry + Health Checks) ──────────────────
+builder.Services
+    .AddBankingObservability()
+    .AddBankingHealthChecks(configuration);
 
-if (!string.IsNullOrWhiteSpace(redisConnection))
-{
-    healthChecksBuilder.AddRedis(
-        redisConnection,
-        name: "redis",
-        tags: new[] { "cache" },
-        timeout: TimeSpan.FromSeconds(5));
-}
-
-if (!string.IsNullOrWhiteSpace(rabbitMqConnection))
-{
-    healthChecksBuilder.AddRabbitMQ(
-        rabbitMqConnection,
-        name: "rabbitmq",
-        tags: new[] { "messaging" },
-        timeout: TimeSpan.FromSeconds(5));
-}
-
+// ─── Security Hardening ─────────────────────────────────────────────
 builder.Services.AddBankingSecurityHardening(builder.Configuration, builder.Environment);
 
-// HTTP response compression (brotli + gzip). Brings the average JSON
-// payload (loan lists, branch lists, dashboard summaries) from ~200KB
-// raw down to ~30KB on the wire — a 6× bandwidth win at 3000 users.
-builder.Services.AddResponseCompression(options =>
-{
-    options.EnableForHttps = true;
-    options.Providers.Add<BrotliCompressionProvider>();
-    options.Providers.Add<GzipCompressionProvider>();
-});
-builder.Services.Configure<BrotliCompressionProviderOptions>(options =>
-{
-    options.Level = System.IO.Compression.CompressionLevel.Fastest;
-});
-builder.Services.Configure<GzipCompressionProviderOptions>(options =>
-{
-    options.Level = System.IO.Compression.CompressionLevel.Fastest;
-});
+// ─── Compression ────────────────────────────────────────────────────
+builder.Services.AddBankingCompression();
 
-// OpenTelemetry distributed tracing
-builder.Services.AddOpenTelemetry()
-    .ConfigureResource(resource => resource.AddService("EBI.ALAS.V2.API"))
-    .WithTracing(tracing =>
-    {
-        tracing
-            .AddAspNetCoreInstrumentation(options =>
-            {
-                options.RecordException = true;
-            })
-            .AddHttpClientInstrumentation()
-            .AddConsoleExporter();
-    });
+// ═════════════════════════════════════════════════════════════════════
+// BUILD & CONFIGURE PIPELINE
+// ═════════════════════════════════════════════════════════════════════
 
 var app = builder.Build();
 
-if (app.Environment.IsDevelopment())
-{
-    app.UseSwagger();
-    app.UseSwaggerUI();
-}
+app.ConfigureMiddlewarePipeline();
+app.MapEndpoints();
 
-if (!app.Environment.IsDevelopment())
-    app.UseHttpsRedirection();
-
-app.UseResponseCompression();  // MUST be before UseCors — works on the wire, not on the framework response object
-app.UseMiddleware<CorrelationIdMiddleware>();  // FIRST — every later log line gets the correlation scope
-app.UseMiddleware<RequestLoggingMiddleware>();  // Structured request/response logging
-app.UseCors("AllowFrontend");
-app.UseMiddleware<GlobalExceptionHandler>();
-app.UseMiddleware<SecurityHeadersMiddleware>();
-app.UseMiddleware<IpAllowlistMiddleware>();  // IP allowlisting for admin endpoints
-app.UseIdempotency();  // Must be before rate limiter to catch all requests
-app.UseOutputCache();  // Response caching for read-heavy endpoints
-app.UseRateLimiter();
-app.UseAuthentication();
-app.UseMiddleware<CsrfValidationMiddleware>();  // CSRF protection — AFTER auth (needs JWT claims), BEFORE authorization
-app.UseAuthorization();
-
-app.MapHealthChecks("/health", new Microsoft.AspNetCore.Diagnostics.HealthChecks.HealthCheckOptions
-{
-    ResponseWriter = async (context, report) =>
-    {
-        context.Response.ContentType = "application/json; charset=utf-8";
-        var result = new
-        {
-            status = report.Status.ToString(),
-            totalDuration = report.TotalDuration.TotalMilliseconds,
-            checks = report.Entries.Select(e => new
-            {
-                name = e.Key,
-                status = e.Value.Status.ToString(),
-                duration = e.Value.Duration.TotalMilliseconds,
-                description = e.Value.Description,
-                exception = e.Value.Exception?.Message
-            })
-        };
-        await context.Response.WriteAsJsonAsync(result);
-    }
-});
-app.MapHub<EBI.ALAS.Api.Features.Notifications.NotificationHub>("/hubs/notifications");
-app.MapAuthEndpoints();
-app.MapUserEndpoints();
-app.MapRoleEndpoints();
-app.MapBranchEndpoints();
-app.MapLoanEndpoints();
-app.MapWorkflowConfigurationEndpoints();
-app.MapChecklistDocumentEndpoints();
-app.MapLoanDeviationEndpoints();
-app.MapDocumentRemarkEndpoints();
-app.MapDashboardEndpoints();
-app.MapAuditLogEndpoints();
-app.MapAccountEndpoints();
-app.MapWebLoanEndpoints();
-app.MapLoanProductEndpoints();
-app.MapNotificationEndpoints();
-app.MapApprovalMatrixEndpoints();
-app.MapPresenceEndpoints();
-
+// ─── Database Initialization ────────────────────────────────────────
 using (var scope = app.Services.CreateScope())
 {
     var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
