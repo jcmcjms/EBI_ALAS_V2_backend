@@ -1,4 +1,5 @@
 using EBI.ALAS.Api.Common.Models;
+using EBI.ALAS.Api.Features.Loans.DTOs;
 using EBI.ALAS.Api.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 

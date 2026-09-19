@@ -483,3 +483,4 @@ $RECYCLE.BIN/
 
 # Local developer configuration (contains environment-specific credentials)
 EBI.ALAS.Api/appsettings.Development.json
+/AGENT.md

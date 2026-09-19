@@ -5,9 +5,9 @@ using EBI.ALAS.Api.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 
 namespace EBI.ALAS.Api.Features.Loans;
-public class LoanRepository : ILoanRepository
+
+public class LoanRepository(AppDbContext context) : ILoanRepository
 {
-    private readonly AppDbContext _context;
 
     // ── Compiled Queries for Hot Paths ──────────────────────────────────
     // EF compiled queries skip the expression-tree visit on every call.
@@ -47,26 +47,21 @@ public class LoanRepository : ILoanRepository
                 .Where(l => l.Status == status && (branchId == null || l.BranchCode == branchId))
                 .Count());
 
-    public LoanRepository(AppDbContext context)
-    {
-        _context = context;
-    }
-
     public async Task<LoanApplication?> GetByIdAsync(int id, bool includeRelated = false, CancellationToken ct = default)
     {
         if (includeRelated)
         {
             // Use compiled query for the hot path (loan detail screen)
-            return await GetLoanByIdWithRelatedCompiled(_context, id);
+            return await GetLoanByIdWithRelatedCompiled(context, id);
         }
 
         // Tracked query for mutation paths (status update, cancel)
-        return await GetLoanByIdTrackedCompiled(_context, id);
+        return await GetLoanByIdTrackedCompiled(context, id);
     }
 
     public async Task<LoanApplication?> GetByLamIdAsync(string lamId, CancellationToken ct = default)
     {
-        return await GetLoanByLamIdCompiled(_context, lamId);
+        return await GetLoanByLamIdCompiled(context, lamId);
     }
 
     public async Task<PagedResult<LoanApplication>> GetAllAsync(
@@ -78,7 +73,7 @@ public class LoanRepository : ILoanRepository
         bool includeRelated = false,
         CancellationToken ct = default)
     {
-        var query = _context.LoanApplications.AsQueryable();
+        var query = context.LoanApplications.AsQueryable();
 
         // Apply role-based filtering BEFORE includes so the join does not
         // multiply row counts unnecessarily.
@@ -145,30 +140,30 @@ public class LoanRepository : ILoanRepository
 
     public async Task<LoanApplication> CreateAsync(LoanApplication loan, CancellationToken ct = default)
     {
-        _context.LoanApplications.Add(loan);
-        await _context.SaveChangesAsync(ct);
+        context.LoanApplications.Add(loan);
+        await context.SaveChangesAsync(ct);
         return loan;
     }
 
     public async Task UpdateAsync(LoanApplication loan, CancellationToken ct = default)
     {
-        _context.LoanApplications.Update(loan);
-        await _context.SaveChangesAsync(ct);
+        context.LoanApplications.Update(loan);
+        await context.SaveChangesAsync(ct);
     }
 
     public async Task<bool> ExistsAsync(int id, CancellationToken ct = default)
     {
-        return await LoanExistsCompiled(_context, id);
+        return await LoanExistsCompiled(context, id);
     }
 
     public async Task<int> GetCountByStatusAsync(string status, string? branchId = null, CancellationToken ct = default)
     {
-        return await CountByStatusCompiled(_context, status, branchId);
+        return await CountByStatusCompiled(context, status, branchId);
     }
 
     public async Task<decimal> GetTotalAmountByStatusAsync(string status, string? branchId = null, CancellationToken ct = default)
     {
-        var query = _context.LoanApplications
+        var query = context.LoanApplications
             .Where(l => l.Status == status);
 
         if (!string.IsNullOrEmpty(branchId))
@@ -183,7 +178,7 @@ public class LoanRepository : ILoanRepository
 
     public async Task<string?> GetOfficerDisplayNameAsync(int userId, CancellationToken ct = default)
     {
-        var name = await _context.Users
+        var name = await context.Users
             .Where(u => u.Id == userId)
             .Select(u => new { u.FirstName, u.MiddleName, u.LastName })
             .FirstOrDefaultAsync(ct);
@@ -202,7 +197,7 @@ public class LoanRepository : ILoanRepository
     public async Task<LoanSubmissionIdempotency?> GetIdempotencyRecordAsync(
         Guid key, int userId, CancellationToken ct = default)
     {
-        return await _context.LoanSubmissionIdempotencies
+        return await context.LoanSubmissionIdempotencies
             .FirstOrDefaultAsync(r => r.IdempotencyKey == key && r.UserId == userId, ct);
     }
 
@@ -211,16 +206,16 @@ public class LoanRepository : ILoanRepository
         LoanSubmissionIdempotency idempotency,
         CancellationToken ct = default)
     {
-        _context.LoanApplications.AddRange(applications);
-        _context.LoanSubmissionIdempotencies.Add(idempotency);
-        await _context.SaveChangesAsync(ct);
+        context.LoanApplications.AddRange(applications);
+        context.LoanSubmissionIdempotencies.Add(idempotency);
+        await context.SaveChangesAsync(ct);
     }
 
     public async Task UpdateIdempotencyResponseAsync(
         LoanSubmissionIdempotency idempotency, CancellationToken ct = default)
     {
-        _context.LoanSubmissionIdempotencies.Update(idempotency);
-        await _context.SaveChangesAsync(ct);
+        context.LoanSubmissionIdempotencies.Update(idempotency);
+        await context.SaveChangesAsync(ct);
     }
 
     // ── Notification routing helpers ─────────────────────────────────────
@@ -233,7 +228,7 @@ public class LoanRepository : ILoanRepository
         // see ClaimsPrincipalExtensions.GetBranchCode). Both columns are
         // indexed via the standard Users indexes, so the lookup is a
         // single seek even with thousands of users.
-        return await _context.Users
+        return await context.Users
             .Where(u => u.Role == role && u.BranchId == branchId && u.IsActive)
             .ToListAsync(ct);
     }

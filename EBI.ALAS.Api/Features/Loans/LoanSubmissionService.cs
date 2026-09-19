@@ -11,48 +11,21 @@ using Microsoft.EntityFrameworkCore;
 
 namespace EBI.ALAS.Api.Features.Loans;
 
-public class LoanSubmissionService : ILoanSubmissionService
+public class LoanSubmissionService(
+    ILoanRepository loanRepository,
+    ILamIdGenerator lamIdGenerator,
+    ILoanWorkflowService workflowService,
+    IAuditLogger auditLogger,
+    ITimeProvider timeProvider,
+    INotificationService notificationService,
+    IRealtimeNotificationService realtimeService,
+    ILoanComputationService computationService,
+    ILoanProductRepository productRepository,
+    IWorkflowConfiguration workflowConfig,
+    IWorkflowQueueService queueService) : ILoanSubmissionService
 {
     private const int MaxSequenceCollisions = 2;
     private const string IdempotencyIndexName = "IX_LoanSubmissionIdempotency_Key_User";
-
-    private readonly ILoanRepository _loanRepository;
-    private readonly ILamIdGenerator _lamIdGenerator;
-    private readonly ILoanWorkflowService _workflowService;
-    private readonly IAuditLogger _auditLogger;
-    private readonly ITimeProvider _timeProvider;
-    private readonly INotificationService _notificationService;
-    private readonly IRealtimeNotificationService _realtimeService;
-    private readonly ILoanComputationService _computationService;
-    private readonly ILoanProductRepository _productRepository;
-    private readonly IWorkflowConfiguration _workflowConfig;
-    private readonly IWorkflowQueueService _queueService;
-
-    public LoanSubmissionService(
-        ILoanRepository loanRepository,
-        ILamIdGenerator lamIdGenerator,
-        ILoanWorkflowService workflowService,
-        IAuditLogger auditLogger,
-        ITimeProvider timeProvider,
-        INotificationService notificationService,
-        IRealtimeNotificationService realtimeService,
-        ILoanComputationService computationService,
-        ILoanProductRepository productRepository,
-        IWorkflowConfiguration workflowConfig,
-        IWorkflowQueueService queueService)
-    {
-        _loanRepository = loanRepository;
-        _lamIdGenerator = lamIdGenerator;
-        _workflowService = workflowService;
-        _auditLogger = auditLogger;
-        _timeProvider = timeProvider;
-        _notificationService = notificationService;
-        _realtimeService = realtimeService;
-        _computationService = computationService;
-        _productRepository = productRepository;
-        _workflowConfig = workflowConfig;
-        _queueService = queueService;
-    }
 
     public async Task<(LoanSubmissionResponse Response, bool Replayed)> SubmitAsync(
         SubmitLoanApplicationRequest request,
@@ -63,7 +36,7 @@ public class LoanSubmissionService : ILoanSubmissionService
         var userId = user.GetUserId();
 
         // 1 ── Replay guard: same key + same user ⇒ stored response, nothing written.
-        var existing = await _loanRepository.GetIdempotencyRecordAsync(idempotencyKey, userId, ct);
+        var existing = await loanRepository.GetIdempotencyRecordAsync(idempotencyKey, userId, ct);
         if (existing is not null)
         {
             var replayed = JsonSerializer.Deserialize<LoanSubmissionResponse>(existing.ResponseJson)!;
@@ -84,8 +57,8 @@ public class LoanSubmissionService : ILoanSubmissionService
 
         // 3 ── Workflow gate: role must be allowed to move Draft → initial status.
         var role = user.GetRole();
-        var initialStatus = _workflowService.InitialStatus;
-        if (!_workflowService.IsValidTransition("Draft", initialStatus, role))
+        var initialStatus = workflowService.InitialStatus;
+        if (!workflowService.IsValidTransition("Draft", initialStatus, role))
         {
             throw new InvalidWorkflowException("Draft", initialStatus, role);
         }
@@ -100,7 +73,7 @@ public class LoanSubmissionService : ILoanSubmissionService
             catch (DbUpdateException ex) when (IsIdempotencyCollision(ex))
             {
                 // Concurrent duplicate submit won the race: return its result.
-                var record = await _loanRepository.GetIdempotencyRecordAsync(idempotencyKey, userId, ct);
+                var record = await loanRepository.GetIdempotencyRecordAsync(idempotencyKey, userId, ct);
                 if (record is null) throw;
                 return (JsonSerializer.Deserialize<LoanSubmissionResponse>(record.ResponseJson)!, true);
             }
@@ -119,9 +92,9 @@ public class LoanSubmissionService : ILoanSubmissionService
         string branchCode,
         CancellationToken ct)
     {
-        var groupNo = await _lamIdGenerator.GenerateGroupNumberAsync(ct);
-        var lamIds = await _lamIdGenerator.GenerateLamIdsAsync(request.Loans.Count, ct);
-        var now = _timeProvider.UtcNow;
+        var groupNo = await lamIdGenerator.GenerateGroupNumberAsync(ct);
+        var lamIds = await lamIdGenerator.GenerateLamIdsAsync(request.Loans.Count, ct);
+        var now = timeProvider.UtcNow;
 
         // ── Compute metrics before persisting ────────────────────────
         var applications = new List<LoanApplication>();
@@ -131,14 +104,14 @@ public class LoanSubmissionService : ILoanSubmissionService
             var application = MapApplication(request, loan, groupNo, lamIds[i], branchCode, userId, now);
 
             // Recompute all metrics server-side (never trust the client).
-            var product = await _productRepository.GetByCodeAsync(loan.ProductCode, ct);
+            var product = await productRepository.GetByCodeAsync(loan.ProductCode, ct);
             if (product is not null)
             {
                 var productConfig = LoanProductComputationConfig.FromEntity(
                     product, loan.Parameters.InterestRate, loan.Parameters.Term);
 
                 // Compute policy-default fees, then apply AO overrides.
-                var defaultFees = _computationService.ComputeExpectedFees(productConfig, loan.Parameters.ProposedAmount);
+                var defaultFees = computationService.ComputeExpectedFees(productConfig, loan.Parameters.ProposedAmount);
                 var appliedFees = new LoanFees(
                     ApplicationCharge: defaultFees.ApplicationCharge, // not AO-overridable
                     DocStamp: loan.Parameters.DocStamps,
@@ -146,12 +119,12 @@ public class LoanSubmissionService : ILoanSubmissionService
                     Insurance: loan.Parameters.Insurance,
                     AdvanceInterest: defaultFees.AdvanceInterest); // not AO-overridable
 
-                var results = _computationService.ComputeLoanMetrics(new LoanComputationInput(
+                var results = computationService.ComputeLoanMetrics(new LoanComputationInput(
                     ProposedAmount: loan.Parameters.ProposedAmount,
                     Product: productConfig,
                     Fees: appliedFees,
                     NetTakeHomePay: request.Client.NetTakeHomePay ?? 0m,
-                    MinimumNthp: _workflowConfig.MinimumNthp,
+                    MinimumNthp: workflowConfig.MinimumNthp,
                     OutstandingPrincipalBalances: request.OutstandingLoans.Select(o => o.PrincipalBalance).ToList(),
                     Reloans: request.EbiReloans.Select(e => new ObligationRow(e.ExistingDeduction, e.OutstandingBalance)).ToList(),
                     BuyOuts: request.BuyOuts.Select(b => new ObligationRow(b.Amortization, b.OutstandingBalance)).ToList(),
@@ -209,12 +182,12 @@ public class LoanSubmissionService : ILoanSubmissionService
 
         // applications + idempotency row go in ONE transaction: a crash can
         // never leave applications without their replay guard (or vice versa).
-        await _loanRepository.CreateSubmissionAsync(applications, idempotency, ct);
+        await loanRepository.CreateSubmissionAsync(applications, idempotency, ct);
 
         // ── Enqueue each loan into its initial review desk ──
         foreach (var application in applications)
         {
-            await _queueService.EnqueueAsync(application, _workflowService.InitialStatus, ct);
+            await queueService.EnqueueAsync(application, workflowService.InitialStatus, ct);
         }
 
         // Stamp real ids onto the response, persist the JSON so a replay returns it verbatim.
@@ -233,15 +206,15 @@ public class LoanSubmissionService : ILoanSubmissionService
                 .ToList(),
         };
         idempotency.ResponseJson = JsonSerializer.Serialize(response);
-        await _loanRepository.UpdateIdempotencyResponseAsync(idempotency, ct);
+        await loanRepository.UpdateIdempotencyResponseAsync(idempotency, ct);
 
         // Audit: creation + the encoder's submit transition, per loan.
         foreach (var application in applications)
         {
-            await _auditLogger.LogActionAsync(application.Id, userId, "Created", null, "Draft",
+            await auditLogger.LogActionAsync(application.Id, userId, "Created", null, "Draft",
                 $"Loan application created (group {groupNo})");
-            await _auditLogger.LogActionAsync(application.Id, userId, "StatusChanged", "Draft", _workflowService.InitialStatus,
-                _workflowService.InitialStatus == "ForRecommendation"
+            await auditLogger.LogActionAsync(application.Id, userId, "StatusChanged", "Draft", workflowService.InitialStatus,
+                workflowService.InitialStatus == "ForRecommendation"
                     ? "Submitted for recommendation"
                     : "Submitted for evaluation");
         }
@@ -249,55 +222,58 @@ public class LoanSubmissionService : ILoanSubmissionService
         // Notify the branch's recommenders (or evaluators when recommender
         // step is skipped) that a new application group is waiting for
         // their review.
-        if (_workflowService.RequireRecommendation)
+        await NotifySubmissionRecipientsAsync(
+            branchCode, groupNo, applications, workflowService.RequireRecommendation, ct);
+
+        // Dashboard real-time refresh — new submission shifts KPIs and pending queue
+        await realtimeService.NotifyDashboardUpdateAsync(branchCode);
+
+        return (response, false);
+    }
+
+    /// <summary>
+    /// Notifies the appropriate branch users (recommenders or evaluators)
+    /// about a new loan application submission.
+    /// Extracted from PersistAsync to follow Single Responsibility Principle.
+    /// </summary>
+    private async Task NotifySubmissionRecipientsAsync(
+        string branchCode,
+        string groupNo,
+        IReadOnlyList<LoanApplication> applications,
+        bool requireRecommendation,
+        CancellationToken ct)
+    {
+        var firstLoan = applications.First();
+        var clientName = $"{firstLoan.FirstName} {firstLoan.LastName}";
+
+        if (requireRecommendation)
         {
-            var recommenders = await _loanRepository.GetUsersByRoleAndBranchAsync(Roles.Recommender, branchCode, ct);
-            var firstLoan = applications.First();
-            var clientName = $"{firstLoan.FirstName} {firstLoan.LastName}";
+            var recommenders = await loanRepository.GetUsersByRoleAndBranchAsync(
+                Roles.Recommender, branchCode, ct);
 
             foreach (var recommender in recommenders)
             {
-                await _notificationService.CreateAsync(
-                    recommender.Id,
-                    "New Loan Application Submitted",
-                    $"Application group {groupNo} for {clientName} has been submitted for recommendation.",
-                    "/loans/monitoring");
-
-                // Real-time push for instant bell update + toast
-                await _realtimeService.NotifyUserAsync(
-                    recommender.Id,
-                    "New Loan Application Submitted",
-                    $"Application group {groupNo} for {clientName} has been submitted for recommendation.",
-                    "/loans/monitoring");
+                var message = $"Application group {groupNo} for {clientName} has been submitted for recommendation.";
+                await notificationService.CreateAsync(
+                    recommender.Id, "New Loan Application Submitted", message, "/loans/monitoring");
+                await realtimeService.NotifyUserAsync(
+                    recommender.Id, "New Loan Application Submitted", message, "/loans/monitoring");
             }
         }
         else
         {
-            var evaluators = await _loanRepository.GetUsersByRoleAndBranchAsync(Roles.Evaluator, branchCode, ct);
-            var firstLoan = applications.First();
-            var clientName = $"{firstLoan.FirstName} {firstLoan.LastName}";
+            var evaluators = await loanRepository.GetUsersByRoleAndBranchAsync(
+                Roles.Evaluator, branchCode, ct);
 
             foreach (var evaluator in evaluators)
             {
-                await _notificationService.CreateAsync(
-                    evaluator.Id,
-                    "New Loan Application Submitted",
-                    $"Application group {groupNo} for {clientName} has been submitted for evaluation.",
-                    "/loans/monitoring");
-
-                // Real-time push for instant bell update + toast
-                await _realtimeService.NotifyUserAsync(
-                    evaluator.Id,
-                    "New Loan Application Submitted",
-                    $"Application group {groupNo} for {clientName} has been submitted for evaluation.",
-                    "/loans/monitoring");
+                var message = $"Application group {groupNo} for {clientName} has been submitted for evaluation.";
+                await notificationService.CreateAsync(
+                    evaluator.Id, "New Loan Application Submitted", message, "/loans/monitoring");
+                await realtimeService.NotifyUserAsync(
+                    evaluator.Id, "New Loan Application Submitted", message, "/loans/monitoring");
             }
         }
-
-        // Dashboard real-time refresh — new submission shifts KPIs and pending queue
-        await _realtimeService.NotifyDashboardUpdateAsync(branchCode);
-
-        return (response, false);
     }
 
     private LoanApplication MapApplication(
@@ -371,7 +347,7 @@ public class LoanSubmissionService : ILoanSubmissionService
             OtherRemarks = request.Deviations.OtherRemarks,
             FeeDeviationJustification = request.Deviations.FeeDeviationJustification,
 
-            Status = _workflowService.InitialStatus,
+            Status = workflowService.InitialStatus,
             ApplicationDate = now,
             LastActionDate = now,
             CreatedById = userId,

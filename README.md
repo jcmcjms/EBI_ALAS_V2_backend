@@ -33,7 +33,7 @@ This isn't just another CRUD API. It's the operational backbone of a multi-branc
 
 ## What Does It Do?
 
-At its core, ALAS manages the journey of a loan application through a multi-stage approval pipeline. But the devil is in the details:
+At its core, ALAS manages the journey of a loan application through a multi-stage approval pipeline.
 
 **For Loan Officers (Encoders):**
 - Draft loan applications with borrower details pulled from the legacy WebLoan system
