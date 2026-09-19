@@ -8,7 +8,6 @@ using FluentValidation.AspNetCore;
 using OfficeOpenXml;
 using Serilog;
 
-// ─── Serilog structured logging ─────────────────────────────────────
 ObservabilityExtensions.ConfigureSerilog();
 
 var builder = WebApplication.CreateBuilder(args);
@@ -17,22 +16,18 @@ var builder = WebApplication.CreateBuilder(args);
 // set the EPPLUS_LICENSE_KEY environment variable to your license key.
 ExcelPackage.License.SetNonCommercialOrganization("EBI Internal Use");
 
-// Replace default logging with Serilog
 builder.Host.UseSerilog();
 
 var configuration = builder.Configuration;
 
-// ─── Infrastructure Services ────────────────────────────────────────
 builder.Services
     .AddAppDatabase(configuration)
     .AddWebLoanDatabase(configuration);
 
-// ─── Authentication & Authorization ─────────────────────────────────
 builder.Services
     .AddJwtAuthentication(configuration)
     .AddAuthorizationPolicies();
 
-// ─── CORS ───────────────────────────────────────────────────────────
 var corsOrigins = configuration.GetSection("Cors:AllowedOrigins").Get<string[]>()!;
 builder.Services.AddCors(options =>
 {
@@ -45,17 +40,14 @@ builder.Services.AddCors(options =>
     });
 });
 
-// ─── Rate Limiting ──────────────────────────────────────────────────
 builder.Services.AddBankingRateLimiting(configuration);
 
-// ─── Kestrel hardening ──────────────────────────────────────────────
 builder.WebHost.ConfigureKestrel(options =>
 {
     options.Limits.MaxRequestBodySize = 10 * 1024 * 1024; // 10MB
     options.Limits.RequestHeadersTimeout = TimeSpan.FromSeconds(30);
 });
 
-// ─── JSON Serialization ────────────────────────────────────────────
 builder.Services.ConfigureHttpJsonOptions(options =>
 {
     options.SerializerOptions.DefaultIgnoreCondition =
@@ -74,23 +66,18 @@ builder.Services.Configure<Microsoft.AspNetCore.Mvc.JsonOptions>(options =>
     options.JsonSerializerOptions.Converters.Add(new UtcDateTimeConverter());
 });
 
-// ─── Caching (IMemoryCache + Redis + Output Cache) ──────────────────
 builder.Services.AddBankingCaching(configuration);
 
-// ─── Application Services ───────────────────────────────────────────
 builder.Services.AddApplicationServices();
 builder.Services.Configure<WorkflowOptions>(
     configuration.GetSection(WorkflowOptions.SectionName));
 
-// ─── Messaging (MassTransit/RabbitMQ + SignalR) ─────────────────────
 builder.Services.AddBankingMessaging(configuration);
 
-// ─── Validation ─────────────────────────────────────────────────────
 builder.Services.AddFluentValidationAutoValidation();
 builder.Services.AddFluentValidationClientsideAdapters();
 builder.Services.AddValidatorsFromAssemblyContaining<Program>();
 
-// ─── API Documentation ──────────────────────────────────────────────
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(options =>
 {
@@ -125,27 +112,19 @@ builder.Services.AddSwaggerGen(options =>
     });
 });
 
-// ─── Observability (OpenTelemetry + Health Checks) ──────────────────
 builder.Services
     .AddBankingObservability()
     .AddBankingHealthChecks(configuration);
 
-// ─── Security Hardening ─────────────────────────────────────────────
 builder.Services.AddBankingSecurityHardening(builder.Configuration, builder.Environment);
 
-// ─── Compression ────────────────────────────────────────────────────
 builder.Services.AddBankingCompression();
-
-// ═════════════════════════════════════════════════════════════════════
-// BUILD & CONFIGURE PIPELINE
-// ═════════════════════════════════════════════════════════════════════
 
 var app = builder.Build();
 
 app.ConfigureMiddlewarePipeline();
 app.MapEndpoints();
 
-// ─── Database Initialization ────────────────────────────────────────
 using (var scope = app.Services.CreateScope())
 {
     var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
