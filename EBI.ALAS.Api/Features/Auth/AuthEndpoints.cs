@@ -54,7 +54,11 @@ public static class AuthEndpoints
         var result = await authService.LoginAsync(request, http);
 
         if (!result.Success)
-            return Results.Unauthorized();
+            // Generic on purpose: never reveal whether the username exists or the
+            // account is suspended (user-enumeration). Specifics stay in Serilog.
+            return Results.Json(
+                ApiResponse.ErrorResponse("Invalid username or password."),
+                statusCode: StatusCodes.Status401Unauthorized);
 
         SetRefreshTokenCookie(http, result.RefreshToken!, result.RefreshTokenExpiry!.Value);
         SetXsrfCookie(http, result.XsrfToken!, result.AccessTokenExpiry!.Value);
@@ -69,7 +73,9 @@ public static class AuthEndpoints
         var result = await authService.RefreshAsync(http);
 
         if (!result.Success)
-            return Results.Unauthorized();
+            return Results.Json(
+                ApiResponse.ErrorResponse("Session expired or invalid. Please log in again."),
+                statusCode: StatusCodes.Status401Unauthorized);
 
         SetRefreshTokenCookie(http, result.RefreshToken!, result.RefreshTokenExpiry!.Value);
         SetXsrfCookie(http, result.XsrfToken!, result.AccessTokenExpiry!.Value);
@@ -122,7 +128,9 @@ public static class AuthEndpoints
         }
         catch (UnauthorizedAccessException)
         {
-            return Results.Unauthorized();
+            return Results.Json(
+                ApiResponse.ErrorResponse("Session expired or invalid. Please log in again."),
+                statusCode: StatusCodes.Status401Unauthorized);
         }
         catch (InvalidOperationException ex)
         {
