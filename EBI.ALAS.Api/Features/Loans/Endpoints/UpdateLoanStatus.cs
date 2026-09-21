@@ -139,6 +139,32 @@ public static class UpdateLoanStatus
                     "A verdict is only accepted on the evaluator's ForChecking → ForApproval transition."));
             }
 
+            // ── Document completeness transitions ─────────────────────────
+            var checklistStore = ctx.RequestServices.GetRequiredService<IDocumentChecklistStore>();
+
+            if (request.Status == "ForIncompleteDocuments")
+            {
+                await checklistStore.MarkMissingAsync(
+                    loan.Id, request.MissingRequirementCodes!, userId, ct);
+            }
+
+            if (fromStatus == "ForIncompleteDocuments" && request.Status == "ForChecking")
+            {
+                if (request.SubmittedRequirementCodes is { Count: > 0 })
+                    await checklistStore.MarkSubmittedAsync(
+                        loan.Id, request.SubmittedRequirementCodes, userId, ct);
+
+                var unresolved = await checklistStore.GetUnresolvedAsync(loan.Id, ct);
+                if (unresolved.Count > 0)
+                {
+                    var names = string.Join(", ", unresolved.Select(u => u.Name));
+                    return Results.ValidationProblem(new Dictionary<string, string[]>
+                    {
+                        ["submittedRequirementCodes"] = [$"Documents still incomplete: {names}"],
+                    });
+                }
+            }
+
             var actionName = (fromStatus, request.Status, verdict) switch
             {
                 ("ForChecking", "ForApproval", "NotRecommended") => "EvaluatedNotRecommended",
@@ -245,6 +271,51 @@ public static class UpdateLoanStatus
                     description,
                     link);
             }
+            else if (request.Status == "ForIncompleteDocuments")
+            {
+                // Notify the encoder who created the application.
+                var title = "Documents Incomplete — Action Required";
+                var description = $"{actorName} flagged {clientName}'s application ({loan.LamId}) as having incomplete documents. Reason: {request.Comments}";
+
+                await notificationService.CreateAsync(
+                    loan.CreatedById,
+                    title,
+                    description,
+                    link);
+
+                await realtimeService.NotifyUserAsync(
+                    loan.CreatedById,
+                    title,
+                    description,
+                    link);
+            }
+            else if (request.Status == "ForChecking" && fromStatus == "ForIncompleteDocuments")
+            {
+                // Notify the evaluator who flagged it (last action with ToStatus == ForIncompleteDocuments).
+                var lastFlagAction = await ctx.RequestServices.GetRequiredService<AppDbContext>()
+                    .LoanActions.AsNoTracking()
+                    .Where(a => a.LoanApplicationId == loan.Id && a.ToStatus == "ForIncompleteDocuments")
+                    .OrderByDescending(a => a.ActionDate)
+                    .FirstOrDefaultAsync(ct);
+
+                if (lastFlagAction != null)
+                {
+                    var title = "Documents Resubmitted — Ready for Review";
+                    var description = $"{actorName} resubmitted documents for {clientName}'s application ({loan.LamId}).";
+
+                    await notificationService.CreateAsync(
+                        lastFlagAction.ActionByUserId,
+                        title,
+                        description,
+                        link);
+
+                    await realtimeService.NotifyUserAsync(
+                        lastFlagAction.ActionByUserId,
+                        title,
+                        description,
+                        link);
+                }
+            }
 
             if (loan.CreatedById != userId)
             {
@@ -319,6 +390,18 @@ public class UpdateLoanStatusRequest
     /// Persisted as the audit action name so the approver sees the stance
     /// without a schema migration.</summary>
     public string? Verdict { get; init; }
+
+    /// <summary>
+    /// Required when Status == "ForIncompleteDocuments". The checklist
+    /// requirement codes the evaluator flags as missing.
+    /// </summary>
+    public IReadOnlyList<string>? MissingRequirementCodes { get; init; }
+
+    /// <summary>
+    /// Used when transitioning from ForIncompleteDocuments → ForChecking.
+    /// The checklist requirement codes the encoder marks as submitted.
+    /// </summary>
+    public IReadOnlyList<string>? SubmittedRequirementCodes { get; init; }
 }
 
 public class UpdateLoanStatusValidator : AbstractValidator<UpdateLoanStatusRequest>
@@ -327,7 +410,7 @@ public class UpdateLoanStatusValidator : AbstractValidator<UpdateLoanStatusReque
     {
         "Draft", "ForRecommendation", "ForChecking", "ForApproval",
         "Approved", "Rejected", "ForRevision", "ForDisbursement",
-        "Disbursed", "OnGoing",
+        "Disbursed", "OnGoing", "ForIncompleteDocuments",
         "Cancelled"
     };
 
@@ -349,6 +432,20 @@ public class UpdateLoanStatusValidator : AbstractValidator<UpdateLoanStatusReque
             RuleFor(x => x.Comments)
                 .NotEmpty().MinimumLength(10)
                 .WithMessage("Comments (min 10 characters) are required for pushbacks, rejections, and a Not Recommended evaluation.");
+        });
+
+        // ForIncompleteDocuments requires at least one missing requirement code.
+        When(x => x.Status == "ForIncompleteDocuments", () =>
+        {
+            RuleFor(x => x.MissingRequirementCodes)
+                .NotEmpty().WithMessage("At least one missing requirement code is required.")
+                .ForEach(c => c.NotEmpty().MaximumLength(64));
+        });
+
+        When(x => x.SubmittedRequirementCodes != null, () =>
+        {
+            RuleFor(x => x.SubmittedRequirementCodes!)
+                .ForEach(c => c.NotEmpty().MaximumLength(64));
         });
 
         RuleFor(x => x.Comments).MaximumLength(2000)

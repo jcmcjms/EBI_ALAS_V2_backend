@@ -38,6 +38,7 @@ public class AppDbContext : DbContext
     public DbSet<DeviationCatalogItem> DeviationCatalog => Set<DeviationCatalogItem>();
     public DbSet<UserBranchCoverage> UserBranchCoverages => Set<UserBranchCoverage>();
     public DbSet<WorkflowQueueItem> WorkflowQueueItems => Set<WorkflowQueueItem>();
+    public DbSet<DocumentChecklist> DocumentChecklists => Set<DocumentChecklist>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -1089,6 +1090,50 @@ public class AppDbContext : DbContext
             // Index for the routing tier query
             entity.HasIndex(e => new { e.Status, e.RequiredApprovalTier, e.AssignedApproverId })
                 .HasDatabaseName("IX_LoanApplications_RoutingQueue");
+        });
+
+        // ─── DocumentChecklist Entity ─────────────────────────────────
+        // Per-item document requirement status. Tracks Missing/Pending/
+        // Submitted/Verified lifecycle for each checklist requirement on
+        // a loan application.
+        modelBuilder.Entity<DocumentChecklist>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).ValueGeneratedOnAdd();
+
+            entity.Property(e => e.Code)
+                .IsRequired()
+                .HasMaxLength(50);
+
+            entity.Property(e => e.Name)
+                .IsRequired()
+                .HasMaxLength(200);
+
+            entity.Property(e => e.Status)
+                .IsRequired()
+                .HasMaxLength(20)
+                .HasDefaultValue("Pending");
+
+            // Composite unique: one row per (loan, checklist code).
+            entity.HasIndex(e => new { e.LoanApplicationId, e.Code })
+                .IsUnique()
+                .HasDatabaseName("IX_DocumentChecklists_Loan_Code");
+
+            // Query pattern: get unresolved items for a loan.
+            entity.HasIndex(e => new { e.LoanApplicationId, e.Status })
+                .HasDatabaseName("IX_DocumentChecklists_Loan_Status");
+
+            // FK to LoanApplication. Cascade — deleting a loan cleans its checklist rows.
+            entity.HasOne(e => e.LoanApplication)
+                .WithMany(l => l.DocumentChecklists)
+                .HasForeignKey(e => e.LoanApplicationId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // FK to User (last updater). SetNull — deleting a user clears attribution.
+            entity.HasOne(e => e.UpdatedBy)
+                .WithMany()
+                .HasForeignKey(e => e.UpdatedById)
+                .OnDelete(DeleteBehavior.SetNull);
         });
     }
 }

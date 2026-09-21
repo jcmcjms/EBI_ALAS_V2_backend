@@ -45,6 +45,13 @@ public class LoanWorkflowService : ILoanWorkflowService
             // ── Unconditional downstream edges.
             [("ForChecking", "ForApproval")] = Roles.Evaluator,
             [("ForChecking", "ForRevision")] = Roles.Evaluator,
+
+            // ── Document completeness: evaluator flags missing docs, encoder resolves.
+            [("ForChecking", "ForIncompleteDocuments")] = Roles.Evaluator,
+            [("ForIncompleteDocuments", "ForChecking")] = Roles.Encoder,
+
+            // ── Encoder can also cancel from the incomplete-docs queue.
+            [("ForIncompleteDocuments", "Cancelled")] = Roles.Encoder,
             [("ForApproval", "Approved")] = Roles.Approver,
             [("ForApproval", "Rejected")] = Roles.Approver,
             [("ForApproval", "ForRevision")] = Roles.Approver,

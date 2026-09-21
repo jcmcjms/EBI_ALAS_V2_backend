@@ -129,4 +129,5 @@ public sealed class LoanApplication
     public ICollection<EbiReloan> EbiReloans { get; set; } = [];
     public ICollection<IncomingLoan> IncomingLoans { get; set; } = [];
     public ICollection<LoanDeviation> Deviations { get; set; } = [];
+    public ICollection<DocumentChecklist> DocumentChecklists { get; set; } = [];
 }

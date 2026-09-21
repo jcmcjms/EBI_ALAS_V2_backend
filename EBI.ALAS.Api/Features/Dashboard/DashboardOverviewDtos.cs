@@ -12,6 +12,7 @@ public sealed record DashboardOverviewResponse(
     IReadOnlyList<PushBackItemDto> PushBacks,
     IReadOnlyList<ApprovedLoanItemDto> ApprovedLoans,
     IReadOnlyList<DailyTrendPointDto> WeeklyTrend,
+    IReadOnlyList<DocumentQueueItemDto> DocumentQueue,
     DateTime GeneratedAtUtc);
 
 public sealed record DashboardKpis(
@@ -35,3 +36,6 @@ public sealed record ApprovedLoanItemDto(
     string FullName, string LamId, string BranchCode, DateTime ApprovedAtUtc);
 
 public sealed record DailyTrendPointDto(string Day, int Approved, int PushBacks);
+
+public sealed record DocumentQueueItemDto(
+    int Position, string LamId, string BranchCode, DateTime WaitingSinceUtc, int MissingCount);

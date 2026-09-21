@@ -450,6 +450,57 @@ namespace EBI.ALAS.Api.Migrations
                     b.ToTable("DeviationRemarks");
                 });
 
+            modelBuilder.Entity("EBI.ALAS.Api.Features.Loans.DocumentChecklist", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)");
+
+                    b.Property<int?>("DocId")
+                        .HasColumnType("int");
+
+                    b.Property<int>("LoanApplicationId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)")
+                        .HasDefaultValue("Pending");
+
+                    b.Property<DateTime>("UpdatedAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int?>("UpdatedById")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UpdatedById");
+
+                    b.HasIndex("LoanApplicationId", "Code")
+                        .IsUnique()
+                        .HasDatabaseName("IX_DocumentChecklists_Loan_Code");
+
+                    b.HasIndex("LoanApplicationId", "Status")
+                        .HasDatabaseName("IX_DocumentChecklists_Loan_Status");
+
+                    b.ToTable("DocumentChecklists");
+                });
+
             modelBuilder.Entity("EBI.ALAS.Api.Features.Loans.DocumentRemark", b =>
                 {
                     b.Property<int>("Id")
@@ -1386,6 +1437,24 @@ namespace EBI.ALAS.Api.Migrations
                     b.Navigation("ParentRemark");
                 });
 
+            modelBuilder.Entity("EBI.ALAS.Api.Features.Loans.DocumentChecklist", b =>
+                {
+                    b.HasOne("EBI.ALAS.Api.Features.Loans.LoanApplication", "LoanApplication")
+                        .WithMany("DocumentChecklists")
+                        .HasForeignKey("LoanApplicationId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("EBI.ALAS.Api.Features.Auth.User", "UpdatedBy")
+                        .WithMany()
+                        .HasForeignKey("UpdatedById")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.Navigation("LoanApplication");
+
+                    b.Navigation("UpdatedBy");
+                });
+
             modelBuilder.Entity("EBI.ALAS.Api.Features.Loans.DocumentRemark", b =>
                 {
                     b.HasOne("EBI.ALAS.Api.Features.Auth.User", "Author")
@@ -1587,6 +1656,8 @@ namespace EBI.ALAS.Api.Migrations
                     b.Navigation("BuyOuts");
 
                     b.Navigation("Deviations");
+
+                    b.Navigation("DocumentChecklists");
 
                     b.Navigation("EbiReloans");
 

@@ -6,6 +6,7 @@ using EBI.ALAS.Api.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
 
+
 namespace EBI.ALAS.Api.Features.Dashboard;
 
 public class DashboardService : IDashboardService
@@ -228,6 +229,26 @@ public class DashboardService : IDashboardService
             .Select((a, i) => new NowServingItemDto(i + 1, a.Name, a.LamId, a.ActionDate >= servingSinceUtc))
             .ToList();
 
+        // 8 ── Document completion queue (incomplete documents waiting on encoder).
+        var docQueueRows = await _context.WorkflowQueueItems.AsNoTracking()
+            .Where(i => i.Stage == QueueStage.DocumentCompletion && i.State != QueueItemState.Completed)
+            .Where(i => !scoped || i.LoanApplication.BranchCode == branchCode)
+            .OrderBy(i => i.PartitionKey).ThenBy(i => i.EnqueuedAt).ThenBy(i => i.Id)
+            .Select(i => new
+            {
+                i.LoanApplicationId,
+                i.LoanApplication.LamId,
+                i.LoanApplication.BranchCode,
+                i.EnqueuedAt,
+                MissingCount = i.LoanApplication.DocumentChecklists.Count(d => d.Status == "Missing" || d.Status == "Pending"),
+            })
+            .Take(QueueSize)
+            .ToListAsync(ct);
+
+        var documentQueue = docQueueRows
+            .Select((d, i) => new DocumentQueueItemDto(i + 1, d.LamId, d.BranchCode, d.EnqueuedAt, d.MissingCount))
+            .ToList();
+
         return new DashboardOverviewResponse(
             new DashboardKpis(
                 pendingTotal,
@@ -250,6 +271,7 @@ public class DashboardService : IDashboardService
                 .Select(a => new ApprovedLoanItemDto(a.FullName, a.LamId, a.BranchCode, a.ActionDate))
                 .ToList(),
             orderedTrend,
+            documentQueue,
             _timeProvider.UtcNow);
     }
 
