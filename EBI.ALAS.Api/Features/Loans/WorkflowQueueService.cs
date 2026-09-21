@@ -38,6 +38,7 @@ public class WorkflowQueueService : IWorkflowQueueService
         "ForRecommendation" => QueueStage.Recommendation,
         "ForChecking" => QueueStage.Evaluation,
         "ForApproval" => QueueStage.Approval,
+        "ForIncompleteDocuments" => QueueStage.DocumentCompletion,
         _ => null,
     };
 
@@ -49,6 +50,7 @@ public class WorkflowQueueService : IWorkflowQueueService
     private static string PartitionKey(QueueStage stage, LoanApplication loan) => stage switch
     {
         QueueStage.Approval => $"APP:{loan.BranchCode}:{loan.RequiredApprovalTier ?? 0}",
+        QueueStage.DocumentCompletion => $"DOC:{loan.BranchCode}",
         _ => $"{stage.ToString()[..3].ToUpperInvariant()}:{loan.BranchCode}",
     };
 
@@ -145,6 +147,7 @@ public class WorkflowQueueService : IWorkflowQueueService
         {
             QueueStage.Recommendation => Roles.Recommender,
             QueueStage.Evaluation => Roles.Evaluator,
+            QueueStage.DocumentCompletion => Roles.Encoder,
             _ => Roles.Approver,
         };
 

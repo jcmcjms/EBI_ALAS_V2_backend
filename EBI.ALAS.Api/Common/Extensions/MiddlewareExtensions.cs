@@ -6,6 +6,7 @@ using EBI.ALAS.Api.Features.Auth;
 using EBI.ALAS.Api.Features.Branches;
 using EBI.ALAS.Api.Features.Dashboard;
 using EBI.ALAS.Api.Features.Loans;
+using EBI.ALAS.Api.Features.Loans.Endpoints;
 using EBI.ALAS.Api.Features.Notifications;
 using EBI.ALAS.Api.Features.Presence;
 using EBI.ALAS.Api.Features.RoleManagement;
@@ -13,6 +14,7 @@ using EBI.ALAS.Api.Features.Users;
 using EBI.ALAS.Api.Features.WebLoans;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
+using Scalar.AspNetCore;
 
 namespace EBI.ALAS.Api.Common.Extensions;
 
@@ -28,11 +30,18 @@ public static class MiddlewareExtensions
     /// </summary>
     public static WebApplication ConfigureMiddlewarePipeline(this WebApplication app)
     {
-        // Development-only middleware
+        // Development-only middleware — OpenAPI document + Scalar API reference UI
         if (app.Environment.IsDevelopment())
         {
             app.UseSwagger();
-            app.UseSwaggerUI();
+            app.MapScalarApiReference(options =>
+            {
+                options
+                    .WithTitle("EBI.ALAS.V2 API")
+                    .WithTheme(ScalarTheme.Kepler)
+                    .WithDefaultHttpClient(ScalarTarget.CSharp, ScalarClient.HttpClient)
+                    .AddDocument("v1", "EBI.ALAS.V2 API", "/swagger/v1/swagger.json");
+            });
         }
 
         if (!app.Environment.IsDevelopment())
@@ -124,6 +133,7 @@ public static class MiddlewareExtensions
         app.MapLoanDeviationEndpoints();
         app.MapDocumentRemarkEndpoints();
         app.MapDashboardEndpoints();
+        app.MapLoanGroupEndpoints();
         app.MapAuditLogEndpoints();
         app.MapAccountEndpoints();
         app.MapWebLoanEndpoints();

@@ -101,8 +101,14 @@ public static class ServiceCollectionExtensions
         // ownership for review desk transitions.
         services.AddScoped<IWorkflowQueueService, WorkflowQueueService>();
 
+        // Extracted transition logic shared by single-loan and group endpoints.
+        services.AddScoped<ILoanStatusTransitionService, LoanStatusTransitionService>();
+
         // Checklist documents from BPB_BINARY_SERVER (read-only integration).
         services.AddScoped<IChecklistDocumentRepository, ChecklistDocumentRepository>();
+
+        // Per-item document requirement status tracking (Missing/Pending/Submitted/Verified).
+        services.AddScoped<IDocumentChecklistStore, DocumentChecklistStore>();
 
         // Loan product catalog (ALAS-owned mirror of webloan.loan_product).
         // Repository is scoped (uses AppDbContext). Service is scoped.
