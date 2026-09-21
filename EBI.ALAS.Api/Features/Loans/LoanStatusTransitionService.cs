@@ -59,9 +59,10 @@ public sealed class LoanStatusTransitionService(
             return new LoanTransitionResult(loan.LamId,
                 $"Invalid transition from {fromStatus} to {targetStatus} for role {userRole}.");
 
-        // Queue ownership guard
+        // Queue ownership guard (Admin and System bypass)
         if (WorkflowQueueService.StageForStatus(fromStatus) != null
             && userRole != Roles.Admin
+            && userRole != Roles.System
             && !await queueService.IsHeadOwnerAsync(loanId, userId, fromStatus, ct))
         {
             return new LoanTransitionResult(loan.LamId,
@@ -71,8 +72,21 @@ public sealed class LoanStatusTransitionService(
         // Document completeness transitions
         if (targetStatus == "ForIncompleteDocuments")
         {
-            if (missingCodes is { Count: > 0 })
-                await checklistStore.MarkMissingAsync(loanId, missingCodes, userId, ct);
+            // Server derives the authoritative pending set from the document
+            // server — client-supplied missingCodes are ignored for trust.
+            var items = await completenessService.GetItemsByLoanNoAsync(loan.LoanNo, ct);
+            var pending = items.Where(i => i.UploadStatus != "Uploaded").Select(i => i.IdCode).ToList();
+
+            if (pending.Count == 0)
+                return new LoanTransitionResult(loan.LamId,
+                    "All requirements are already uploaded — nothing to push back.");
+
+            loan.DocumentsCompleteAt = null; // invalidate completeness stamp
+
+            // Record the authoritative missing list in the audit comment
+            comments = $"{comments} | Missing: {string.Join(", ", pending)}";
+
+            await checklistStore.MarkMissingAsync(loanId, pending, userId, ct);
         }
 
         if (fromStatus == "ForIncompleteDocuments" && targetStatus == "ForChecking")

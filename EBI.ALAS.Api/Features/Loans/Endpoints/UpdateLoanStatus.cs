@@ -77,6 +77,7 @@ public static class UpdateLoanStatus
             }
 
             var fromStatus = loan.Status;
+            var comments = request.Comments;
 
             if (fromStatus == "Draft" && request.Status == "ForRecommendation")
             {
@@ -144,8 +145,25 @@ public static class UpdateLoanStatus
 
             if (request.Status == "ForIncompleteDocuments")
             {
-                await checklistStore.MarkMissingAsync(
-                    loan.Id, request.MissingRequirementCodes!, userId, ct);
+                // Server derives the authoritative pending set from the document
+                // server — client-supplied MissingRequirementCodes are used only
+                // for UI echo / audit comment, never for trust.
+                var completenessForPushback = ctx.RequestServices.GetRequiredService<IDocumentCompletenessService>();
+                var items = await completenessForPushback.GetItemsByLoanNoAsync(loan.LoanNo, ct);
+                var pending = items.Where(i => i.UploadStatus != "Uploaded").Select(i => i.IdCode).ToList();
+
+                if (pending.Count == 0)
+                    return Results.ValidationProblem(new Dictionary<string, string[]>
+                    {
+                        ["status"] = ["All requirements are already uploaded — nothing to push back."],
+                    });
+
+                loan.DocumentsCompleteAt = null; // invalidate completeness stamp
+
+                // Record the authoritative missing list in the audit comment
+                comments = $"{comments} | Missing: {string.Join(", ", pending)}";
+
+                await checklistStore.MarkMissingAsync(loan.Id, pending, userId, ct);
             }
 
             if (fromStatus == "ForIncompleteDocuments" && request.Status == "ForChecking")
@@ -188,7 +206,7 @@ public static class UpdateLoanStatus
                 await queueService.EnqueueAsync(loan, request.Status, ct);
 
             await auditLogger.LogActionAsync(
-                id, userId, actionName, fromStatus, request.Status, request.Comments);
+                id, userId, actionName, fromStatus, request.Status, comments);
 
             var link = $"/loans/monitoring?id={id}";
             var actorName = $"{user.GetFirstName()} {user.GetLastName()}";
@@ -238,7 +256,7 @@ public static class UpdateLoanStatus
                     Roles.Approver, loan.BranchCode, ct);
                 var stance = verdict == "NotRecommended" ? "NOT RECOMMENDED" : "RECOMMENDED";
                 var extra = verdict == "NotRecommended"
-                    ? $" Evaluator remarks: {request.Comments}"
+                    ? $" Evaluator remarks: {comments}"
                     : string.Empty;
                 foreach (var a in approvers)
                 {
@@ -257,7 +275,7 @@ public static class UpdateLoanStatus
                                  : "Reviewer";
 
                 var title = "Application Returned for Revision";
-                var description = $"{pushbackRole} {actorName} returned {clientName}'s application ({loan.LamId}). Reason: {request.Comments}";
+                var description = $"{pushbackRole} {actorName} returned {clientName}'s application ({loan.LamId}). Reason: {comments}";
 
                 await notificationService.CreateAsync(
                     loan.CreatedById,
@@ -275,7 +293,7 @@ public static class UpdateLoanStatus
             {
                 // Notify the encoder who created the application.
                 var title = "Documents Incomplete — Action Required";
-                var description = $"{actorName} flagged {clientName}'s application ({loan.LamId}) as having incomplete documents. Reason: {request.Comments}";
+                var description = $"{actorName} flagged {clientName}'s application ({loan.LamId}) as having incomplete documents. Reason: {comments}";
 
                 await notificationService.CreateAsync(
                     loan.CreatedById,

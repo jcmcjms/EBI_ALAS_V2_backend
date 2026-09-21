@@ -65,6 +65,11 @@ public class LoanWorkflowService : ILoanWorkflowService
 
     public bool IsValidTransition(string fromStatus, string toStatus, string userRole)
     {
+        // System actor: exactly one edge — ForIncompleteDocuments → ForChecking.
+        // Least-privilege: cannot perform any other transition (Admin bypass unchanged).
+        if (userRole == Roles.System)
+            return (fromStatus, toStatus) == ("ForIncompleteDocuments", "ForChecking");
+
         if (!BuildTransitions().TryGetValue((fromStatus, toStatus), out var requiredRole))
             return false;
 
