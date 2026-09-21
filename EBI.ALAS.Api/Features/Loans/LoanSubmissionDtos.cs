@@ -10,13 +10,12 @@ public sealed record SubmitLoanApplicationRequest
     public required BranchTypeSection BranchType { get; init; }
     public required ClientSection Client { get; init; }
     public required IReadOnlyList<LoanSection> Loans { get; init; }
+
+    // Borrower-level snapshot of the legacy WebLoan portfolio — identical
+    // for every loan in the group, and the source side of Outstanding ↔ EBI transfers.
     public IReadOnlyList<OutstandingLoanSection> OutstandingLoans { get; init; } = [];
-    public IReadOnlyList<EbiReloanSection> EbiReloans { get; init; } = [];
-    public IReadOnlyList<BuyOutSection> BuyOuts { get; init; } = [];
-    public IReadOnlyList<IncomingLoanSection> IncomingLoans { get; init; } = [];
+
     public PreLoanRefSection? PreLoan { get; init; }
-    public required VerificationSection Verification { get; init; }
-    public required DeviationsSection Deviations { get; init; }
 }
 
 public sealed record BranchTypeSection
@@ -63,6 +62,15 @@ public sealed record LoanSection
     /// <summary>Must equal the acting officer's JWT branchId (server-asserted).</summary>
     public string BranchCode { get; init; } = string.Empty;
     public required LoanParametersSection Parameters { get; init; }
+
+    // ── §5 obligations declared against THIS loan ──────────────────
+    public IReadOnlyList<EbiReloanSection> EbiReloans { get; init; } = [];
+    public IReadOnlyList<BuyOutSection> BuyOuts { get; init; } = [];
+    public IReadOnlyList<IncomingLoanSection> IncomingLoans { get; init; } = [];
+
+    // ── §6 / §7 per-loan audit trail ───────────────────────────────
+    public required VerificationSection Verification { get; init; }
+    public required DeviationsSection Deviations { get; init; }
 }
 
 public sealed record LoanParametersSection

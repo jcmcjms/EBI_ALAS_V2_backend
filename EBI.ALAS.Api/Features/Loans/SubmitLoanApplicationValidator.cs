@@ -58,45 +58,9 @@ public class SubmitLoanApplicationValidator : AbstractValidator<SubmitLoanApplic
 
         RuleForEach(x => x.Loans).SetValidator(new LoanSectionValidator(productRepository));
 
-        // ── §4 / §5 obligations ──
+        // ── §4 outstanding loans (borrower-level, unchanged) ──
         RuleForEach(x => x.OutstandingLoans).SetValidator(new OutstandingLoanSectionValidator());
-        RuleForEach(x => x.EbiReloans).SetValidator(new EbiReloanSectionValidator());
-        RuleForEach(x => x.BuyOuts).SetValidator(new BuyOutSectionValidator());
-        RuleForEach(x => x.IncomingLoans).SetValidator(new IncomingLoanSectionValidator());
-
-        // ── §6 verification ──
-        RuleFor(x => x.Verification.Findings)
-            .NotEmpty().WithMessage("Findings are required. Document what was verified.")
-            .MaximumLength(2000);
-
-        // ── §7 deviations (relational rules mirror the Zod superRefine) ──
-        RuleFor(x => x.Deviations.OtherRemarks)
-            .NotEmpty().WithMessage("Other remarks are required.");
-        RuleFor(x => x.Deviations)
-            .Must(d => !d.HasDeviations || d.DeviationDetails.Count > 0)
-            .WithMessage("Select at least one deviation reason when the deviations flag is enabled.");
-        RuleFor(x => x.Deviations)
-            .Must(d => !d.HasDeviations || d.DeviationDetails.All(
-                r => (d.DeviationJustifications.TryGetValue(r, out var j) ? j : "").Trim().Length >= MinJustificationLength))
-            .WithMessage($"Every selected deviation reason needs a justification of at least {MinJustificationLength} characters.");
-        RuleFor(x => x.Deviations.Remarks).MaximumLength(1000);
-        RuleFor(x => x.Deviations.AoRecommendation).MaximumLength(1000);
-        RuleFor(x => x.Deviations.FeeDeviationJustification).MaximumLength(1000);
-
-        // Fee-override rule: any fee deviating from its policy snapshot
-        // upgrades feeDeviationJustification to required.
-        RuleFor(x => x)
-            .Must((req, _) => !HasFeeOverride(req) ||
-                              !string.IsNullOrWhiteSpace(req.Deviations.FeeDeviationJustification))
-            .WithMessage("Provide a justification — at least one fee deviates from the bank's standard rate.")
-            .WithName("Deviations.FeeDeviationJustification");
     }
-
-    private static bool HasFeeOverride(SubmitLoanApplicationRequest req) =>
-        req.Loans.Any(l =>
-                Math.Abs(l.Parameters.NotarialFee - l.Parameters.StandardFeesSnapshot.NotarialFee) > FeeTolerance ||
-                Math.Abs(l.Parameters.DocStamps - l.Parameters.StandardFeesSnapshot.DocStamps) > FeeTolerance ||
-                Math.Abs(l.Parameters.Insurance - l.Parameters.StandardFeesSnapshot.Insurance) > FeeTolerance);
 
     private static bool BeValidIsoDateOrNull(string? value) =>
         string.IsNullOrWhiteSpace(value) || DateOnly.TryParseExact(value, "yyyy-MM-dd", out _);
@@ -104,6 +68,10 @@ public class SubmitLoanApplicationValidator : AbstractValidator<SubmitLoanApplic
 
 public class LoanSectionValidator : AbstractValidator<LoanSection>
 {
+    private const decimal FeeTolerance = 0.01m;
+    private const int MinJustificationLength = 5;
+    private const int MaxObligationRows = 50; // payload-bloat defense, per loan
+
     public LoanSectionValidator(ILoanProductRepository productRepository)
     {
         RuleFor(x => x.LoanNo).NotEmpty().MaximumLength(50);
@@ -153,7 +121,49 @@ public class LoanSectionValidator : AbstractValidator<LoanSection>
             })
             .WithMessage("Term must be within the product's allowed range.")
             .WithName("Parameters.Term");
+
+        // ── §5 obligations (per loan) ──
+        RuleFor(x => x.EbiReloans).Must(l => l.Count <= MaxObligationRows)
+            .WithMessage($"A loan cannot declare more than {MaxObligationRows} EBI reloans.");
+        RuleFor(x => x.BuyOuts).Must(l => l.Count <= MaxObligationRows)
+            .WithMessage($"A loan cannot declare more than {MaxObligationRows} buy-outs.");
+        RuleFor(x => x.IncomingLoans).Must(l => l.Count <= MaxObligationRows)
+            .WithMessage($"A loan cannot declare more than {MaxObligationRows} incoming loans.");
+        RuleForEach(x => x.EbiReloans).SetValidator(new EbiReloanSectionValidator());
+        RuleForEach(x => x.BuyOuts).SetValidator(new BuyOutSectionValidator());
+        RuleForEach(x => x.IncomingLoans).SetValidator(new IncomingLoanSectionValidator());
+
+        // ── §6 verification (per loan) ──
+        RuleFor(x => x.Verification.Findings)
+            .NotEmpty().WithMessage("Findings are required. Document what was verified.")
+            .MaximumLength(2000);
+
+        // ── §7 deviations (per loan; relational rules mirror the Zod superRefine) ──
+        RuleFor(x => x.Deviations.OtherRemarks)
+            .NotEmpty().WithMessage("Other remarks are required.");
+        RuleFor(x => x.Deviations)
+            .Must(d => !d.HasDeviations || d.DeviationDetails.Count > 0)
+            .WithMessage("Select at least one deviation reason when the deviations flag is enabled.");
+        RuleFor(x => x.Deviations)
+            .Must(d => !d.HasDeviations || d.DeviationDetails.All(
+                r => (d.DeviationJustifications.TryGetValue(r, out var j) ? j : "").Trim().Length >= MinJustificationLength))
+            .WithMessage($"Every selected deviation reason needs a justification of at least {MinJustificationLength} characters.");
+        RuleFor(x => x.Deviations.Remarks).MaximumLength(1000);
+        RuleFor(x => x.Deviations.AoRecommendation).MaximumLength(1000);
+        RuleFor(x => x.Deviations.FeeDeviationJustification).MaximumLength(1000);
+
+        // Fee-override rule scoped to THIS loan's fees vs THIS loan's snapshot.
+        RuleFor(x => x)
+            .Must((loan, _) => !HasFeeOverride(loan) ||
+                               !string.IsNullOrWhiteSpace(loan.Deviations.FeeDeviationJustification))
+            .WithMessage("Provide a justification — at least one fee on this loan deviates from the bank's standard rate.")
+            .WithName("Deviations.FeeDeviationJustification");
     }
+
+    private static bool HasFeeOverride(LoanSection loan) =>
+        Math.Abs(loan.Parameters.NotarialFee - loan.Parameters.StandardFeesSnapshot.NotarialFee) > FeeTolerance ||
+        Math.Abs(loan.Parameters.DocStamps - loan.Parameters.StandardFeesSnapshot.DocStamps) > FeeTolerance ||
+        Math.Abs(loan.Parameters.Insurance - loan.Parameters.StandardFeesSnapshot.Insurance) > FeeTolerance;
 }
 
 public class OutstandingLoanSectionValidator : AbstractValidator<OutstandingLoanSection>

@@ -126,9 +126,9 @@ public class LoanSubmissionService(
                     NetTakeHomePay: request.Client.NetTakeHomePay ?? 0m,
                     MinimumNthp: workflowConfig.MinimumNthp,
                     OutstandingPrincipalBalances: request.OutstandingLoans.Select(o => o.PrincipalBalance).ToList(),
-                    Reloans: request.EbiReloans.Select(e => new ObligationRow(e.ExistingDeduction, e.OutstandingBalance)).ToList(),
-                    BuyOuts: request.BuyOuts.Select(b => new ObligationRow(b.Amortization, b.OutstandingBalance)).ToList(),
-                    IncomingDeductions: request.IncomingLoans.Select(i => i.Deductions).ToList()));
+                    Reloans: loan.EbiReloans.Select(e => new ObligationRow(e.ExistingDeduction, e.OutstandingBalance)).ToList(),
+                    BuyOuts: loan.BuyOuts.Select(b => new ObligationRow(b.Amortization, b.OutstandingBalance)).ToList(),
+                    IncomingDeductions: loan.IncomingLoans.Select(i => i.Deductions).ToList()));
 
                 // Persist computed snapshot (authoritative — overwrites any client values).
                 application.TotalDeductions = results.TotalDeductions;
@@ -338,14 +338,14 @@ public class LoanSubmissionService(
             StandardApplicationCharge = p.StandardFeesSnapshot.ApplicationCharge,
             StandardAdvanceInterest = p.StandardFeesSnapshot.AdvanceInterest,
 
-            VerificationFindings = request.Verification.Findings,
-            HasDeviations = request.Deviations.HasDeviations,
-            DeviationDetails = request.Deviations.DeviationDetails.ToList(),
-            DeviationJustifications = new Dictionary<string, string>(request.Deviations.DeviationJustifications),
-            Remarks = request.Deviations.Remarks,
-            AoRecommendation = request.Deviations.AoRecommendation,
-            OtherRemarks = request.Deviations.OtherRemarks,
-            FeeDeviationJustification = request.Deviations.FeeDeviationJustification,
+            VerificationFindings = loan.Verification.Findings,
+            HasDeviations = loan.Deviations.HasDeviations,
+            DeviationDetails = loan.Deviations.DeviationDetails.ToList(),
+            DeviationJustifications = new Dictionary<string, string>(loan.Deviations.DeviationJustifications),
+            Remarks = loan.Deviations.Remarks,
+            AoRecommendation = loan.Deviations.AoRecommendation,
+            OtherRemarks = loan.Deviations.OtherRemarks,
+            FeeDeviationJustification = loan.Deviations.FeeDeviationJustification,
 
             Status = workflowService.InitialStatus,
             ApplicationDate = now,
@@ -371,7 +371,7 @@ public class LoanSubmissionService(
                 Status = o.Status,
                 ProductWithDescription = o.ProductWithDescription,
             }).ToList(),
-            EbiReloans = request.EbiReloans.Select(e => new EbiReloan
+            EbiReloans = loan.EbiReloans.Select(e => new EbiReloan
             {
                 Pn = e.Pn,
                 Name = e.Name,
@@ -379,21 +379,21 @@ public class LoanSubmissionService(
                 OutstandingBalance = e.OutstandingBalance,
                 PayToClose = e.PayToClose,
             }).ToList(),
-            BuyOuts = request.BuyOuts.Select(b => new BuyOut
+            BuyOuts = loan.BuyOuts.Select(b => new BuyOut
             {
                 Pn = b.Pn,
                 Name = b.Name,
                 Amortization = b.Amortization,
                 OutstandingBalance = b.OutstandingBalance,
             }).ToList(),
-            IncomingLoans = request.IncomingLoans.Select(i => new IncomingLoan
+            IncomingLoans = loan.IncomingLoans.Select(i => new IncomingLoan
             {
                 Name = i.Name,
                 Deductions = i.Deductions,
                 Remarks = i.Remarks,
             }).ToList(),
 
-            Deviations = BuildDeviationRows(request.Deviations),
+            Deviations = BuildDeviationRows(loan.Deviations),
         };
     }
 
