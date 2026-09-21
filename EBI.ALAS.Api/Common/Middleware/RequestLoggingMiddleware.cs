@@ -14,7 +14,8 @@ public sealed class RequestLoggingMiddleware(
     private static readonly HashSet<string> ExcludedPaths = new(StringComparer.OrdinalIgnoreCase)
     {
         "/health",
-        "/swagger",
+        "/scalar",
+        "/openapi",
         "/favicon.ico"
     };
 
