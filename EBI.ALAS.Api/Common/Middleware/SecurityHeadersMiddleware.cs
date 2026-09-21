@@ -11,7 +11,8 @@ public sealed class SecurityHeadersMiddleware(
 {
     private static readonly string[] ExcludedPaths =
     [
-        "/swagger",
+        "/scalar",
+        "/openapi",
         "/health"
     ];
 
