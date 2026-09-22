@@ -6,11 +6,10 @@ using Microsoft.EntityFrameworkCore;
 namespace EBI.ALAS.Api.Features.Loans.Endpoints;
 
 /// <summary>
-/// GET /api/loans/{id}/timeline — the loan's complete story, oldest first:
-/// workflow actions, declared deviations (with encoder justifications),
-/// per-deviation reviewer replies, document remarks, and the submission-time
-/// remarks fields. Four indexed child reads, assembled in memory — a loan's
-/// lifetime is tens of rows, so there is nothing to page.
+/// GET /api/loans/{id}/timeline — the loan's unified history, newest first,
+/// server-paged. Reviewers open a file to see its CURRENT state; older context
+/// is pulled on demand ("Load earlier events"), which keeps both payload and
+/// render bounded for long-lived files.
 /// </summary>
 public static class GetLoanTimeline
 {
@@ -20,8 +19,11 @@ public static class GetLoanTimeline
             .WithTags("Loans")
             .RequireAuthorization();
 
-        group.MapGet("/{id:int}/timeline", async (int id, AppDbContext db, CancellationToken ct) =>
+        group.MapGet("/{id:int}/timeline", async (int id, int? page, int? pageSize, AppDbContext db, CancellationToken ct) =>
         {
+            var p = Math.Max(page ?? 1, 1);
+            var ps = Math.Clamp(pageSize ?? 15, 1, 50);
+
             var loan = await db.LoanApplications.AsNoTracking()
                 .Where(l => l.Id == id)
                 .Select(l => new
@@ -155,13 +157,22 @@ public static class GetLoanTimeline
             AddSubmissionRemark(events, loan.ApplicationDate, loan.Creator, loan.CreatorRole,
                 loan.OtherRemarks, "Other remarks");
 
-            return Results.Ok(ApiResponse<List<TimelineEventDto>>.SuccessResponse(
-                events.OrderBy(e => e.OccurredAtUtc)
-                      .ThenBy(e => e.Id, StringComparer.Ordinal)
-                      .ToList()));
+            // Feed order: newest first. Reviewers open a file to see its CURRENT
+            // state; older context is pulled on demand ("Load earlier events"),
+            // which keeps both payload and render bounded for long-lived files.
+            var ordered = events
+                .OrderByDescending(e => e.OccurredAtUtc)
+                .ThenByDescending(e => e.Id, StringComparer.Ordinal)
+                .ToList();
+
+            var totalCount = ordered.Count;
+            var pageItems = ordered.Skip((p - 1) * ps).Take(ps).ToList();
+
+            return Results.Ok(ApiResponse<PagedResult<TimelineEventDto>>.SuccessResponse(
+                new PagedResult<TimelineEventDto>(pageItems, totalCount, p, ps)));
         })
         .WithName("GetLoanTimeline")
-        .Produces<ApiResponse<List<TimelineEventDto>>>(200)
+        .Produces<ApiResponse<PagedResult<TimelineEventDto>>>(200)
         .Produces<ApiResponse>(404)
         .RequireAuthorization("CanViewLoan");
     }
