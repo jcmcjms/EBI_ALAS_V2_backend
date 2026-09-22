@@ -46,12 +46,20 @@ public class LoanWorkflowService : ILoanWorkflowService
             [("ForChecking", "ForApproval")] = Roles.Evaluator,
             [("ForChecking", "ForRevision")] = Roles.Evaluator,
 
-            // ── Document completeness: evaluator flags missing docs, encoder resolves.
+            // ── Document hold: reviewing role may flag at their desk (override;
+            //    normal holds are created automatically by IDocumentGateService).
+            [("ForRecommendation", "ForIncompleteDocuments")] = Roles.Recommender,
             [("ForChecking", "ForIncompleteDocuments")] = Roles.Evaluator,
-            [("ForIncompleteDocuments", "ForChecking")] = Roles.Encoder,
+            [("ForApproval", "ForIncompleteDocuments")] = Roles.Approver,
 
-            // ── Encoder can also cancel from the incomplete-docs queue.
+            // ── Encoder resubmits or cancels from the incomplete-docs queue.
+            [("ForIncompleteDocuments", "ForChecking")] = Roles.Encoder,
             [("ForIncompleteDocuments", "Cancelled")] = Roles.Encoder,
+
+            // ── Admin escape hatch when the document server is wrong/unavailable.
+            //    Normal exit is automatic (gate release), not manual.
+            [("ForIncompleteDocuments", "ForRecommendation")] = Roles.Admin,
+            [("ForIncompleteDocuments", "ForApproval")] = Roles.Admin,
             [("ForApproval", "Approved")] = Roles.Approver,
             [("ForApproval", "Rejected")] = Roles.Approver,
             [("ForApproval", "ForRevision")] = Roles.Approver,
@@ -65,10 +73,11 @@ public class LoanWorkflowService : ILoanWorkflowService
 
     public bool IsValidTransition(string fromStatus, string toStatus, string userRole)
     {
-        // System actor: exactly one edge — ForIncompleteDocuments → ForChecking.
-        // Least-privilege: cannot perform any other transition (Admin bypass unchanged).
+        // System actor: auto-return edges from ForIncompleteDocuments to any
+        // review desk. Least-privilege: cannot perform any other transition.
         if (userRole == Roles.System)
-            return (fromStatus, toStatus) == ("ForIncompleteDocuments", "ForChecking");
+            return fromStatus == "ForIncompleteDocuments"
+                && toStatus is "ForChecking" or "ForRecommendation" or "ForApproval";
 
         if (!BuildTransitions().TryGetValue((fromStatus, toStatus), out var requiredRole))
             return false;

@@ -246,7 +246,7 @@ public class DashboardService : IDashboardService
             .ToListAsync(ct);
 
         var documentQueue = docQueueRows
-            .Select((d, i) => new DocumentQueueItemDto(i + 1, d.LamId, d.BranchCode, d.EnqueuedAt, d.MissingCount))
+            .Select((d, i) => new DocumentQueueItemDto(d.LoanApplicationId, i + 1, d.LamId, d.BranchCode, d.EnqueuedAt, d.MissingCount))
             .ToList();
 
         return new DashboardOverviewResponse(

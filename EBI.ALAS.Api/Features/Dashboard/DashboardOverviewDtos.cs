@@ -38,4 +38,4 @@ public sealed record ApprovedLoanItemDto(
 public sealed record DailyTrendPointDto(string Day, int Approved, int PushBacks);
 
 public sealed record DocumentQueueItemDto(
-    int Position, string LamId, string BranchCode, DateTime WaitingSinceUtc, int MissingCount);
+    int Id, int Position, string LamId, string BranchCode, DateTime WaitingSinceUtc, int MissingCount);

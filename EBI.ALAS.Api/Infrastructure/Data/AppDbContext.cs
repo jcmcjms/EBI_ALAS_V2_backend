@@ -1083,6 +1083,9 @@ public class AppDbContext : DbContext
 
             entity.Property(e => e.DocumentsCompleteAt);
 
+            entity.Property(e => e.IncompleteReturnStatus)
+                .HasMaxLength(50);
+
             // Index for the assignment query pattern
             entity.HasIndex(e => new { e.Status, e.AssignedApproverId })
                 .HasDatabaseName("IX_LoanApplications_Status_AssignedApprover");

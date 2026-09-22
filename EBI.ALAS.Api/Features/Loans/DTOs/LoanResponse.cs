@@ -116,6 +116,10 @@ public class LoanResponse
     public DateTime? AssignedAt { get; set; }
     public DateTime? DocumentsCompleteAt { get; set; }
 
+    /// <summary>The review desk this loan returns to when documents verify
+    /// complete. Null when not held for incomplete documents.</summary>
+    public string? IncompleteReturnStatus { get; set; }
+
     public List<OutstandingLoanResponse> OutstandingLoans { get; set; } = new();
     public List<BuyOutResponse> BuyOuts { get; set; } = new();
     public List<EbiReloanResponse> EbiReloans { get; set; } = new();
