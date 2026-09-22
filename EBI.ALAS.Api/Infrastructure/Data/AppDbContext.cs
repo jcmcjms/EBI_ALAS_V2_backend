@@ -957,7 +957,13 @@ public class AppDbContext : DbContext
         // Seeded deviation severity catalog. Read-only at runtime.
         modelBuilder.Entity<DeviationCatalogItem>(entity =>
         {
-            entity.HasKey(e => e.Description);
+            entity.HasKey(e => e.Id);
+
+            entity.Property(e => e.Id)
+                .ValueGeneratedOnAdd();
+
+            entity.HasIndex(e => e.Description)
+                .IsUnique();
 
             entity.Property(e => e.Description)
                 .IsRequired()

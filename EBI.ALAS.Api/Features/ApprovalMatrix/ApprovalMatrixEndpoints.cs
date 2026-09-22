@@ -54,6 +54,7 @@ public static class ApprovalMatrixEndpoints
                 .AsNoTracking()
                 .Select(c => new DeviationCatalogDto
                 {
+                    Id = c.Id,
                     Description = c.Description,
                     Severity = (int)c.Severity,
                 })
