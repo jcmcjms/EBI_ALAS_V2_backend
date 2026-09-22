@@ -81,6 +81,9 @@ public sealed class LoanStatusTransitionService(
                 return new LoanTransitionResult(loan.LamId,
                     "All requirements are already uploaded — nothing to push back.");
 
+            // Remember which desk the hold came from so the automatic
+            // release returns it to the right queue.
+            loan.IncompleteReturnStatus = fromStatus;
             loan.DocumentsCompleteAt = null; // invalidate completeness stamp
 
             // Record the authoritative missing list in the audit comment

@@ -145,6 +145,10 @@ public static class UpdateLoanStatus
 
             if (request.Status == "ForIncompleteDocuments")
             {
+                // Manual override: remember which desk the hold came from
+                // so the automatic release returns it to the right queue.
+                loan.IncompleteReturnStatus = fromStatus;
+
                 // Server derives the authoritative pending set from the document
                 // server — client-supplied MissingRequirementCodes are used only
                 // for UI echo / audit comment, never for trust.
@@ -181,6 +185,35 @@ public static class UpdateLoanStatus
                         ["submittedRequirementCodes"] = [$"Documents still incomplete: {names}"],
                     });
                 }
+            }
+
+            // ── Entry gate: incomplete requirements hold the file automatically ──
+            // When promoting into a review desk, check documents first.
+            // If incomplete, auto-hold in ForIncompleteDocuments instead.
+            if (request.Status is "ForRecommendation" or "ForChecking" or "ForApproval"
+                && fromStatus != "ForIncompleteDocuments")
+            {
+                var gate = ctx.RequestServices.GetRequiredService<IDocumentGateService>();
+                if (await gate.HoldIfIncompleteAsync(loan, request.Status, userId, ct))
+                {
+                    await realtimeService.NotifyDashboardUpdateAsync(loan.BranchCode);
+                    return Results.Ok(ApiResponse.SuccessResponse(
+                        "Held in Incomplete Documents — missing requirements must be uploaded first."));
+                }
+            }
+
+            // ── Escape guard: leaving ForIncompleteDocuments requires complete docs ──
+            // Admin force-release is blocked when the document server still says incomplete.
+            // Encoder resubmission is already guarded by the unresolved check above.
+            if (fromStatus == "ForIncompleteDocuments" && request.Status != "ForIncompleteDocuments")
+            {
+                var escapeCompleteness = ctx.RequestServices.GetRequiredService<IDocumentCompletenessService>();
+                var escapeItems = await escapeCompleteness.GetItemsByLoanNoAsync(loan.LoanNo, ct);
+                if (escapeItems.Any(i => i.UploadStatus != "Uploaded"))
+                    return Results.ValidationProblem(new Dictionary<string, string[]>
+                    {
+                        ["status"] = ["Requirements are still missing — the release is automatic once uploaded."],
+                    });
             }
 
             var actionName = (fromStatus, request.Status, verdict) switch

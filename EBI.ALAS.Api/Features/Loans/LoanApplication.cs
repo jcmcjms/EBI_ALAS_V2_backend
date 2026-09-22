@@ -109,6 +109,13 @@ public sealed class LoanApplication
     public DateTime? AssignedAt { get; set; }
     public DateTime? DocumentsCompleteAt { get; set; }
 
+    /// <summary>
+    /// Remembers which review desk the loan was held from so the automatic
+    /// release returns it to the correct queue. Set by DocumentGateService
+    /// on entry; cleared on release. Null for loans that were never held.
+    /// </summary>
+    public string? IncompleteReturnStatus { get; set; }
+
     // ── Audit ──────────────────────────────────────────────────────
     public int CreatedById { get; init; }
     public User CreatedBy { get; set; } = null!;

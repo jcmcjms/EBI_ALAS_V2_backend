@@ -779,6 +779,10 @@ namespace EBI.ALAS.Api.Migrations
                         .HasColumnType("bit")
                         .HasDefaultValue(false);
 
+                    b.Property<string>("IncompleteReturnStatus")
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)");
+
                     b.Property<decimal>("Insurance")
                         .HasColumnType("decimal(18,2)");
 

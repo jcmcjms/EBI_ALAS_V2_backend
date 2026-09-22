@@ -177,6 +177,7 @@ public static class GetLoanById
                 AssignedApproverName = assignedApproverName,
                 AssignedAt = loan.AssignedAt,
                 DocumentsCompleteAt = loan.DocumentsCompleteAt,
+                IncompleteReturnStatus = loan.IncompleteReturnStatus,
                 WebLoanCisNo = loan.WebLoanCisNo,
                 WebLoanBranchCode = loan.WebLoanBranchCode,
                 WebLoanAccountNumbers = loan.WebLoanAccountNumbers,

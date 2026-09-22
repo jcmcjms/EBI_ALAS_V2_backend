@@ -106,17 +106,35 @@ public static class LoanEndpoints
         // ── POST /api/loans/{id}/documents/verify — on-demand completeness recheck ──
         group.MapPost("/{id:int}/documents/verify", async (
             int id,
+            ClaimsPrincipal principal,
             AppDbContext db,
             IDocumentCompletenessService completeness,
+            IDocumentGateService gate,
             ITimeProvider time,
             CancellationToken ct) =>
         {
             var loan = await db.LoanApplications.FindAsync([id], ct);
             if (loan is null) return Results.NotFound(ApiResponse.ErrorResponse("Loan not found"));
 
+            // Branch scoping: non-Admin users can only verify loans in their own branch.
+            var userRole = principal.GetRole();
+            if (userRole != Roles.Admin)
+            {
+                var branchCode = principal.GetBranchId();
+                if (!string.Equals(loan.BranchCode, branchCode, StringComparison.Ordinal))
+                    return Results.Forbid();
+            }
+
             var result = await completeness.CheckByLoanNoAsync(loan.LoanNo, ct, bypassCache: true);
             loan.DocumentsCompleteAt = result.Complete ? time.UtcNow : null;
             await db.SaveChangesAsync(ct);
+
+            // If the loan is held for incomplete docs and now complete, release it.
+            if (result.Complete)
+            {
+                var userId = principal.GetUserId();
+                await gate.ReleaseIfCompleteAsync(loan, userId, ct);
+            }
 
             return Results.Ok(ApiResponse<object>.SuccessResponse(new
             {

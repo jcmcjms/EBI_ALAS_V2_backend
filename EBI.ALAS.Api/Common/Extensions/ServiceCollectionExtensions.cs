@@ -101,6 +101,12 @@ public static class ServiceCollectionExtensions
         // ownership for review desk transitions.
         services.AddScoped<IWorkflowQueueService, WorkflowQueueService>();
 
+        // ── Document Gate (automatic hold/release for incomplete docs) ──
+        // Centralizes the ForIncompleteDocuments lifecycle so queue membership
+        // is always derived from the document server.
+        services.AddScoped<IDocumentGateService, DocumentGateService>();
+        services.AddScoped<ISystemPrincipal, SystemPrincipal>();
+
         // Extracted transition logic shared by single-loan and group endpoints.
         services.AddScoped<ILoanStatusTransitionService, LoanStatusTransitionService>();
 

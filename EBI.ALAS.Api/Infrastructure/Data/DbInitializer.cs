@@ -53,6 +53,9 @@ public static class DbInitializer
         // Seed admin user
         await SeedAdminUserAsync(context, timeProvider);
 
+        // Seed system principal (reserved for automated gate actions; cannot log in)
+        await SeedSystemUserAsync(context, timeProvider);
+
         // Seed loan products (required before checklist, which has FK to LoanProducts)
         await SeedLoanProductsAsync(context, timeProvider);
 
@@ -130,6 +133,27 @@ public static class DbInitializer
         };
 
         context.Users.Add(adminUser);
+        await context.SaveChangesAsync();
+    }
+
+    private static async Task SeedSystemUserAsync(AppDbContext context, ITimeProvider timeProvider)
+    {
+        if (await context.Users.AnyAsync(u => u.Username == "system"))
+            return;
+
+        var systemUser = new User
+        {
+            Username = "system",
+            PasswordHash = "!", // unusable — this account cannot log in
+            FirstName = "System",
+            LastName = "Gate",
+            BranchId = "011", // Head Office
+            Role = "Encoder", // minimal role; workflow uses Roles.System via ClaimsPrincipal
+            IsActive = false,
+            CreatedAt = timeProvider.UtcNow,
+        };
+
+        context.Users.Add(systemUser);
         await context.SaveChangesAsync();
     }
 
