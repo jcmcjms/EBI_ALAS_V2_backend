@@ -24,7 +24,8 @@ public sealed record DashboardKpis(
     int ApprovedVsAvgPercent);       // vs 7-day daily average
 
 public sealed record PendingQueueItemDto(
-    int Position, string LamId, string BranchCode, string Status, DateTime WaitingSinceUtc);
+    int Position, string LamId, string BranchCode, string Status, DateTime WaitingSinceUtc,
+    string ClientName, string EncoderName);
 
 public sealed record NowServingItemDto(
     int Number, string Checker, string LamId, bool IsActive);
@@ -38,4 +39,5 @@ public sealed record ApprovedLoanItemDto(
 public sealed record DailyTrendPointDto(string Day, int Approved, int PushBacks);
 
 public sealed record DocumentQueueItemDto(
-    int Id, int Position, string LamId, string BranchCode, DateTime WaitingSinceUtc, int MissingCount);
+    int Id, int Position, string LamId, string BranchCode, DateTime WaitingSinceUtc, int MissingCount,
+    string ClientName, string EncoderName);
