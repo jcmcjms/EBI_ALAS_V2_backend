@@ -94,7 +94,12 @@ public class DashboardService : IDashboardService
         var pendingRows = await loans
             .Where(l => PendingStatuses.Contains(l.Status))
             .OrderBy(l => l.LastActionDate)
-            .Select(l => new { l.LamId, l.BranchCode, l.Status, l.LastActionDate })
+            .Select(l => new
+            {
+                l.LamId, l.BranchCode, l.Status, l.LastActionDate,
+                ClientName = l.FirstName + " " + l.LastName,
+                EncoderName = l.CreatedBy.FirstName + " " + l.CreatedBy.LastName,
+            })
             .Take(QueueSize)
             .ToListAsync(ct);
 
@@ -239,6 +244,8 @@ public class DashboardService : IDashboardService
                 i.LoanApplicationId,
                 i.LoanApplication.LamId,
                 i.LoanApplication.BranchCode,
+                ClientName = i.LoanApplication.FirstName + " " + i.LoanApplication.LastName,
+                EncoderName = i.LoanApplication.CreatedBy.FirstName + " " + i.LoanApplication.CreatedBy.LastName,
                 i.EnqueuedAt,
                 MissingCount = i.LoanApplication.DocumentChecklists.Count(d => d.Status == "Missing" || d.Status == "Pending"),
             })
@@ -246,7 +253,7 @@ public class DashboardService : IDashboardService
             .ToListAsync(ct);
 
         var documentQueue = docQueueRows
-            .Select((d, i) => new DocumentQueueItemDto(d.LoanApplicationId, i + 1, d.LamId, d.BranchCode, d.EnqueuedAt, d.MissingCount))
+            .Select((d, i) => new DocumentQueueItemDto(d.LoanApplicationId, i + 1, d.LamId, d.BranchCode, d.EnqueuedAt, d.MissingCount, d.ClientName, d.EncoderName))
             .ToList();
 
         return new DashboardOverviewResponse(
@@ -258,7 +265,7 @@ public class DashboardService : IDashboardService
                 approvedToday,
                 vsAvg),
             pendingRows
-                .Select((l, i) => new PendingQueueItemDto(i + 1, l.LamId, l.BranchCode, l.Status, l.LastActionDate))
+                .Select((l, i) => new PendingQueueItemDto(i + 1, l.LamId, l.BranchCode, l.Status, l.LastActionDate, l.ClientName, l.EncoderName))
                 .ToList(),
             nowServing,
             pushList
