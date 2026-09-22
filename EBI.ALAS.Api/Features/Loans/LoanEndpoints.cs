@@ -23,6 +23,7 @@ public static class LoanEndpoints
         app.MapCreateLoanEndpoints();
         app.MapUpdateLoanStatusEndpoints();
         app.MapCancelLoanEndpoints();
+        app.MapGetLoanTimelineEndpoints();
 
         // ── POST /api/loans/{id}/assignment/release — release an active lease ──
         var group = app.MapGroup("/api/loans")
