@@ -6,6 +6,7 @@ namespace EBI.ALAS.Api.Features.ApprovalMatrix;
 /// </summary>
 public class DeviationCatalogItem
 {
-    public string Description { get; set; } = null!;     // PK (e.g. "Age not within the prescribed parameters")
+    public int Id { get; set; }                          // PK
+    public string Description { get; set; } = null!;     // e.g. "Age not within the prescribed parameters"
     public DeviationSeverity Severity { get; set; }      // None, Minor, or Major
 }

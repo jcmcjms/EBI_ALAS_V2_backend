@@ -61,14 +61,24 @@ namespace EBI.ALAS.Api.Migrations
 
             modelBuilder.Entity("EBI.ALAS.Api.Features.ApprovalMatrix.DeviationCatalogItem", b =>
                 {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
                     b.Property<string>("Description")
+                        .IsRequired()
                         .HasMaxLength(500)
                         .HasColumnType("nvarchar(500)");
 
                     b.Property<int>("Severity")
                         .HasColumnType("int");
 
-                    b.HasKey("Description");
+                    b.HasKey("Id");
+
+                    b.HasIndex("Description")
+                        .IsUnique();
 
                     b.ToTable("DeviationCatalog");
                 });
