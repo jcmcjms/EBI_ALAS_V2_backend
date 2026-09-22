@@ -81,13 +81,19 @@ public sealed class LoanStatusTransitionService(
                 return new LoanTransitionResult(loan.LamId,
                     "All requirements are already uploaded — nothing to push back.");
 
+            // Human-readable labels: "Name (Code)" so auditors see both.
+            var pendingLabels = items
+                .Where(i => i.UploadStatus != "Uploaded")
+                .Select(i => $"{i.ChecklistDescription ?? i.IdCode} ({i.IdCode})")
+                .ToList();
+
             // Remember which desk the hold came from so the automatic
             // release returns it to the right queue.
             loan.IncompleteReturnStatus = fromStatus;
             loan.DocumentsCompleteAt = null; // invalidate completeness stamp
 
             // Record the authoritative missing list in the audit comment
-            comments = $"{comments} | Missing: {string.Join(", ", pending)}";
+            comments = $"{comments} | Missing: {string.Join(", ", pendingLabels)}";
 
             await checklistStore.MarkMissingAsync(loanId, pending, userId, ct);
         }
