@@ -164,8 +164,14 @@ public static class UpdateLoanStatus
 
                 loan.DocumentsCompleteAt = null; // invalidate completeness stamp
 
+                // Human-readable labels: "Name (Code)" so auditors see both.
+                var pendingLabels = items
+                    .Where(i => i.UploadStatus != "Uploaded")
+                    .Select(i => $"{i.ChecklistDescription ?? i.IdCode} ({i.IdCode})")
+                    .ToList();
+
                 // Record the authoritative missing list in the audit comment
-                comments = $"{comments} | Missing: {string.Join(", ", pending)}";
+                comments = $"{comments} | Missing: {string.Join(", ", pendingLabels)}";
 
                 await checklistStore.MarkMissingAsync(loan.Id, pending, userId, ct);
             }

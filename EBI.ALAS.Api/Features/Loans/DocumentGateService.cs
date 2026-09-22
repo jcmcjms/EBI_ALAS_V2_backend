@@ -91,6 +91,12 @@ public sealed class DocumentGateService(
             return false;
         }
 
+        // Human-readable labels: "Name (Code)" so auditors see both.
+        var missingLabels = items
+            .Where(i => i.UploadStatus != "Uploaded")
+            .Select(i => $"{i.ChecklistDescription ?? i.IdCode} ({i.IdCode})")
+            .ToList();
+
         var from = loan.Status;
 
         // Record missing items first so the checklist is populated before
@@ -110,12 +116,12 @@ public sealed class DocumentGateService(
 
         await auditLogger.LogActionAsync(loan.Id, actorUserId, "StatusChanged", from,
             "ForIncompleteDocuments",
-            $"Auto-held on entry to {intendedStatus} — missing: {string.Join(", ", missing)}");
+            $"Auto-held on entry to {intendedStatus} — missing: {string.Join(", ", missingLabels)}");
 
         var link = $"/loans/monitoring?id={loan.Id}";
         var title = "Documents Incomplete — Action Required";
         var body = $"{loan.LamId} was placed in the Incomplete Documents queue automatically. " +
-                   $"Missing: {string.Join(", ", missing)}. It returns to {intendedStatus} once uploaded.";
+                   $"Missing: {string.Join(", ", missingLabels)}. It returns to {intendedStatus} once uploaded.";
         await notifications.CreateAsync(loan.CreatedById, title, body, link);
         await realtime.NotifyUserAsync(loan.CreatedById, title, body, link);
         await realtime.NotifyDashboardUpdateAsync(loan.BranchCode);
