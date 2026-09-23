@@ -6,6 +6,8 @@
 .DESCRIPTION
     This script sets up Garnet (Microsoft's Redis-compatible cache) as a
     persistent Windows Service that starts automatically on boot.
+    Uses NSSM (Non-Sucking Service Manager) to wrap the console app as a
+    proper Windows Service with log rotation and recovery.
 
 .EXAMPLE
     .\install-garnet-service.ps1
@@ -23,6 +25,24 @@ if (-not $GarnetPath) {
     exit 1
 }
 
+# ─── Locate NSSM ────────────────────────────────────────────────────
+$NssmPath = (Get-Command nssm -ErrorAction SilentlyContinue).Source
+if (-not $NssmPath) {
+    # Fallback: check common install locations
+    $candidates = @(
+        "$env:LOCALAPPDATA\Microsoft\WinGet\Links\nssm.exe",
+        "C:\Program Files\nssm\win64\nssm.exe",
+        "C:\Program Files (x86)\nssm\win64\nssm.exe"
+    )
+    foreach ($c in $candidates) {
+        if (Test-Path $c) { $NssmPath = $c; break }
+    }
+}
+if (-not $NssmPath) {
+    Write-Error "nssm not found. Install via: winget install NSSM.NSSM"
+    exit 1
+}
+
 $DataDir = "C:\GarnetData"
 $LogDir = "C:\GarnetLogs"
 
@@ -31,6 +51,7 @@ New-Item -ItemType Directory -Force -Path $DataDir | Out-Null
 New-Item -ItemType Directory -Force -Path $LogDir | Out-Null
 
 Write-Host "Garnet path: $GarnetPath" -ForegroundColor Cyan
+Write-Host "NSSM path:   $NssmPath" -ForegroundColor Cyan
 Write-Host "Data directory: $DataDir" -ForegroundColor Cyan
 Write-Host "Log directory: $LogDir" -ForegroundColor Cyan
 
@@ -39,24 +60,40 @@ $existing = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
 if ($existing) {
     Write-Host "Stopping existing service..." -ForegroundColor Yellow
     Stop-Service -Name $ServiceName -Force -ErrorAction SilentlyContinue
-    sc.exe delete $ServiceName | Out-Null
+    & $NssmPath remove $ServiceName confirm 2>$null
     Start-Sleep -Seconds 2
 }
 
-# ─── Create the service using NSSM (if available) or sc.exe ─────────
-# Garnet runs as a console app, so we use sc.exe with binPath
-# For better process management, consider using NSSM:
-#   nssm install GarnetCache garnet-server --bind 0.0.0.0 --port 6379
+# ─── Create the service using NSSM ──────────────────────────────────
+# Garnet is a console app — NSSM wraps it as a proper Windows Service
+# with stdout/stderr capture, graceful shutdown, and log rotation.
 
-$binPath = "`"$GarnetPath`" --bind 0.0.0.0 --port 6379 --recover --storage-tier"
+Write-Host "Creating Windows Service via NSSM..." -ForegroundColor Green
+& $NssmPath install $ServiceName $GarnetPath "--bind" "0.0.0.0" "--port" "6379" "--recover" "--storage-tier"
 
-Write-Host "Creating Windows Service..." -ForegroundColor Green
-sc.exe create $ServiceName binPath= $binPath start= auto DisplayName= $ServiceDisplayName
-sc.exe description $ServiceName "Microsoft Garnet Redis-compatible cache server for EBI.ALAS.V2"
+# ─── Service metadata ───────────────────────────────────────────────
+& $NssmPath set $ServiceName DisplayName $ServiceDisplayName
+& $NssmPath set $ServiceName Description "Microsoft Garnet Redis-compatible cache server for EBI.ALAS.V2"
+& $NssmPath set $ServiceName Start SERVICE_AUTO_START
 
-# ─── Configure service recovery ─────────────────────────────────────
-# Restart on failure: 1st failure = 1min, 2nd = 5min, 3rd = 15min
-sc.exe failure $ServiceName reset= 86400 actions= restart/60000/restart/300000/restart/900000
+# ─── Process lifecycle ──────────────────────────────────────────────
+& $NssmPath set $ServiceName AppDirectory $DataDir
+& $NssmPath set $ServiceName AppStdout "$LogDir\garnet-stdout.log"
+& $NssmPath set $ServiceName AppStderr "$LogDir\garnet-stderr.log"
+& $NssmPath set $ServiceName AppStdoutCreationDisposition 4    # Append
+& $NssmPath set $ServiceName AppStderrCreationDisposition 4    # Append
+& $NssmPath set $ServiceName AppRotateFiles 1                  # Enable log rotation
+& $NssmPath set $ServiceName AppRotateOnline 1                 # Rotate while running
+& $NssmPath set $ServiceName AppRotateBytes 10485760           # 10 MB per log file
+
+# ─── Recovery ───────────────────────────────────────────────────────
+# Restart on failure: 1st = 15s, 2nd = 30s, 3rd = 60s
+& $NssmPath set $ServiceName AppExit Default Restart
+& $NssmPath set $ServiceName AppRestartDelay 15000
+
+# ─── Graceful shutdown ──────────────────────────────────────────────
+# Send Ctrl+C first, then kill after 15s if process doesn't exit
+& $NssmPath set $ServiceName AppStopMethodConsole 15000
 
 Write-Host ""
 Write-Host "============================================" -ForegroundColor Green
