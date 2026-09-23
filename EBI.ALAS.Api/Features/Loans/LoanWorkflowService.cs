@@ -46,8 +46,8 @@ public class LoanWorkflowService : ILoanWorkflowService
             [("ForChecking", "ForApproval")] = Roles.Evaluator,
             [("ForChecking", "ForRevision")] = Roles.Evaluator,
 
-            // ── Document hold: reviewing role may flag at their desk (override;
-            //    normal holds are created automatically by IDocumentGateService).
+            // ── Document flag: reviewing role may flag at their desk (manual entry;
+            //    there is no automatic hold anymore).
             [("ForRecommendation", "ForIncompleteDocuments")] = Roles.Recommender,
             [("ForChecking", "ForIncompleteDocuments")] = Roles.Evaluator,
             [("ForApproval", "ForIncompleteDocuments")] = Roles.Approver,
@@ -56,10 +56,10 @@ public class LoanWorkflowService : ILoanWorkflowService
             [("ForIncompleteDocuments", "ForChecking")] = Roles.Encoder,
             [("ForIncompleteDocuments", "Cancelled")] = Roles.Encoder,
 
-            // ── Admin escape hatch when the document server is wrong/unavailable.
-            //    Normal exit is automatic (gate release), not manual.
+            // ── Reviewer discretion: a flagged file can still proceed to approval
+            //    (endpoint requires a written justification). Admin keeps the escape hatch.
+            [("ForIncompleteDocuments", "ForApproval")] = Roles.Evaluator,
             [("ForIncompleteDocuments", "ForRecommendation")] = Roles.Admin,
-            [("ForIncompleteDocuments", "ForApproval")] = Roles.Admin,
             [("ForApproval", "Approved")] = Roles.Approver,
             [("ForApproval", "Rejected")] = Roles.Approver,
             [("ForApproval", "ForRevision")] = Roles.Approver,
