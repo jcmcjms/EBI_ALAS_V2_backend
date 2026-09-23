@@ -162,6 +162,7 @@ public static class MiddlewareExtensions
         app.MapBranchEndpoints();
         app.MapLoanEndpoints();
         app.MapWorkflowConfigurationEndpoints();
+        app.MapSignatureChainEndpoints();
         app.MapChecklistDocumentEndpoints();
         app.MapLoanDeviationEndpoints();
         app.MapDocumentRemarkEndpoints();
