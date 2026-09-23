@@ -167,7 +167,7 @@ public class LoanApplicationConfiguration : IEntityTypeConfiguration<LoanApplica
         // DeviationDetails: List<string> JSON column with value-comparer
         // so EF can detect add/remove without a roundtrip.
         var listComparer = new ValueComparer<List<string>>(
-            (c1, c2) => c1.SequenceEqual(c2),
+            (c1, c2) => (c1 == null && c2 == null) || (c1 != null && c2 != null && c1.SequenceEqual(c2)),
             c => c.Aggregate(0, (a, v) => HashCode.Combine(a, v.GetHashCode())),
             c => c.ToList());
 
@@ -180,7 +180,7 @@ public class LoanApplicationConfiguration : IEntityTypeConfiguration<LoanApplica
 
         // DeviationJustifications: Dictionary<string, string> JSON column.
         var mapComparer = new ValueComparer<Dictionary<string, string>>(
-            (c1, c2) => c1.Count == c2.Count && !c1.Except(c2).Any(),
+            (c1, c2) => (c1 == null && c2 == null) || (c1 != null && c2 != null && c1.Count == c2.Count && !c1.Except(c2).Any()),
             c => c.Aggregate(0, (a, kv) => HashCode.Combine(a, kv.Key.GetHashCode(), kv.Value.GetHashCode())),
             c => new Dictionary<string, string>(c));
 
