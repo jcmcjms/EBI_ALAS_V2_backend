@@ -50,7 +50,7 @@ public sealed class NotificationDispatcher(
         var userId = user.GetUserId();
         var userRole = user.GetRole();
 
-        var batch = new List<(int UserId, string Title, string Description, string? Link)>();
+        var batch = new List<NotificationDraft>();
         var realtimeSends = new List<(int UserId, string Title, string Description, string? Link)>();
 
         // Transition-specific notifications
@@ -62,7 +62,7 @@ public sealed class NotificationDispatcher(
             var desc = $"{actorName} recommended {clientName}'s application ({loan.LamId}).";
             foreach (var e in evaluators)
             {
-                batch.Add((e.Id, title, desc, link));
+                batch.Add(new NotificationDraft(e.Id, title, desc, link, NotificationTypes.Action));
                 realtimeSends.Add((e.Id, title, desc, link));
             }
         }
@@ -74,7 +74,7 @@ public sealed class NotificationDispatcher(
             var desc = $"{actorName} resubmitted {clientName}'s application ({loan.LamId}) for recommendation.";
             foreach (var r in recommenders)
             {
-                batch.Add((r.Id, title, desc, link));
+                batch.Add(new NotificationDraft(r.Id, title, desc, link, NotificationTypes.Action));
                 realtimeSends.Add((r.Id, title, desc, link));
             }
         }
@@ -88,7 +88,7 @@ public sealed class NotificationDispatcher(
             var desc = $"{actorName} evaluated {clientName}'s application ({loan.LamId}) as {stance}.{extra}";
             foreach (var a in approvers)
             {
-                batch.Add((a.Id, title, desc, link));
+                batch.Add(new NotificationDraft(a.Id, title, desc, link, NotificationTypes.Action));
                 realtimeSends.Add((a.Id, title, desc, link));
             }
         }
@@ -99,14 +99,14 @@ public sealed class NotificationDispatcher(
                              : "Reviewer";
             var title = "Application Returned for Revision";
             var desc = $"{pushbackRole} {actorName} returned {clientName}'s application ({loan.LamId}). Reason: {comments}";
-            batch.Add((loan.CreatedById, title, desc, link));
+            batch.Add(new NotificationDraft(loan.CreatedById, title, desc, link, NotificationTypes.Action));
             realtimeSends.Add((loan.CreatedById, title, desc, link));
         }
         else if (toStatus == "ForIncompleteDocuments")
         {
             var title = "Documents Incomplete — Action Required";
             var desc = $"{actorName} flagged {clientName}'s application ({loan.LamId}) as having incomplete documents. Reason: {comments}";
-            batch.Add((loan.CreatedById, title, desc, link));
+            batch.Add(new NotificationDraft(loan.CreatedById, title, desc, link, NotificationTypes.Action));
             realtimeSends.Add((loan.CreatedById, title, desc, link));
         }
         else if (toStatus == "ForChecking" && fromStatus == "ForIncompleteDocuments")
@@ -120,7 +120,7 @@ public sealed class NotificationDispatcher(
             {
                 var title = "Documents Resubmitted — Ready for Review";
                 var desc = $"{actorName} resubmitted documents for {clientName}'s application ({loan.LamId}).";
-                batch.Add((lastFlagAction.ActionByUserId, title, desc, link));
+                batch.Add(new NotificationDraft(lastFlagAction.ActionByUserId, title, desc, link, NotificationTypes.Action));
                 realtimeSends.Add((lastFlagAction.ActionByUserId, title, desc, link));
             }
         }
@@ -130,7 +130,7 @@ public sealed class NotificationDispatcher(
         {
             var title = $"Status Update: {toStatus}";
             var desc = $"Your application for {clientName} ({loan.LamId}) has been updated to {toStatus}.";
-            batch.Add((loan.CreatedById, title, desc, link));
+            batch.Add(new NotificationDraft(loan.CreatedById, title, desc, link, NotificationTypes.Message));
             realtimeSends.Add((loan.CreatedById, title, desc, link));
         }
 
