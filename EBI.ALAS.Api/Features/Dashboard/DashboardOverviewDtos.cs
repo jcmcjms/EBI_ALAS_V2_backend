@@ -40,4 +40,5 @@ public sealed record DailyTrendPointDto(string Day, int Approved, int PushBacks)
 
 public sealed record DocumentQueueItemDto(
     int Id, int Position, string LamId, string BranchCode, DateTime WaitingSinceUtc, int MissingCount,
-    string ClientName, string EncoderName);
+    string ClientName, string EncoderName,
+    string? FlaggedByName, DateTime? FlaggedAt);
