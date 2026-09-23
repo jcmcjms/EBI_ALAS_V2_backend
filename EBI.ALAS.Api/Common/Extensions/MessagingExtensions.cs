@@ -1,7 +1,9 @@
+using EBI.ALAS.Api.Infrastructure.Caching;
 using EBI.ALAS.Api.Infrastructure.Messaging;
 using EBI.ALAS.Api.Infrastructure.Messaging.Consumers;
 using EBI.ALAS.Api.Infrastructure.SignalR;
 using MassTransit;
+using StackExchange.Redis;
 
 namespace EBI.ALAS.Api.Common.Extensions;
 
@@ -61,8 +63,11 @@ public static class MessagingExtensions
     }
 
     /// <summary>
-    /// SignalR for real-time notifications with Redis backplane.
+    /// SignalR for real-time notifications with Redis/Garnet backplane.
     /// Required for multi-pod message fan-out.
+    ///
+    /// When Garnet is configured, uses the shared ConnectionMultiplexer
+    /// and tunes reconnect policy for Garnet's architecture.
     /// </summary>
     private static IServiceCollection AddSignalRMessaging(
         this IServiceCollection services,
@@ -85,7 +90,15 @@ public static class MessagingExtensions
             signalRBuilder.AddStackExchangeRedis(redisConnection, options =>
             {
                 options.Configuration.ChannelPrefix =
-                    StackExchange.Redis.RedisChannel.Literal("ALAS_SignalR");
+                    RedisChannel.Literal("ALAS_SignalR");
+
+                // Garnet-optimized reconnect policy:
+                // - Exponential backoff starting at 5s to survive Garnet restarts
+                // - KeepAlive every 30s to detect dead connections early
+                // - AbortOnConnectFail=false for resilience (retries automatically)
+                options.Configuration.ReconnectRetryPolicy = new ExponentialRetry(5000);
+                options.Configuration.KeepAlive = 30;
+                options.Configuration.AbortOnConnectFail = false;
             });
         }
 
