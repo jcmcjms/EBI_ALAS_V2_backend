@@ -93,6 +93,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<ILoanRepository, LoanRepository>();
         services.AddScoped<ILoanWorkflowService, LoanWorkflowService>();
         services.AddScoped<IAuditLogger, AuditLogger>();
+        services.AddScoped<ISignatureChainService, SignatureChainService>();
         services.AddScoped<ILamIdGenerator, LamIdGenerator>();
         services.AddScoped<ILoanSubmissionService, LoanSubmissionService>();
 
