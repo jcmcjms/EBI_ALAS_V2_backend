@@ -32,12 +32,23 @@ public sealed class NotificationConsumer : IConsumer<NotificationCreatedEvent>
             "Processing notification for User {UserId}: {Title}",
             msg.UserId, msg.Title);
 
-        // Persist to database
-        await _notificationService.CreateAsync(
-            msg.UserId,
-            msg.Title,
-            msg.Description,
-            msg.Link);
+        // Persist to database — use explicit type if provided, otherwise
+        // the service's CreateAsync will classify from the title.
+        if (msg.Type is not null)
+        {
+            await _notificationService.CreateBatchAsync(
+            [
+                new NotificationDraft(msg.UserId, msg.Title, msg.Description, msg.Link, msg.Type)
+            ]);
+        }
+        else
+        {
+            await _notificationService.CreateAsync(
+                msg.UserId,
+                msg.Title,
+                msg.Description,
+                msg.Link);
+        }
 
         // Push via SignalR for instant bell update + toast
         await _realtimeService.NotifyUserAsync(

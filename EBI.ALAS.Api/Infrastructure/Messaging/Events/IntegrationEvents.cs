@@ -26,7 +26,8 @@ public sealed record NotificationCreatedEvent(
     string Title,
     string Description,
     string? Link,
-    DateTime OccurredAt);
+    DateTime OccurredAt,
+    string? Type = null);
 
 /// <summary>
 /// Event published when an audit log entry needs to be recorded.

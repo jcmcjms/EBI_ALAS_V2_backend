@@ -1,3 +1,4 @@
+using EBI.ALAS.Api.Common.Constants;
 using EBI.ALAS.Api.Features.Notifications;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 
@@ -34,6 +35,17 @@ public class NotificationConfiguration : IEntityTypeConfiguration<Notification>
 
         builder.Property(e => e.CreatedAt)
             .IsRequired();
+
+        // Notification type bucket — defaults to "system" for existing rows
+        // and callers that don't specify a type. MaxLength 20 matches the
+        // longest constant ("application" = 11 chars, headroom for future).
+        builder.Property(e => e.Type)
+            .IsRequired()
+            .HasMaxLength(20)
+            .HasDefaultValue(NotificationTypes.System);
+
+        // Timestamp of when the owner marked it read. Null = unread.
+        builder.Property(e => e.ReadAt);
 
         // Composite (UserId ASC, CreatedAt DESC) — the bell poll
         // filters + sorts on this pair, so the index serves both
