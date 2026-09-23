@@ -28,11 +28,18 @@ public static class UpdateLoanStatus
             IValidator<UpdateLoanStatusRequest> validator,
             ILoanRepository loanRepository,
             ILoanWorkflowService workflowService,
+            IWorkflowQueueService queueService,
             IAuditLogger auditLogger,
-            INotificationService notificationService,
+            INotificationDispatcher notificationDispatcher,
             IRealtimeNotificationService realtimeService,
+            IDocumentCompletenessService completenessService,
+            IDocumentChecklistStore checklistStore,
+            IApprovalRoutingService routingService,
+            ILoanAssignmentService assignmentService,
+            IDocumentGateService documentGateService,
             ClaimsPrincipal user,
             ITimeProvider timeProvider,
+            AppDbContext db,
             HttpContext ctx,
             CancellationToken ct) =>
         {
@@ -65,8 +72,7 @@ public static class UpdateLoanStatus
                     $"Invalid status transition from {loan.Status} to {request.Status} for role {userRole}"));
             }
 
-            // ── Queue ownership guard (review desks only; Admin bypass) ──
-            var queueService = ctx.RequestServices.GetRequiredService<IWorkflowQueueService>();
+            // Queue ownership guard (review desks only; Admin bypass)
             if (WorkflowQueueService.StageForStatus(loan.Status) != null
                 && userRole != Roles.Admin
                 && !await queueService.IsHeadOwnerAsync(loan.Id, userId, loan.Status, ct))
@@ -81,17 +87,12 @@ public static class UpdateLoanStatus
 
             if (fromStatus == "Draft" && request.Status == "ForRecommendation")
             {
-                var completenessService = ctx.RequestServices.GetRequiredService<IDocumentCompletenessService>();
                 var completeness = await completenessService.CheckAsync(loan, ct);
                 loan.DocumentsCompleteAt = completeness.Complete ? timeProvider.UtcNow : null;
             }
 
             if (request.Status == "ForApproval" && fromStatus == "ForChecking")
             {
-                var completenessService = ctx.RequestServices.GetRequiredService<IDocumentCompletenessService>();
-                var routingService = ctx.RequestServices.GetRequiredService<IApprovalRoutingService>();
-                var assignmentService = ctx.RequestServices.GetRequiredService<ILoanAssignmentService>();
-
                 var completeness = await completenessService.CheckAsync(loan, ct);
                 if (!completeness.Complete)
                     return Results.Json(ApiResponse.ErrorResponse(
@@ -110,7 +111,6 @@ public static class UpdateLoanStatus
 
             if (fromStatus == "ForApproval" && userRole == Roles.Approver)
             {
-                var db = ctx.RequestServices.GetRequiredService<AppDbContext>();
                 var me = await db.Users.AsNoTracking()
                     .FirstOrDefaultAsync(u => u.Id == userId, ct);
                 var inTier = me?.ApprovalAuthorityKey != null
@@ -140,8 +140,19 @@ public static class UpdateLoanStatus
                     "A verdict is only accepted on the evaluator's ForChecking → ForApproval transition."));
             }
 
-            // ── Document completeness transitions ─────────────────────────
-            var checklistStore = ctx.RequestServices.GetRequiredService<IDocumentChecklistStore>();
+            // Apply the permission-based authorization that was registered but never used.
+            // The four policies (CanRecommendLoan, CanEvaluateLoan, CanApproveLoan, CanRejectLoan)
+            // were dead — zero endpoint references. Now we check the specific permission for the
+            // target status. Admin bypasses (HasPermission returns true for Admin via wildcard).
+            var requiredPermission = GetRequiredPermission(request.Status, verdict);
+            if (!string.IsNullOrEmpty(requiredPermission) && !user.HasPermission(requiredPermission))
+            {
+                return Results.Json(ApiResponse.ErrorResponse(
+                    $"You do not have the required permission ({requiredPermission}) for this transition."),
+                    statusCode: StatusCodes.Status403Forbidden);
+            }
+
+            // Document completeness transitions
 
             if (request.Status == "ForIncompleteDocuments")
             {
@@ -152,8 +163,7 @@ public static class UpdateLoanStatus
                 // Server derives the authoritative pending set from the document
                 // server — client-supplied MissingRequirementCodes are used only
                 // for UI echo / audit comment, never for trust.
-                var completenessForPushback = ctx.RequestServices.GetRequiredService<IDocumentCompletenessService>();
-                var items = await completenessForPushback.GetItemsByLoanNoAsync(loan.LoanNo, ct);
+                var items = await completenessService.GetItemsByLoanNoAsync(loan.LoanNo, ct);
                 var pending = items.Where(i => i.UploadStatus != "Uploaded").Select(i => i.IdCode).ToList();
 
                 if (pending.Count == 0)
@@ -193,14 +203,13 @@ public static class UpdateLoanStatus
                 }
             }
 
-            // ── Entry gate: incomplete requirements hold the file automatically ──
+            // Entry gate: incomplete requirements hold the file automatically
             // When promoting into a review desk, check documents first.
             // If incomplete, auto-hold in ForIncompleteDocuments instead.
             if (request.Status is "ForRecommendation" or "ForChecking" or "ForApproval"
                 && fromStatus != "ForIncompleteDocuments")
             {
-                var gate = ctx.RequestServices.GetRequiredService<IDocumentGateService>();
-                if (await gate.HoldIfIncompleteAsync(loan, request.Status, userId, ct))
+                if (await documentGateService.HoldIfIncompleteAsync(loan, request.Status, userId, ct))
                 {
                     await realtimeService.NotifyDashboardUpdateAsync(loan.BranchCode);
                     return Results.Ok(ApiResponse.SuccessResponse(
@@ -208,13 +217,12 @@ public static class UpdateLoanStatus
                 }
             }
 
-            // ── Escape guard: leaving ForIncompleteDocuments requires complete docs ──
+            // Escape guard: leaving ForIncompleteDocuments requires complete docs
             // Admin force-release is blocked when the document server still says incomplete.
             // Encoder resubmission is already guarded by the unresolved check above.
             if (fromStatus == "ForIncompleteDocuments" && request.Status != "ForIncompleteDocuments")
             {
-                var escapeCompleteness = ctx.RequestServices.GetRequiredService<IDocumentCompletenessService>();
-                var escapeItems = await escapeCompleteness.GetItemsByLoanNoAsync(loan.LoanNo, ct);
+                var escapeItems = await completenessService.GetItemsByLoanNoAsync(loan.LoanNo, ct);
                 if (escapeItems.Any(i => i.UploadStatus != "Uploaded"))
                     return Results.ValidationProblem(new Dictionary<string, string[]>
                     {
@@ -230,167 +238,44 @@ public static class UpdateLoanStatus
                 _                                                => "StatusChanged",
             };
 
-            loan.Status = request.Status;
-            loan.LastActionDate = timeProvider.UtcNow;
-
-            await loanRepository.UpdateAsync(loan);
-
-            // ── Queue lifecycle: dequeue old desk, enqueue new desk ──
-            var oldStage = WorkflowQueueService.StageForStatus(fromStatus);
-            var newStage = WorkflowQueueService.StageForStatus(request.Status);
-
-            if (oldStage != null)
-                await queueService.DequeueAndPromoteAsync(loan, fromStatus, ct);
-            if (newStage != null)
-                await queueService.EnqueueAsync(loan, request.Status, ct);
-
-            await auditLogger.LogActionAsync(
-                id, userId, actionName, fromStatus, request.Status, comments);
-
-            var link = $"/loans/monitoring?id={id}";
-            var actorName = $"{user.GetFirstName()} {user.GetLastName()}";
-            var clientName = $"{loan.FirstName} {loan.LastName}";
-
-            if (request.Status == "ForChecking")
+            // Wrap the critical state changes in a transaction.
+            // Previously, the status update, queue mutations, and audit log were
+            // 4+N independent SaveChanges calls. A failure at step 3 left the loan
+            // in a desk with no queue item; a failure at step 4 meant no audit record.
+            // Now all four operations commit atomically.
+            // Note: Notifications and SignalR calls stay OUTSIDE the transaction —
+            // they are fire-and-forget and should not block the state change.
+            var strategy = db.Database.CreateExecutionStrategy();
+            await strategy.ExecuteAsync(async () =>
             {
-                var evaluators = await loanRepository.GetUsersByRoleAndBranchAsync(
-                    Roles.Evaluator, loan.BranchCode, ct);
-                foreach (var e in evaluators)
-                {
-                    await notificationService.CreateAsync(
-                        e.Id,
-                        "Ready for Evaluation",
-                        $"{actorName} recommended {clientName}'s application ({loan.LamId}).",
-                        link);
+                await using var tx = await db.Database.BeginTransactionAsync(ct);
 
-                    await realtimeService.NotifyUserAsync(
-                        e.Id,
-                        "Ready for Evaluation",
-                        $"{actorName} recommended {clientName}'s application ({loan.LamId}).",
-                        link);
-                }
-            }
-            else if (request.Status == "ForRecommendation")
-            {
-                var recommenders = await loanRepository.GetUsersByRoleAndBranchAsync(
-                    Roles.Recommender, loan.BranchCode, ct);
-                foreach (var r in recommenders)
-                {
-                    await notificationService.CreateAsync(
-                        r.Id,
-                        "Ready for Recommendation",
-                        $"{actorName} resubmitted {clientName}'s application ({loan.LamId}) for recommendation.",
-                        link);
+                loan.Status = request.Status;
+                loan.LastActionDate = timeProvider.UtcNow;
 
-                    await realtimeService.NotifyUserAsync(
-                        r.Id,
-                        "Ready for Recommendation",
-                        $"{actorName} resubmitted {clientName}'s application ({loan.LamId}) for recommendation.",
-                        link);
-                }
-            }
-            else if (request.Status == "ForApproval")
-            {
-                var approvers = await loanRepository.GetUsersByRoleAndBranchAsync(
-                    Roles.Approver, loan.BranchCode, ct);
-                var stance = verdict == "NotRecommended" ? "NOT RECOMMENDED" : "RECOMMENDED";
-                var extra = verdict == "NotRecommended"
-                    ? $" Evaluator remarks: {comments}"
-                    : string.Empty;
-                foreach (var a in approvers)
-                {
-                    var title = verdict == "NotRecommended" ? "Evaluation: NOT Recommended" : "Ready for Approval";
-                    var description = $"{actorName} evaluated {clientName}'s application ({loan.LamId}) as {stance}.{extra}";
+                await loanRepository.UpdateAsync(loan);
 
-                    await notificationService.CreateAsync(a.Id, title, description, link);
+                // Queue lifecycle: dequeue old desk, enqueue new desk
+                var oldStage = WorkflowQueueService.StageForStatus(fromStatus);
+                var newStage = WorkflowQueueService.StageForStatus(request.Status);
 
-                    await realtimeService.NotifyUserAsync(a.Id, title, description, link);
-                }
-            }
-            else if (request.Status == "ForRevision")
-            {
-                var pushbackRole = userRole == Roles.Recommender ? "Branch Head"
-                                 : userRole == Roles.Approver ? "Area Head"
-                                 : "Reviewer";
+                if (oldStage != null)
+                    await queueService.DequeueAndPromoteAsync(loan, fromStatus, ct);
+                if (newStage != null)
+                    await queueService.EnqueueAsync(loan, request.Status, ct);
 
-                var title = "Application Returned for Revision";
-                var description = $"{pushbackRole} {actorName} returned {clientName}'s application ({loan.LamId}). Reason: {comments}";
+                await auditLogger.LogActionAsync(
+                    id, userId, actionName, fromStatus, request.Status, comments);
 
-                await notificationService.CreateAsync(
-                    loan.CreatedById,
-                    title,
-                    description,
-                    link);
+                await tx.CommitAsync(ct);
+            });
 
-                await realtimeService.NotifyUserAsync(
-                    loan.CreatedById,
-                    title,
-                    description,
-                    link);
-            }
-            else if (request.Status == "ForIncompleteDocuments")
-            {
-                // Notify the encoder who created the application.
-                var title = "Documents Incomplete — Action Required";
-                var description = $"{actorName} flagged {clientName}'s application ({loan.LamId}) as having incomplete documents. Reason: {comments}";
-
-                await notificationService.CreateAsync(
-                    loan.CreatedById,
-                    title,
-                    description,
-                    link);
-
-                await realtimeService.NotifyUserAsync(
-                    loan.CreatedById,
-                    title,
-                    description,
-                    link);
-            }
-            else if (request.Status == "ForChecking" && fromStatus == "ForIncompleteDocuments")
-            {
-                // Notify the evaluator who flagged it (last action with ToStatus == ForIncompleteDocuments).
-                var lastFlagAction = await ctx.RequestServices.GetRequiredService<AppDbContext>()
-                    .LoanActions.AsNoTracking()
-                    .Where(a => a.LoanApplicationId == loan.Id && a.ToStatus == "ForIncompleteDocuments")
-                    .OrderByDescending(a => a.ActionDate)
-                    .FirstOrDefaultAsync(ct);
-
-                if (lastFlagAction != null)
-                {
-                    var title = "Documents Resubmitted — Ready for Review";
-                    var description = $"{actorName} resubmitted documents for {clientName}'s application ({loan.LamId}).";
-
-                    await notificationService.CreateAsync(
-                        lastFlagAction.ActionByUserId,
-                        title,
-                        description,
-                        link);
-
-                    await realtimeService.NotifyUserAsync(
-                        lastFlagAction.ActionByUserId,
-                        title,
-                        description,
-                        link);
-                }
-            }
-
-            if (loan.CreatedById != userId)
-            {
-                var title = $"Status Update: {request.Status}";
-                var description = $"Your application for {clientName} ({loan.LamId}) has been updated to {request.Status}.";
-
-                await notificationService.CreateAsync(
-                    loan.CreatedById,
-                    title,
-                    description,
-                    link);
-
-                await realtimeService.NotifyUserAsync(
-                    loan.CreatedById,
-                    title,
-                    description,
-                    link);
-            }
+            // Delegate notification fan-out to NotificationDispatcher.
+            // This replaces ~100 lines of near-duplicated notification code with
+            // a single call. The dispatcher handles batching (1 SaveChanges) and
+            // realtime sends (SignalR) for all transition types.
+            await notificationDispatcher.DispatchTransitionNotificationsAsync(
+                loan, fromStatus, request.Status, verdict, comments, actionName, user, ct);
 
             await realtimeService.NotifyDashboardUpdateAsync(loan.BranchCode);
 
@@ -436,6 +321,24 @@ public static class UpdateLoanStatus
         .Produces<ApiResponse>(400)
         .Produces<ApiResponse>(404);
     }
+
+    /// <summary>
+    /// Maps a target status transition to the required permission.
+    /// Returns null for transitions that don't require a specific permission
+    /// (e.g., Draft → ForRecommendation is gated by workflow validation only).
+    /// </summary>
+    private static string? GetRequiredPermission(string targetStatus, string? verdict) => targetStatus switch
+    {
+        "ForRecommendation" => Permissions.LoansRecommend,
+        "ForChecking" => verdict == "NotRecommended" || verdict == "Recommended"
+            ? Permissions.LoansEvaluate   // Evaluation verdict
+            : Permissions.LoansView,      // Resubmission from revision
+        "ForApproval" => Permissions.LoansEvaluate, // Evaluator recommending
+        "Approved" => Permissions.LoansApprove,
+        "Rejected" => Permissions.LoansReject,
+        "ForRevision" => Permissions.LoansRecommend, // Pushback from recommender
+        _ => null, // Draft, ForDisbursement, Disbursed, OnGoing, Cancelled — no specific permission
+    };
 }
 
 public class UpdateLoanStatusRequest
