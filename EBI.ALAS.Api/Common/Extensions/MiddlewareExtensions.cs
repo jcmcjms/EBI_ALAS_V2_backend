@@ -60,22 +60,40 @@ public static class MiddlewareExtensions
         app.UseMiddleware<GlobalExceptionHandler>();
         app.UseMiddleware<SecurityHeadersMiddleware>();
 
+        // ForwardedHeaders MUST run before IpAllowlistMiddleware so that
+        // RemoteIpAddress is populated from trusted proxy headers (X-Forwarded-For).
+        // Configure KnownProxies/KnownNetworks in production to prevent IP spoofing.
+        app.UseForwardedHeaders(new ForwardedHeadersOptions
+        {
+            ForwardedHeaders = Microsoft.AspNetCore.HttpOverrides.ForwardedHeaders.XForwardedFor
+                             | Microsoft.AspNetCore.HttpOverrides.ForwardedHeaders.XForwardedProto,
+            KnownNetworks = { },
+            KnownProxies = { }
+        });
+
         // IP allowlisting for admin endpoints
         app.UseMiddleware<IpAllowlistMiddleware>();
 
-        // Must be before rate limiter to catch all requests
-        app.UseIdempotency();
-
-        // Response caching for read-heavy endpoints
-        app.UseOutputCache();
         app.UseRateLimiter();
 
+        // Authentication must come BEFORE idempotency so the cache key can
+        // include the userId (C1 fix). Must also come before output caching
+        // so that authenticated responses aren't cached for anonymous users (H4 fix).
         app.UseAuthentication();
+
+        // Idempotency AFTER authentication — cache key now includes userId,
+        // preventing cross-user replay of cached responses.
+        app.UseIdempotency();
 
         // CSRF protection — AFTER auth (needs JWT claims), BEFORE authorization
         app.UseMiddleware<CsrfValidationMiddleware>();
 
         app.UseAuthorization();
+
+        // Output caching AFTER authorization so that HttpContext.User is
+        // fully populated and per-user caching policies work correctly.
+        // No global base policy — endpoints opt in explicitly via .CacheOutput("PolicyName").
+        app.UseOutputCache();
 
         return app;
     }
@@ -93,7 +111,22 @@ public static class MiddlewareExtensions
 
     private static void MapHealthChecks(this WebApplication app)
     {
-        app.MapHealthChecks("/health", new HealthCheckOptions
+        // Split health into two endpoints:
+        // /health/live  — unauthenticated, process-only (for k8s liveness probes)
+        // /health/ready — authenticated, deep dependency checks (for readiness probes)
+        // No exception text is exposed to unauthenticated callers.
+
+        app.MapHealthChecks("/health/live", new HealthCheckOptions
+        {
+            Predicate = _ => false, // No dependency checks — just "am I alive?"
+            ResponseWriter = async (context, _) =>
+            {
+                context.Response.ContentType = "application/json; charset=utf-8";
+                await context.Response.WriteAsJsonAsync(new { status = "Healthy" });
+            }
+        });
+
+        app.MapHealthChecks("/health/ready", new HealthCheckOptions
         {
             ResponseWriter = async (context, report) =>
             {
@@ -107,13 +140,13 @@ public static class MiddlewareExtensions
                         name = e.Key,
                         status = e.Value.Status.ToString(),
                         duration = e.Value.Duration.TotalMilliseconds,
-                        description = e.Value.Description,
-                        exception = e.Value.Exception?.Message
+                        description = e.Value.Description
+                        // No exception text exposed — internal errors stay internal
                     })
                 };
                 await context.Response.WriteAsJsonAsync(result);
             }
-        });
+        }).RequireAuthorization();
     }
 
     private static void MapHubs(this WebApplication app)

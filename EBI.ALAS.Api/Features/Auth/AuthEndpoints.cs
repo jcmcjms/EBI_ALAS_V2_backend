@@ -54,8 +54,6 @@ public static class AuthEndpoints
         var result = await authService.LoginAsync(request, http);
 
         if (!result.Success)
-            // Generic on purpose: never reveal whether the username exists or the
-            // account is suspended (user-enumeration). Specifics stay in Serilog.
             return Results.Json(
                 ApiResponse.ErrorResponse("Invalid username or password."),
                 statusCode: StatusCodes.Status401Unauthorized);

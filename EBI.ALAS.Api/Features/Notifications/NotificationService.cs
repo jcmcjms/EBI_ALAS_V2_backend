@@ -29,6 +29,29 @@ public class NotificationService : INotificationService
         await _context.SaveChangesAsync();
     }
 
+    /// <inheritdoc/>
+    public async Task CreateBatchAsync(
+        IEnumerable<(int UserId, string Title, string Description, string? Link)> notifications)
+    {
+        // Single AddRange + single SaveChanges instead of N individual inserts.
+        // This reduces N round trips to 1 and is critical for status-change endpoints
+        // that notify multiple recipients (approvers, evaluators, etc.).
+        var now = _timeProvider.UtcNow;
+        var entities = notifications.Select(n => new Notification
+        {
+            UserId = n.UserId,
+            Title = n.Title,
+            Description = n.Description,
+            Link = n.Link,
+            CreatedAt = now
+        }).ToList();
+
+        if (entities.Count == 0) return;
+
+        _context.Notifications.AddRange(entities);
+        await _context.SaveChangesAsync();
+    }
+
     public async Task<List<NotificationResponse>> GetUserNotificationsAsync(int userId, int limit = 20)
     {
         return await _context.Notifications

@@ -6,6 +6,13 @@ public interface IRefreshTokenRepository
     // Returns only tokens that are not revoked and not past expiry.
     Task<RefreshToken?> GetActiveTokenByHashAsync(string tokenHash);
 
+    /// <summary>
+    /// Checks if a token with the given hash exists but has been revoked.
+    /// Used for reuse detection — if a revoked token is presented again, it's
+    /// a signal that the token was stolen and already rotated.
+    /// </summary>
+    Task<bool> IsTokenRevokedAsync(string tokenHash);
+
     Task RevokeTokenAsync(string tokenHash);
 
     Task RevokeAllUserTokensAsync(int userId);

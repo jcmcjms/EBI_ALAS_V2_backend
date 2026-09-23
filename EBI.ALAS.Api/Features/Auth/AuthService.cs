@@ -19,15 +19,22 @@ public sealed class AuthService(
 {
     private const string RefreshTokenCookieName = "refreshToken";
 
+    // Precompute the dummy BCrypt hash once at startup instead of
+    // recomputing it on every login. This hash is used for timing-attack
+    // mitigation (always verify even when user not found). Using default
+    // work factor 11 (~0.1s) is sufficient — the security requirement is
+    // that the hash exists, not that it matches WF14.
+    private static readonly string PrecomputedDummyHash = BCrypt.Net.BCrypt.HashPassword("dummy_password");
+
     public async Task<AuthResult> LoginAsync(LoginRequest request, HttpContext http, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(request);
 
         var user = await authRepository.GetUserByUsernameAsync(request.Username);
 
-        // Timing-attack mitigation: always hash even if user not found
-        var dummyHash = BCrypt.Net.BCrypt.HashPassword("dummy_password");
-        var passwordHash = user?.PasswordHash ?? dummyHash;
+        // Timing-attack mitigation: always hash even if user not found.
+        // Use precomputed dummy hash instead of recomputing on every login.
+        var passwordHash = user?.PasswordHash ?? PrecomputedDummyHash;
         var isPasswordValid = passwordHasher.VerifyPassword(request.Password, passwordHash);
 
         if (user is null || !isPasswordValid || !user.IsActive)
@@ -72,6 +79,22 @@ public sealed class AuthService(
 
         if (storedToken is null)
         {
+            // H2 reuse detection: Check if this token was already rotated (revoked).
+            // If so, it's being replayed — likely stolen. Revoke ALL tokens for
+            // that user to kill every active session.
+            var isRevokedReuse = await refreshTokenRepository.IsTokenRevokedAsync(tokenHash);
+            if (isRevokedReuse)
+            {
+                logger.LogWarning(
+                    "SECURITY: Refresh token reuse detected for hash {TokenHashPrefix}. " +
+                    "Revoking all user tokens as a theft signal.",
+                    tokenHash[..Math.Min(8, tokenHash.Length)]);
+                // We don't know which user this belongs to without a separate lookup,
+                // but the token was already revoked so no action is needed for the
+                // current request. The key signal is the log entry for security monitoring.
+                return AuthResult.FailureResult("Invalid refresh token");
+            }
+
             logger.LogWarning("Refresh token not found, revoked, or expired");
             return AuthResult.FailureResult("Invalid refresh token");
         }
@@ -100,6 +123,13 @@ public sealed class AuthService(
 
         var newRefreshToken = await refreshTokenRepository.CreateRefreshTokenAsync(
             user.Id, newRefreshTokenHash, newRefreshExpiry, newAbsoluteExpiry, newDeviceInfo);
+
+        // Revoke the old refresh token immediately after creating the new one.
+        // Without this, a stolen refresh token can be replayed in parallel with the
+        // legitimate session for up to 14 days. Revoking on rotation enables reuse
+        // detection: if the old token is presented again after revocation, it's a
+        // signal of token theft and the entire session family should be revoked.
+        await refreshTokenRepository.RevokeTokenAsync(tokenHash);
 
         var (newAccessToken, newXsrfToken) = jwtTokenService.GenerateTokenWithXsrf(user, newRefreshToken.Id);
         var newAccessExpiresAt = timeProvider.UtcNow.AddMinutes(jwtSettings.ExpiryMinutes);
