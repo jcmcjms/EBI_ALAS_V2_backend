@@ -44,7 +44,7 @@ public class LoanResponse
     public decimal InterestRate { get; set; }
     public DateOnly? NthpDate { get; set; }
 
-    // ── Approval form convention fields (frozen at submission) ──────
+    // Approval form convention fields (frozen at submission)
     /// <summary>webloan loan_data.total_amortization: amortization period count (e.g. 84).</summary>
     public int? PolicyTermMonths { get; set; }
 
@@ -63,7 +63,7 @@ public class LoanResponse
     public decimal StandardApplicationCharge { get; set; }
     public decimal StandardAdvanceInterest { get; set; }
 
-    // ── Computed snapshot (server-authoritative) ───────────────────────
+    // Computed snapshot (server-authoritative)
     public decimal TotalDeductions { get; set; }
     public decimal DeductionRate { get; set; }
     public decimal GrossProceeds { get; set; }
@@ -107,7 +107,6 @@ public class LoanResponse
     /// Values: "EvaluatedRecommended" | "EvaluatedNotRecommended" | null.</summary>
     public string? EvaluationVerdict { get; set; }
 
-    // ── Delegation-of-authority routing ─────────────────────────────
     public string LoanType { get; set; } = "New";
     public int DeviationSeverity { get; set; }
     public int? RequiredApprovalTier { get; set; }

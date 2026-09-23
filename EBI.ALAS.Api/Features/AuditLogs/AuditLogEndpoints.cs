@@ -6,8 +6,6 @@ using Microsoft.EntityFrameworkCore;
 
 namespace EBI.ALAS.Api.Features.AuditLogs;
 
-// ─── Query Parameters ──────────────────────────────────────────────────────────
-
 public record AuditLogQuery(
     int Page = 1,
     int PageSize = 20,
@@ -43,8 +41,6 @@ public class AuditLogQueryValidator : AbstractValidator<AuditLogQuery>
     }
 }
 
-// ─── Response DTOs ─────────────────────────────────────────────────────────────
-
 public record AuditLogResponse(
     int Id,
     DateTime Timestamp,
@@ -60,8 +56,6 @@ public record AuditLogResponse(
     string? UserAgent
 );
 
-// ─── Endpoint Mapping ───────────────────────────────────────────────────────────
-
 public static class AuditLogEndpoints
 {
     public static void MapAuditLogEndpoints(this WebApplication app)
@@ -70,7 +64,6 @@ public static class AuditLogEndpoints
             .WithTags("AuditLogs")
             .RequireAuthorization("CanViewAuditLogs");
 
-        // GET /api/audit-logs — paginated, filterable audit log list
         group.MapGet("/", async (
             [FromQuery] int page,
             [FromQuery] int pageSize,
@@ -94,7 +87,6 @@ public static class AuditLogEndpoints
 
             var q = db.AuditLogs.AsNoTracking().AsQueryable();
 
-            // Text search across user name, entity label, and summary
             if (!string.IsNullOrWhiteSpace(query.Search))
             {
                 var searchLower = query.Search.ToLower();
@@ -104,15 +96,12 @@ public static class AuditLogEndpoints
                     x.Summary.ToLower().Contains(searchLower));
             }
 
-            // Filter by action type
             if (!string.IsNullOrWhiteSpace(query.Action))
                 q = q.Where(x => x.Action == query.Action);
 
-            // Filter by entity type
             if (!string.IsNullOrWhiteSpace(query.EntityType))
                 q = q.Where(x => x.EntityType == query.EntityType);
 
-            // Date range filter
             if (query.StartDate.HasValue)
                 q = q.Where(x => x.Timestamp >= query.StartDate.Value);
 
@@ -149,7 +138,6 @@ public static class AuditLogEndpoints
         .Produces<ApiResponse<PagedResult<AuditLogResponse>>>(200)
         .Produces<ApiResponse>(400);
 
-        // GET /api/audit-logs/{id} — single audit log record
         group.MapGet("/{id:int}", async (int id, AppDbContext db) =>
         {
             var log = await db.AuditLogs

@@ -6,7 +6,6 @@ using EBI.ALAS.Api.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
 
-
 namespace EBI.ALAS.Api.Features.Dashboard;
 
 public class DashboardService : IDashboardService
@@ -61,7 +60,6 @@ public class DashboardService : IDashboardService
         return overview;
     }
 
-    // ── SEQUENTIAL BY DESIGN ────────────────────────────────────────────
     // DbContext is NOT thread-safe: a scoped AppDbContext allows exactly ONE
     // operation in flight. Fanning out with Task.WhenAll on this instance
     // throws InvalidOperationException ("A second operation was started on
@@ -116,11 +114,37 @@ public class DashboardService : IDashboardService
 
         // 3 ── One scan of the week's decision actions feeds three widgets:
         //     pushbacks-today KPI, approved-today KPI + %vs-avg, and the chart.
-        var weekActions = await actions
-            .Where(a => a.ActionDate >= weekStartUtc
-                        && (a.ToStatus == "Approved" || a.ToStatus == "ForRevision"))
-            .Select(a => new { a.ActionDate, a.ToStatus })
-            .ToListAsync(ct);
+        // SQL GROUP BY instead of materializing 35K rows into memory.
+        // The original code loaded every Approved/ForRevision action for 7 days
+        // and grouped in C#. At ~5,000 decisions/day that's 35,000 rows every 15s.
+        // Now SQL Server returns only ~14 aggregated rows (7 days × 2 statuses).
+        // Use raw SQL DATEADD for PH timezone grouping — EF Core's DateTime.Add()
+        // cannot translate to SQL Server's DATEADD, so we use SqlQuery with FormattableString.
+        // Two separate FormattableStrings ensure proper SQL parameterization for branchCode.
+        var weekActionGroups = scoped
+            ? await _context.Database.SqlQuery<WeekActionGroupRow>($"""
+                SELECT
+                    CAST(DATEADD(hour, 8, a.ActionDate) AS date) AS DayLabel,
+                    a.ToStatus,
+                    COUNT(*) AS [Count]
+                FROM LoanActions a
+                INNER JOIN LoanApplications la ON la.Id = a.LoanApplicationId
+                WHERE a.ActionDate >= {weekStartUtc}
+                  AND (a.ToStatus = 'Approved' OR a.ToStatus = 'ForRevision')
+                  AND la.BranchCode = {branchCode}
+                GROUP BY CAST(DATEADD(hour, 8, a.ActionDate) AS date), a.ToStatus
+                """).ToListAsync(ct)
+            : await _context.Database.SqlQuery<WeekActionGroupRow>($"""
+                SELECT
+                    CAST(DATEADD(hour, 8, a.ActionDate) AS date) AS DayLabel,
+                    a.ToStatus,
+                    COUNT(*) AS [Count]
+                FROM LoanActions a
+                INNER JOIN LoanApplications la ON la.Id = a.LoanApplicationId
+                WHERE a.ActionDate >= {weekStartUtc}
+                  AND (a.ToStatus = 'Approved' OR a.ToStatus = 'ForRevision')
+                GROUP BY CAST(DATEADD(hour, 8, a.ActionDate) AS date), a.ToStatus
+                """).ToListAsync(ct);
 
         // 4 ── "Now serving": officers who acted in the last hour, latest first.
         var activeRows = await actions
@@ -197,23 +221,30 @@ public class DashboardService : IDashboardService
                 .ToListAsync(ct);
         }
 
-        // ── Assemble (in-memory over already-bounded rows) ──────────────
-        var approvedToday = weekActions.Count(a => a.ToStatus == "Approved" && a.ActionDate >= todayStartUtc);
-        var pushBacksToday = weekActions.Count(a => a.ToStatus == "ForRevision" && a.ActionDate >= todayStartUtc);
-        var approvedWeekTotal = weekActions.Count(a => a.ToStatus == "Approved");
+        // Use aggregated weekActionGroups (14 rows) instead of raw weekActions (35K rows).
+        var approvedToday = weekActionGroups
+            .Where(g => g.ToStatus == "Approved" && g.DayLabel >= phToday)
+            .Sum(g => g.Count);
+        var pushBacksToday = weekActionGroups
+            .Where(g => g.ToStatus == "ForRevision" && g.DayLabel >= phToday)
+            .Sum(g => g.Count);
+        var approvedWeekTotal = weekActionGroups
+            .Where(g => g.ToStatus == "Approved")
+            .Sum(g => g.Count);
         var dailyAvg = approvedWeekTotal / 7.0;
         var vsAvg = dailyAvg > 0
             ? (int)Math.Round((approvedToday - dailyAvg) / dailyAvg * 100)
             : approvedToday > 0 ? 100 : 0;
 
-        var trendMap = weekActions
-            .GroupBy(a => DayLabel(a.ActionDate))
+        // Build trend map from aggregated groups (no per-row grouping needed).
+        var trendMap = weekActionGroups
+            .GroupBy(g => g.DayLabel.ToString("ddd", CultureInfo.InvariantCulture))
             .ToDictionary(
                 g => g.Key,
                 g => new DailyTrendPointDto(
                     g.Key,
-                    g.Count(a => a.ToStatus == "Approved"),
-                    g.Count(a => a.ToStatus == "ForRevision")));
+                    g.Where(x => x.ToStatus == "Approved").Sum(x => x.Count),
+                    g.Where(x => x.ToStatus == "ForRevision").Sum(x => x.Count)));
 
         var orderedTrend = Enumerable.Range(0, 7)
             .Select(offset =>
@@ -285,4 +316,12 @@ public class DashboardService : IDashboardService
     /// <summary>Short weekday label in Philippine wall-clock (Mon…Sun).</summary>
     private static string DayLabel(DateTime utc) =>
         utc.Add(PhOffset).ToString("ddd", CultureInfo.InvariantCulture);
+}
+
+/// <summary>Projection for raw SQL GROUP BY with DATEADD (PH timezone).</summary>
+public sealed class WeekActionGroupRow
+{
+    public DateTime DayLabel { get; set; }
+    public string ToStatus { get; set; } = default!;
+    public int Count { get; set; }
 }

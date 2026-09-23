@@ -31,7 +31,6 @@ public sealed class User
     public string? JobTitle { get; set; }
     public string? ESignature { get; set; }
 
-    // ── Delegation-of-authority routing ──────────────────────────────
     /// <summary>FK to ApprovalAuthorities.Key. Null for non-approvers.</summary>
     public string? ApprovalAuthorityKey { get; set; }
 

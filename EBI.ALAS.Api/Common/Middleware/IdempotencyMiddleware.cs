@@ -1,3 +1,4 @@
+using System.Security.Claims;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using EBI.ALAS.Api.Common.Models;
@@ -8,7 +9,10 @@ namespace EBI.ALAS.Api.Common.Middleware;
 /// <summary>
 /// Idempotency middleware backed by IMemoryCache.
 /// Replays cached responses for POST/PUT/PATCH requests with an Idempotency-Key header.
-/// Uses primary constructor for dependency injection.
+///
+/// Cache key is now scoped by userId + method + path + client-supplied key.
+/// This prevents one user from replaying another user's cached response (IDOR via idempotency).
+/// Middleware must be registered AFTER UseAuthentication() so HttpContext.User is populated.
 /// </summary>
 public sealed class IdempotencyMiddleware(
     RequestDelegate next,
@@ -63,11 +67,27 @@ public sealed class IdempotencyMiddleware(
             return;
         }
 
-        var cacheKey = CacheKeyPrefix + key;
+        // Scope the cache key by user identity, HTTP method, path, and the client key.
+        // This prevents cross-user replay (one user's cached response served to another)
+        // and prevents the same key from colliding across different endpoints.
+        var userId = context.User?.FindFirst("userId")?.Value ?? "anon";
+        var method = context.Request.Method;
+        var path = context.Request.Path.Value ?? "/";
+        var cacheKey = $"{CacheKeyPrefix}{userId}:{method}:{path}:{key}";
 
         if (cache.TryGetValue(cacheKey, out CachedIdempotentResponse? cached) && cached is not null)
         {
-            logger.LogInformation("Idempotency hit for key: {Key}", key);
+            // Verify the replaying user matches the original user.
+            // Reject if a different user tries to use someone else's idempotency key.
+            if (cached.UserId != userId)
+            {
+                context.Response.StatusCode = StatusCodes.Status422UnprocessableEntity;
+                await context.Response.WriteAsJsonAsync(
+                    ApiResponse.ErrorResponse("Idempotency-Key already claimed by another user."));
+                return;
+            }
+
+            logger.LogInformation("Idempotency hit for key: {Key} (user: {UserId})", key, userId);
             await WriteReplayAsync(context, cached);
             return;
         }
@@ -101,7 +121,8 @@ public sealed class IdempotencyMiddleware(
                     {
                         StatusCode = context.Response.StatusCode,
                         Body = bodyBytes,
-                        Headers = safeHeaders
+                        Headers = safeHeaders,
+                        UserId = userId
                     };
 
                     cache.Set(cacheKey, entry, new MemoryCacheEntryOptions
@@ -110,7 +131,8 @@ public sealed class IdempotencyMiddleware(
                         Size = Math.Max(1, bodyBytes.Length / 1024)
                     });
 
-                    logger.LogDebug("Cached idempotent response for key: {Key} ({Bytes} bytes)", key, bodyBytes.Length);
+                    logger.LogDebug("Cached idempotent response for key: {Key} (user: {UserId}, {Bytes} bytes)",
+                        key, userId, bodyBytes.Length);
                 }
             }
 
@@ -154,6 +176,12 @@ public sealed class IdempotencyMiddleware(
         public int StatusCode { get; init; }
         public byte[] Body { get; init; } = [];
         public Dictionary<string, string> Headers { get; init; } = new(StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>
+        /// Track which user created this cached entry so we can reject
+        /// replays from different users.
+        /// </summary>
+        public string UserId { get; init; } = "anon";
     }
 }
 

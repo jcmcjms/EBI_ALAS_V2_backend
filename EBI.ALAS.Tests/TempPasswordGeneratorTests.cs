@@ -10,8 +10,6 @@ public class TempPasswordGeneratorTests
 {
     private readonly TempPasswordGenerator _generator = new();
 
-    // ── Policy compliance over 1 000 samples ────────────────────────────
-
     [Fact]
     public void Generate_SatisfiesCharacterClassPolicy_Over1000Samples()
     {
@@ -76,8 +74,6 @@ public class TempPasswordGeneratorTests
         var password = _generator.Generate(100);
         Assert.Equal(64, password.Length);
     }
-
-    // ── Deterministic properties ─────────────────────────────────────────
 
     [Fact]
     public void Generate_ProducesDifferentPasswordsOnSuccessiveCalls()

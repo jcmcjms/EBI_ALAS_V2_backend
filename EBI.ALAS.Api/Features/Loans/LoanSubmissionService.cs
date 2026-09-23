@@ -97,7 +97,7 @@ public class LoanSubmissionService(
         var lamIds = await lamIdGenerator.GenerateLamIdsAsync(request.Loans.Count, ct);
         var now = timeProvider.UtcNow;
 
-        // ── Compute metrics before persisting ────────────────────────
+        // Compute metrics before persisting
         var applications = new List<LoanApplication>();
 
         foreach (var (loan, i) in request.Loans.Select((l, i) => (l, i)))
@@ -111,7 +111,6 @@ public class LoanSubmissionService(
                 var productConfig = LoanProductComputationConfig.FromEntity(
                     product, loan.Parameters.InterestRate, loan.Parameters.Term);
 
-                // Compute policy-default fees, then apply AO overrides.
                 var defaultFees = computationService.ComputeExpectedFees(productConfig, loan.Parameters.ProposedAmount);
                 var appliedFees = new LoanFees(
                     ApplicationCharge: defaultFees.ApplicationCharge, // not AO-overridable
@@ -147,7 +146,7 @@ public class LoanSubmissionService(
                 application.AmortizationExceedsDisposable = results.AmortizationExceedsDisposable;
                 application.NthpBelowMinimum = results.NthpBelowMinimum;
 
-                // ── Capacity gates ────────────────────────────────────
+                // Capacity gates
                 // AmortizationExceedsDisposable and NthpBelowMinimum gates
                 // are computed and persisted for UI display but no longer
                 // block submission.
@@ -185,7 +184,7 @@ public class LoanSubmissionService(
         // never leave applications without their replay guard (or vice versa).
         await loanRepository.CreateSubmissionAsync(applications, idempotency, ct);
 
-        // ── Enqueue each loan into its initial review desk ──
+        // Enqueue each loan into its initial review desk
         // The document gate checks completeness first: incomplete loans are
         // auto-held in ForIncompleteDocuments and queue themselves there.
         foreach (var application in applications)

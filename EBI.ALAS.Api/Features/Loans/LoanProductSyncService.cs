@@ -3,7 +3,7 @@ using EBI.ALAS.Api.Features.WebLoans;
 
 namespace EBI.ALAS.Api.Features.Loans;
 
-// ─── Sync service contract ─────────────────────────────────────────────────
+// Sync service contract
 // Separated from ILoanProductService so the hosted background service
 // (LoanProductSyncHostedService) can depend on JUST the sync contract,
 // not the full read/write surface. Smaller surface = easier to mock in
@@ -13,7 +13,6 @@ public interface ILoanProductSyncService
     // Pulls every webloan.loan_product row, derives retirement, and
     // upserts the ALAS mirror. Policy fields are preserved on update
     // (sync never overwrites ops-configured values).
-    //
     // Returns the summary so the caller (manual endpoint, hosted
     // service, or unit test) can log or surface what happened.
     Task<LoanProductSyncResult> SyncAsync(CancellationToken ct = default);
@@ -34,7 +33,6 @@ public class LoanProductSyncService(
     {
         var syncedAt = timeProvider.UtcNow;
 
-        // Fetch every webloan product, active and retired. The table
         // is small (~tens of rows); pulling the whole set is cheaper
         // than a delta query and keeps the upsert logic simple.
         var webloanProducts = await webLoanRepository.GetAllLoanProductsAsync(ct);
@@ -50,7 +48,6 @@ public class LoanProductSyncService(
             // would need a CHECK constraint we don't control.
             if (string.IsNullOrWhiteSpace(wp.IdCode)) continue;
 
-            // Check the current mirror row to decide add vs update
             // vs preserved. We need this read anyway to honor
             // preservePolicyFields semantics — the upsert helper
             // would have to fetch it internally otherwise.
@@ -68,7 +65,6 @@ public class LoanProductSyncService(
                 // we set it explicitly here based on the webloan
                 // signal — a brand-new webloan product is active by
                 // construction.
-                //
                 // UpdatedDate/UpdatedById: sync is a system action, so
                 // updatedByUserId=null and updatedDate=syncedAt. The
                 // repository stamps both fields centrally, so the sync

@@ -17,7 +17,7 @@ public static class WebLoanEndpoints
             .WithTags("WebLoans")
             .RequireAuthorization("CanViewLoan");
 
-        // ─── Step 1: CIS search ────────────────────────────────────────
+        // Step 1: CIS search
         // Returns the borrower profile + flat list of accounts. The bch
         // is taken from the JWT — never from the client — so a user
         // cannot spoof another branch by adding it to the query string.
@@ -42,7 +42,7 @@ public static class WebLoanEndpoints
         .Produces<ApiResponse>(404)
         .Produces<ApiResponse>(401);
 
-        // ─── Step 2: outstanding loans for an account ──────────────────
+        // Step 2: outstanding loans for an account
         // The route parameter `accountId` is the combined
         // "<branchCode>-<accountNo>" form (e.g. "011-05-13081-1").
         // Branch scope check runs FIRST via IBranchScopeService — an
@@ -87,13 +87,12 @@ public static class WebLoanEndpoints
         .Produces<ApiResponse>(404)
         .Produces<ApiResponse>(401);
 
-        // ─── Step 3: pending loan for an account ──────────────────────
+        // Step 3: pending loan for an account
         // Same combined-`accountId` shape as the outstanding-loans
         // endpoint. Returns the in-flight pre_loan_data rows + NTHP
         // enrichment. Branch scope check runs FIRST via
         // IBranchScopeService — explicit 403 instead of silent-empty.
         // Anti-enumeration guard runs second.
-        //
         // 200 with Loans=[] is a valid response: the (cisNo, accountId)
         // pair exists but has no pending loan. Only 404 when the
         // account↔CIS pair is unknown. Only 403 when outside scope.
@@ -124,17 +123,15 @@ public static class WebLoanEndpoints
         .Produces<ApiResponse>(404)
         .Produces<ApiResponse>(401);
 
-        // ─── Step 4: active loan products lookup ───────────────────────
+        // Step 4: active loan products lookup
         // Surfaces every row in dbo.loan_product where expiration IS NULL
         // — i.e. products that have not been retired by the webloan
         // system. Projects only id_code + description. Intended as a
         // dropdown source for the loan-origination UI.
-        //
         // Gated by the same `CanViewLoan` policy as the rest of the
         // group — loan origination / review workflows need the same
         // read-only product access, and reusing the policy avoids
         // creating a parallel permission tier for a 2-column lookup.
-        //
         // 200 with `data: []` is a valid response (e.g. during a webloan
         // cutover when no products are flagged active). The lookup is
         // global — no per-branch / per-CIS scoping — because products
@@ -150,17 +147,13 @@ public static class WebLoanEndpoints
         .Produces<ApiResponse<IReadOnlyList<LoanProductDto>>>(200)
         .Produces<ApiResponse>(401);
 
-        // ─── Loan class lookup ────────────────────────────────────────────
         // Returns the `cat_loan_class` value from dbo.loan_data for a
         // single (bch, loan_no, loan_product) composite key.
-        //
         // All three parameters are caller-supplied via query string.
         // No JWT-derived branch fallback — the URL is the identity.
-        //
         // Gated by the same `CanViewLoan` policy as the rest of the
         // group (read-only webloan access), consistent with how
         // `/loan-products` was added without a new policy tier.
-        //
         // 200 with null CatLoanClass: the row exists but
         // dbo.loan_data.cat_loan_class IS NULL — UI renders a placeholder.
         // 404: no row found for the (bch, loan_no, loan_product) triple.

@@ -6,12 +6,10 @@ namespace EBI.ALAS.Api.Features.Loans;
 // 6 hours — well below the 24-hour lag that would be noticeable
 // to encoders, and far above the 1-minute storm that would hammer
 // webloan for no benefit.
-//
 // Lifecycle: the host calls StartAsync once at app startup, waits
 // for the initial run, then loops. StopAsync waits for an in-flight
 // run to complete before returning so we never leave the mirror
 // half-updated when the app is shutting down.
-//
 // Error policy: a single failed run logs and continues — the next
 // tick will retry. This is a mirror, not a transactional job, and a
 // transient webloan outage shouldn't take down the API.

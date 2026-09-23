@@ -59,7 +59,6 @@ public class RealtimeNotificationService : IRealtimeNotificationService
         // full payload (expensive, per-branch cache keys), we send a
         // lightweight "DashboardUpdated" event that tells the client to
         // invalidate its TanStack Query cache and re-fetch.
-        //
         // Routing:
         //   • If branchCode is set → push to Branch_{id} group only.
         //   • If null/empty → broadcast to All_Users (admin-level change).

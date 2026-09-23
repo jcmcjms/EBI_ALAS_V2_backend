@@ -16,7 +16,7 @@ public class SubmitLoanApplicationValidator : AbstractValidator<SubmitLoanApplic
 
     public SubmitLoanApplicationValidator(ILoanProductRepository productRepository)
     {
-        // ── §1.2 branch & type ──
+        // §1.2 branch & type
         RuleFor(x => x.BranchType.Lai)
             .NotEmpty().WithMessage("LAI is required.")
             .Matches(@"^\d{3}-\d{2}-\d{4,6}-\d{1,2}$")
@@ -26,7 +26,7 @@ public class SubmitLoanApplicationValidator : AbstractValidator<SubmitLoanApplic
             .WithMessage("Unknown creation type code.");
         RuleFor(x => x.BranchType.CreationTypeLabel).MaximumLength(50);
 
-        // ── §1.1 / §2 client snapshot (length caps = payload-bloat defense) ──
+        // §1.1 / §2 client snapshot (length caps = payload-bloat defense)
         RuleFor(x => x.Client.CisId).NotEmpty().MaximumLength(50);
         RuleFor(x => x.Client.FirstName).NotEmpty().MaximumLength(100);
         RuleFor(x => x.Client.MiddleName).MaximumLength(100);
@@ -46,7 +46,7 @@ public class SubmitLoanApplicationValidator : AbstractValidator<SubmitLoanApplic
         RuleFor(x => x.Client.School).MaximumLength(200);
         RuleFor(x => x.Client.Referrer).MaximumLength(100);
 
-        // ── §3 loans ──
+        // §3 loans
         RuleFor(x => x.Loans).NotEmpty().WithMessage("Select at least one loan to process.")
             .Must(l => l.Count <= 10).WithMessage("An application cannot carry more than 10 loans.");
         RuleFor(x => x.Loans)
@@ -58,7 +58,7 @@ public class SubmitLoanApplicationValidator : AbstractValidator<SubmitLoanApplic
 
         RuleForEach(x => x.Loans).SetValidator(new LoanSectionValidator(productRepository));
 
-        // ── §4 outstanding loans (borrower-level, unchanged) ──
+        // §4 outstanding loans (borrower-level, unchanged)
         RuleForEach(x => x.OutstandingLoans).SetValidator(new OutstandingLoanSectionValidator());
     }
 
@@ -122,7 +122,7 @@ public class LoanSectionValidator : AbstractValidator<LoanSection>
             .WithMessage("Term must be within the product's allowed range.")
             .WithName("Parameters.Term");
 
-        // ── §5 obligations (per loan) ──
+        // §5 obligations (per loan)
         RuleFor(x => x.EbiReloans).Must(l => l.Count <= MaxObligationRows)
             .WithMessage($"A loan cannot declare more than {MaxObligationRows} EBI reloans.");
         RuleFor(x => x.BuyOuts).Must(l => l.Count <= MaxObligationRows)
@@ -133,12 +133,12 @@ public class LoanSectionValidator : AbstractValidator<LoanSection>
         RuleForEach(x => x.BuyOuts).SetValidator(new BuyOutSectionValidator());
         RuleForEach(x => x.IncomingLoans).SetValidator(new IncomingLoanSectionValidator());
 
-        // ── §6 verification (per loan) ──
+        // §6 verification (per loan)
         RuleFor(x => x.Verification.Findings)
             .NotEmpty().WithMessage("Findings are required. Document what was verified.")
             .MaximumLength(2000);
 
-        // ── §7 deviations (per loan; relational rules mirror the Zod superRefine) ──
+        // §7 deviations (per loan; relational rules mirror the Zod superRefine)
         RuleFor(x => x.Deviations.OtherRemarks)
             .NotEmpty().WithMessage("Other remarks are required.");
         RuleFor(x => x.Deviations)

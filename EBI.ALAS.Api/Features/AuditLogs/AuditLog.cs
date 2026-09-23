@@ -21,6 +21,5 @@ public sealed class AuditLog
     public string? IpAddress { get; set; }
     public string? UserAgent { get; set; }
 
-    // Navigation Property
     public User? User { get; set; }
 }

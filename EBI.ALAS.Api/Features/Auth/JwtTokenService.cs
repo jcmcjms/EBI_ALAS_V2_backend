@@ -36,7 +36,6 @@ public class JwtTokenService : IJwtTokenService
         var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtSettings.SecretKey));
         var credentials = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
 
-        // Get permissions for the user's role
         var permissions = RolePermissions.GetPermissionsForRole(user.Role);
 
         // Generate a per-session CSRF token. The raw value is mirrored in
@@ -67,19 +66,16 @@ public class JwtTokenService : IJwtTokenService
             claims.Add(new Claim("sid", sessionId.Value.ToString(CultureInfo.InvariantCulture)));
         }
 
-        // Add middle name if present
         if (!string.IsNullOrEmpty(user.MiddleName))
         {
             claims.Add(new Claim("middleName", user.MiddleName));
         }
 
-        // Add job title if present
         if (!string.IsNullOrEmpty(user.JobTitle))
         {
             claims.Add(new Claim("jobTitle", user.JobTitle));
         }
 
-        // Add permissions
         foreach (var permission in permissions)
         {
             claims.Add(new Claim("permission", permission));
@@ -109,7 +105,6 @@ public class JwtTokenService : IJwtTokenService
 
     public string GenerateRefreshToken()
     {
-        // Generate 64 cryptographically secure random bytes → 128-char hex string
         var randomBytes = new byte[64];
         using var rng = RandomNumberGenerator.Create();
         rng.GetBytes(randomBytes);

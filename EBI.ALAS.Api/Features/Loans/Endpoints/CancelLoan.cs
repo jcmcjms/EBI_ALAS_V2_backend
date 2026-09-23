@@ -60,7 +60,7 @@ public static class CancelLoan
             loan.LastActionDate = timeProvider.UtcNow;
             await loanRepository.UpdateAsync(loan);
 
-            // ── Queue lifecycle: dequeue from the review desk ──
+            // Queue lifecycle: dequeue from the review desk
             var queueService = ctx.RequestServices.GetRequiredService<IWorkflowQueueService>();
             await queueService.DequeueAndPromoteAsync(loan, fromStatus, ct);
 

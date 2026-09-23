@@ -1,6 +1,6 @@
 namespace EBI.ALAS.Api.Features.Loans;
 
-// ─── POST /api/loans request envelope ─────────────────────────────────────
+// POST /api/loans request envelope
 // Mirrors src/pages/loans/create/schema.ts field-for-field so the two never
 // drift. Branch code and requesting officer are NOT part of the trust
 // boundary: both are derived from the JWT / Users table server-side.
@@ -63,12 +63,12 @@ public sealed record LoanSection
     public string BranchCode { get; init; } = string.Empty;
     public required LoanParametersSection Parameters { get; init; }
 
-    // ── §5 obligations declared against THIS loan ──────────────────
+    // §5 obligations declared against THIS loan
     public IReadOnlyList<EbiReloanSection> EbiReloans { get; init; } = [];
     public IReadOnlyList<BuyOutSection> BuyOuts { get; init; } = [];
     public IReadOnlyList<IncomingLoanSection> IncomingLoans { get; init; } = [];
 
-    // ── §6 / §7 per-loan audit trail ───────────────────────────────
+    // §6 / §7 per-loan audit trail
     public required VerificationSection Verification { get; init; }
     public required DeviationsSection Deviations { get; init; }
 }
@@ -165,7 +165,7 @@ public sealed record DeviationsSection
     public string? FeeDeviationJustification { get; init; }
 }
 
-// ─── Response ─────────────────────────────────────────────────────────────
+// Response
 
 public sealed record LoanSubmissionResponse
 {
@@ -184,8 +184,7 @@ public sealed record CreatedLoan
     public decimal ProposedAmount { get; init; }
     public string Status { get; init; } = string.Empty;
 
-    // ── List-view enrichment (populated by GET /api/loans, null on POST) ──
-    //
+    // List-view enrichment (populated by GET /api/loans, null on POST)
     // POST only knows what was just submitted; it doesn't read these fields
     // back from the DB. They're nullable so a POST response deserializes
     // cleanly on the FE without breaking the shared DTO shape. GET populates
@@ -216,15 +215,13 @@ public sealed record CreatedLoan
     /// <summary>Borrower suffix. Null on POST responses.</summary>
     public string? Suffix { get; init; }
 
-    // ── Monitoring-table enrichment (populated by GET /api/loans) ─────────
-    //
+    // Monitoring-table enrichment (populated by GET /api/loans)
     // These fields are what the loan monitoring table renders:
     //   • ApplicationDate   → "App. Date" column
     //   • LastActionDate    → "Time Lapsed" computation + sorting
     //   • CreatedByName     → creator fallback when no audit actions exist
     //   • LastActionByName  → "Last Action By" column (from audit trail)
     //   • LastAction        → verb subtext (Created, PushedBack, …)
-    //
     // They are nullable because POST /api/loans doesn't read them back —
     // it only knows what was just submitted. GET populates them from
     // LoanApplication + the CreatedBy navigation property.
@@ -252,7 +249,7 @@ public sealed record CreatedLoan
     /// Populated by GET /api/loans; null on POST responses.</summary>
     public int? CreatedById { get; init; }
 
-    // ── Delegation-of-authority enrichment (GET /api/loans only) ─────
+    // Delegation-of-authority enrichment (GET /api/loans only)
     // These fields mirror the detail endpoint (LoanResponse) so the
     // monitoring table can render Docs status + Assigned To without
     // a per-row subquery or a second API call.
@@ -277,7 +274,7 @@ public sealed record CreatedLoan
     /// Null when unassigned. Populated by GET /api/loans.</summary>
     public string? AssignedApproverName { get; init; }
 
-    // ── Workflow queue enrichment (GET /api/loans only) ─────────────
+    // Workflow queue enrichment (GET /api/loans only)
     // These fields drive the queue-aware "Assigned To" column and the
     // "My turn" filter in the monitoring table.
 
@@ -302,7 +299,7 @@ public sealed record CreatedLoan
     public bool IsQueueHead { get; init; }
 }
 
-// ─── GET /api/loans/{id}/history — timeline entries ─────────────────────
+// GET /api/loans/{id}/history — timeline entries
 // One row per LoanAction. ActionBy is the resolved server-side full name
 // (not a user id) so the frontend never has to perform a second lookup.
 // Nullable strings mirror LoanAction.FromStatus / ToStatus / Comments.

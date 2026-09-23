@@ -2,18 +2,14 @@ using System.ComponentModel.DataAnnotations.Schema;
 
 namespace EBI.ALAS.Api.Features.WebLoans;
 
-// ─── OutstandingLoanRow ──────────────────────────────────────────────────────
 // Keyless projection entity used ONLY by WebLoanRepository.GetOutstandingLoansAsync.
-//
 // It carries the full set of loan_data columns the raw query selects PLUS
 // the derived `computed_amort_amount` column produced by the LEFT JOIN to
 // dbo.amort_data + CASE expression:
-//
 //   CASE
 //     WHEN ld.loan_product IN ('C35','C23') THEN ld.principal
 //     ELSE ad.total_amort
 //   END AS computed_amort_amount
-//
 // Why a separate entity (instead of adding `ComputedAmortAmount` to
 // LoanData)?
 //   * `computed_amort_amount` is a DERIVED column, not a real webloan
@@ -24,12 +20,11 @@ namespace EBI.ALAS.Api.Features.WebLoans;
 //   * Materializing through a dedicated keyless entity whose columns
 //     match the SELECT list 1:1 lets EF's materializer populate each
 //     property positionally — no surprises, no missing-column errors.
-//
 // No [Table] attribute is needed because the entity is keyless and never
 // maps to a single underlying table — it is a projection shape only.
 public class OutstandingLoanRow
 {
-    // ─── LoanData fields (mirrors dbo.loan_data columns) ─────────────────
+    // LoanData fields (mirrors dbo.loan_data columns)
     [Column("bk")] public string BankCode { get; set; } = string.Empty;
     [Column("bch")] public string BranchCode { get; set; } = string.Empty;
     [Column("acct_no")] public string AccountNo { get; set; } = string.Empty;
@@ -54,7 +49,7 @@ public class OutstandingLoanRow
     [Column("close_date")] public DateTime? CloseDate { get; set; }
     [Column("creation_type")] public byte? CreationType { get; set; }
 
-    // ─── Derived column from the CASE expression ─────────────────────────
+    // Derived column from the CASE expression
     // Bound to the SELECT-list alias `computed_amort_amount`. The CASE
     // evaluates to ld.principal for C35/C23 products and ad.total_amort
     // (from amort_data, amort_no = 1) for everything else. LEFT JOIN miss
@@ -62,11 +57,9 @@ public class OutstandingLoanRow
     [Column("computed_amort_amount")]
     public decimal? ComputedAmortAmount { get; set; }
 
-    // ─── Derived product-with-description string ─────────────────────────
+    // Derived product-with-description string
     // Bound to the SELECT-list alias `product_with_desc`:
-    //
     //   ld.loan_product + ' - ' + ISNULL(lp.description, '')
-    //
     // Sourced from a second LEFT JOIN to webloan.dbo.loan_product on
     // (ld.loan_product = lp.id_code). When no loan_product row matches
     // (orphaned product code in loan_data, or the product was retired

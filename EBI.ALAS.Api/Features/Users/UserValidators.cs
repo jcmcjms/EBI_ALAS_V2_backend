@@ -36,7 +36,7 @@ public class CreateUserValidator : AbstractValidator<CreateUserRequest>
             .Must(role => new[] { Roles.Encoder, Roles.Recommender, Roles.Evaluator, Roles.Approver, Roles.Admin }.Contains(role))
             .WithMessage("Invalid role specified");
 
-        // ── Approver-specific: JobTitle must match a valid authority key ────
+        // Approver-specific: JobTitle must match a valid authority key
         // When the role is Approver, the JobTitle field carries the authority
         // key (e.g. "BranchHead") selected from the matrix dropdown. We
         // validate it exists so the routing logic never encounters a dangling key.
@@ -55,7 +55,7 @@ public class CreateUserValidator : AbstractValidator<CreateUserRequest>
             RuleFor(x => x.JobTitle).MaximumLength(100).WithMessage("Job title must not exceed 100 characters.");
         });
 
-        // ── Non-approvers must not carry CoveredBranches ─────────────
+        // Non-approvers must not carry CoveredBranches
         // Reject the payload instead of silently ignoring it — the
         // caller is confused about the data model and should be told.
         When(x => x.Role != Roles.Approver && x.CoveredBranches is { Count: > 0 }, () =>
@@ -86,7 +86,7 @@ public class UpdateUserValidator : AbstractValidator<UpdateUserRequest>
             .Must(role => new[] { Roles.Encoder, Roles.Recommender, Roles.Evaluator, Roles.Approver, Roles.Admin }.Contains(role))
             .WithMessage("Invalid role specified");
 
-        // ── Approver-specific: JobTitle must match a valid authority key ────
+        // Approver-specific: JobTitle must match a valid authority key
         When(x => x.Role == Roles.Approver, () =>
         {
             RuleFor(x => x.JobTitle)
@@ -102,7 +102,7 @@ public class UpdateUserValidator : AbstractValidator<UpdateUserRequest>
             RuleFor(x => x.JobTitle).MaximumLength(100).WithMessage("Job title must not exceed 100 characters.");
         });
 
-        // ── Non-approvers must not carry CoveredBranches ─────────────
+        // Non-approvers must not carry CoveredBranches
         When(x => x.Role != Roles.Approver && x.CoveredBranches is { Count: > 0 }, () =>
         {
             RuleFor(x => x.CoveredBranches).Empty()

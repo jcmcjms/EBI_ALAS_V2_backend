@@ -6,7 +6,6 @@ public class WebLoanDbContext : DbContext
 {
     public WebLoanDbContext(DbContextOptions<WebLoanDbContext> options) : base(options) { }
 
-    // ─── DbSets ──────────────────────────────────────────────────────────────
     public DbSet<CisInfo> CisInfos => Set<CisInfo>();
     public DbSet<CisInfoMiscData> CisInfoMiscDatas => Set<CisInfoMiscData>();
     public DbSet<LoanAcctInfo> LoanAcctInfos => Set<LoanAcctInfo>();
@@ -43,14 +42,12 @@ public class WebLoanDbContext : DbContext
     {
         base.OnModelCreating(modelBuilder);
 
-        // ─── cis_info ────────────────────────────────────────────────────
         modelBuilder.Entity<CisInfo>(entity =>
         {
             entity.HasKey(e => e.CisNo);
             entity.Property(e => e.CisNo).HasColumnName("cis_no").HasMaxLength(10);
         });
 
-        // ─── cis_info_misc_data ──────────────────────────────────────────
         // Composite key (cis_no, id_code) — one row per attribute per client.
         modelBuilder.Entity<CisInfoMiscData>(entity =>
         {
@@ -59,14 +56,12 @@ public class WebLoanDbContext : DbContext
             entity.Property(e => e.CisNo).HasColumnName("cis_no").HasMaxLength(10);
         });
 
-        // ─── loan_acct_info ──────────────────────────────────────────────
         modelBuilder.Entity<LoanAcctInfo>(entity =>
         {
             entity.HasKey(e => new { e.BankCode, e.BranchCode, e.AccountNo });
             entity.HasIndex(e => e.CisNo);
         });
 
-        // ─── loan_data ───────────────────────────────────────────────────
         // Keyless: loan_no is nullable in webloan (ledger rows carry no PN)
         // and this context is read-only — no tracking required.
         modelBuilder.Entity<LoanData>(entity =>
@@ -75,7 +70,6 @@ public class WebLoanDbContext : DbContext
             entity.HasIndex(e => e.AccountNo);
         });
 
-        // ─── amort_data ──────────────────────────────────────────────────
         // Keyless: webloan PK is (bk, bch, acct_no, loan_no, amort_no) — we
         // never fetch by it directly. The outstanding-loans query joins to
         // it from loan_data on (bk, bch, acct_no, loan_no) and filters
@@ -86,7 +80,6 @@ public class WebLoanDbContext : DbContext
             entity.HasIndex(e => new { e.BranchCode, e.AccountNo, e.LoanNo });
         });
 
-        // ─── OutstandingLoanRow ─────────────────────────────────────────
         // Keyless projection shape for the outstanding-loans raw SQL.
         // Never maps to a real table — the SELECT-list alias columns are
         // bound via [Column] attributes on the entity properties. EF's
@@ -96,7 +89,6 @@ public class WebLoanDbContext : DbContext
             entity.HasNoKey();
         });
 
-        // ─── PendingLoanRow ─────────────────────────────────────────────
         // Keyless projection shape for the consolidated pending-loan
         // raw SQL (pre_loan_data LEFT JOIN × 5 lookup tables + 3 derived
         // expressions). Same pattern as OutstandingLoanRow above.
@@ -105,7 +97,6 @@ public class WebLoanDbContext : DbContext
             entity.HasNoKey();
         });
 
-        // ─── lookups ─────────────────────────────────────────────────────
         modelBuilder.Entity<LoanStatusLookup>(entity =>
         {
             entity.HasKey(e => e.IdCode);
@@ -116,7 +107,6 @@ public class WebLoanDbContext : DbContext
             entity.HasKey(e => e.IdCode);
         });
 
-        // ─── pre_loan_data ───────────────────────────────────────────────
         // Keyless: same reasoning as loan_data — transactional table keyed
         // by (bch, acct_no, loan_no), not a single-column PK in webloan.
         modelBuilder.Entity<PreLoanData>(entity =>
@@ -125,14 +115,12 @@ public class WebLoanDbContext : DbContext
             entity.HasIndex(e => new { e.BranchCode, AccountNo = e.AccountNo });
         });
 
-        // ─── loan_purpose ───────────────────────────────────────────────
         // Joined on path in the pending-loan query.
         modelBuilder.Entity<LoanPurpose>(entity =>
         {
             entity.HasKey(e => e.Path);
         });
 
-        // ─── check_list_data ────────────────────────────────────────────
         // EAV-style attribute store. Composite key (cis_no, check_list_item).
         // Indexed on cis_no because every per-CIS enrichment in this
         // service filters by cis_no + a single item code.
@@ -142,7 +130,6 @@ public class WebLoanDbContext : DbContext
             entity.HasIndex(e => e.CisNo);
         });
 
-        // ─── mis_group ───────────────────────────────────────────────────
         // Single-table multi-group lookup. frp_id is the synthetic PK in webloan.
         // Indexed on (group_no, path) — every ALAS lookup filters by group_no and
         // joins on path (or id_code for cis_info_misc_data).

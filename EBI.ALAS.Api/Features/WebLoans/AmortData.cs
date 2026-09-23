@@ -2,14 +2,12 @@ using System.ComponentModel.DataAnnotations.Schema;
 
 namespace EBI.ALAS.Api.Features.WebLoans;
 
-// ─── amort_data ─────────────────────────────────────────────────────────────
 // Per-loan amortization schedule rows in webloan. webloan stores one row per
 // scheduled amortization installment; the `amort_no` column is the installment
 // ordinal (1 = first scheduled payment, 2 = second, ...). For the outstanding-
 // loans endpoint we only ever want the FIRST scheduled installment, filtered
 // by `amort_no = 1` — that's the canonical "monthly amortization amount" the
 // UI displays.
-//
 // Keyed by (bk, bch, acct_no, loan_no, amort_no) on the webloan side; we model
 // it as keyless here because this context is read-only and we never fetch by
 // the primary key directly — every query in this codebase joins to it from

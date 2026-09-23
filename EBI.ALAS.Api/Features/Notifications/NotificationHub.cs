@@ -136,7 +136,7 @@ public class NotificationHub : Hub
         await base.OnDisconnectedAsync(exception);
     }
 
-    // ── Reusable per-record presence (any feature can call these) ──────────
+    // Reusable per-record presence (any feature can call these)
 
     /// <summary>
     /// Start watching an entity. The caller joins the entity's SignalR group
@@ -175,8 +175,6 @@ public class NotificationHub : Hub
         await Clients.Group(key.Group).SendAsync("EntityViewersChanged",
             new { key.EntityType, key.EntityId, viewers });
     }
-
-    // ── Helpers ────────────────────────────────────────────────────────────
 
     private PresenceUserInfo? ReadUserFromClaims()
     {

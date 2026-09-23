@@ -20,13 +20,13 @@ public sealed class LoanApplication
     /// <summary>Acting officer's branch (JWT-derived, never client-supplied).</summary>
     public string BranchCode { get; set; } = string.Empty;
 
-    // ── Branch & type (wizard §1.2) ────────────────────────────────
+    // Branch & type (wizard §1.2)
     public int? CreationTypeCode { get; set; }
     public string? CreationTypeLabel { get; set; }
     public string? RequestingOfficer { get; set; }
     public string? Lai { get; set; }
 
-    // ── Client snapshot (§1.1 / §2, CIS-sourced) ───────────────────
+    // Client snapshot (§1.1 / §2, CIS-sourced)
     public string? CisId { get; set; }
     public string FirstName { get; set; } = string.Empty;
     public string? MiddleName { get; set; }
@@ -46,7 +46,7 @@ public sealed class LoanApplication
     public string? School { get; set; }
     public string? Referrer { get; set; }
 
-    // ── Per-loan parameters (§3) ───────────────────────────────────
+    // Per-loan parameters (§3)
     public string LoanNo { get; set; } = string.Empty;
     public string ProductCode { get; set; } = string.Empty;
     public string Product { get; set; } = string.Empty;
@@ -69,7 +69,7 @@ public sealed class LoanApplication
     public decimal StandardApplicationCharge { get; set; }
     public decimal StandardAdvanceInterest { get; set; }
 
-    // ── Computed snapshot (server-authoritative, never client-supplied) ──
+    // Computed snapshot (server-authoritative, never client-supplied)
     public decimal TotalDeductions { get; set; }
     public decimal DeductionRate { get; set; }
     public decimal GrossProceeds { get; set; }
@@ -85,7 +85,7 @@ public sealed class LoanApplication
     public bool AmortizationExceedsDisposable { get; set; }
     public bool NthpBelowMinimum { get; set; }
 
-    // ── Verification & deviations (§6 / §7) ────────────────────────
+    // Verification & deviations (§6 / §7)
     public string? VerificationFindings { get; set; }
     public bool HasDeviations { get; set; }
     public List<string> DeviationDetails { get; set; } = [];
@@ -95,12 +95,11 @@ public sealed class LoanApplication
     public string? OtherRemarks { get; set; }
     public string? FeeDeviationJustification { get; set; }
 
-    // ── Status & dates ─────────────────────────────────────────────
+    // Status & dates
     public string Status { get; set; } = "Draft";
     public DateTime ApplicationDate { get; init; } = DateTime.UtcNow;
     public DateTime LastActionDate { get; set; } = DateTime.UtcNow;
 
-    // ── Delegation-of-authority routing ─────────────────────────────
     public string LoanType { get; set; } = "New";
     public EBI.ALAS.Api.Features.ApprovalMatrix.DeviationSeverity DeviationSeverity { get; set; }
     public int? RequiredApprovalTier { get; set; }
@@ -116,11 +115,11 @@ public sealed class LoanApplication
     /// </summary>
     public string? IncompleteReturnStatus { get; set; }
 
-    // ── Audit ──────────────────────────────────────────────────────
+    // Audit
     public int CreatedById { get; init; }
     public User CreatedBy { get; set; } = null!;
 
-    // ── WebLoan traceability (read-only legacy references) ─────────
+    // WebLoan traceability (read-only legacy references)
     public string? WebLoanCisNo { get; set; }
     public string? WebLoanBranchCode { get; set; }
     public List<string> WebLoanAccountNumbers { get; set; } = [];
@@ -129,7 +128,7 @@ public sealed class LoanApplication
     public int? PreLoanId { get; set; }
     public string? PreLoanFormNumber { get; set; }
 
-    // ── Navigation properties ──────────────────────────────────────
+    // Navigation properties
     public ICollection<LoanAction> Actions { get; set; } = [];
     public ICollection<OutstandingLoan> OutstandingLoans { get; set; } = [];
     public ICollection<BuyOut> BuyOuts { get; set; } = [];

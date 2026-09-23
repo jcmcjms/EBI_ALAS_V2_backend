@@ -27,6 +27,15 @@ public static class AuthenticationExtensions
         {
             options.RequireHttpsMetadata = !IsDevelopment();
             options.SaveToken = true;
+
+            // Disable claim remapping so "sub", "role", etc. arrive with
+            // their original names. .NET 8's JwtSecurityTokenHandler remaps inbound
+            // "sub" → ClaimTypes.NameIdentifier and "role" → ClaimTypes.Role by default,
+            // which causes FindFirst("sub") and Identity.Name to silently return null.
+            // With MapInboundClaims = false, we control claim lookups explicitly via
+            // ClaimsPrincipalExtensions (which already checks both spellings for "role").
+            options.MapInboundClaims = false;
+
             options.TokenValidationParameters = new TokenValidationParameters
             {
                 ValidateIssuer = true,
@@ -37,7 +46,10 @@ public static class AuthenticationExtensions
                 ValidAudience = jwtSettings.Audience,
                 IssuerSigningKey = new SymmetricSecurityKey(
                     Encoding.UTF8.GetBytes(jwtSettings.SecretKey)),
-                ClockSkew = TimeSpan.Zero
+                ClockSkew = TimeSpan.Zero,
+                // Map the "username" claim to Identity.Name so that
+                // ClaimsPrincipal.Identity.Name resolves correctly.
+                NameClaimType = "username"
             };
 
             options.Events = new JwtBearerEvents

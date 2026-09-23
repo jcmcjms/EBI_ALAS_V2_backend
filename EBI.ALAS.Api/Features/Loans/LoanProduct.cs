@@ -4,13 +4,11 @@ using EBI.ALAS.Api.Features.Auth;
 namespace EBI.ALAS.Api.Features.Loans;
 
 // ALAS-owned mirror of the webloan.loan_product catalog.
-//
 // webloan tells us WHICH products exist and WHEN they retire (expiration).
 // ALAS owns the policy data — what the loan is allowed to do and what it
 // costs. This split exists because webloan is read-only (the
 // WebLoanReadOnlyInterceptor blocks any write into it) and the policy
 // fields are maintained by bank ops through the ALAS admin UI.
-//
 // PK is the webloan `id_code` (e.g. "C35"), not a surrogate int. Two
 // reasons:
 //   * Sync becomes a trivial upsert by natural key — no "did this row
@@ -19,7 +17,6 @@ namespace EBI.ALAS.Api.Features.Loans;
 //     (LoanApplication.Product) — promoting the FK relationship to a
 //     real FK here would force a string→int rewrite of every loan
 //     record, which we want to avoid.
-//
 // The mirror is fully ALAS-owned on the policy columns: webloan is never
 // the source of truth for min/max/term/fees. A webloan change to those
 // columns would NOT propagate to ALAS — only the existence and
@@ -36,7 +33,7 @@ public class LoanProduct
     [Column("Description")]
     public string Description { get; set; } = string.Empty;
 
-    // ── Eligibility bounds (ALAS-owned) ───────────────────────────────
+    // Eligibility bounds (ALAS-owned)
     // Hard floor on the principal an encoder can request for this
     // product. Validated server-side in CreateLoanValidator.
     [Column("MinAmount")]
@@ -59,7 +56,7 @@ public class LoanProduct
     [Column("MaxTermDays")]
     public int MaxTermDays { get; set; }
 
-    // ── Fees & charges (ALAS-owned, all PHP) ──────────────────────────
+    // Fees & charges (ALAS-owned, all PHP)
     // Flat-fee columns. Each loan disbursement shows these as line
     // items in the preview and deducts them (along with advance
     // interest) from the gross proceeds. If a product ever needs
@@ -74,20 +71,19 @@ public class LoanProduct
     [Column("InsuranceFee")]
     public decimal InsuranceFee { get; set; }
 
-    // ── Interest model (ALAS-owned) ───────────────────────────────────
+    // Interest model (ALAS-owned)
     // Advance-interest annual rate, decimal(9,6). "Advance" in PH
     // banking means interest is deducted from proceeds at disbursement
     // (the borrower receives Principal - Interest - Fees). The
     // disbursement service multiplies this by principal and
     // (termDays / 360) to compute the deduction. 0.120000 = 12% p.a.
-    //
     // We do NOT store a per-term rate table; products with rate
     // brackets need a separate child table (out of scope for this
     // slice).
     [Column("AdvanceInterestRate")]
     public decimal AdvanceInterestRate { get; set; }
 
-    // ── Computation model (ALAS-owned) ────────────────────────────────
+    // Computation model (ALAS-owned)
     // Application charge rate as a decimal fraction of proposed amount.
     // 0.0600 = 6% (A16 default), 0.0750 = 7.5% (C35). Product-dependent;
     // config-driven so policy changes need no redeploy.
@@ -107,12 +103,11 @@ public class LoanProduct
     [Column("ChargeAdvanceInterest")]
     public bool ChargeAdvanceInterest { get; set; }
 
-    // ── Sync state (ALAS-owned) ───────────────────────────────────────
+    // Sync state (ALAS-owned)
     // Mirrored from webloan.loan_product.expiration IS NOT NULL at sync
     // time. Stored as a boolean (not a date) because the only consumer
     // question is "should I show this in the dropdown?" — and exposing
     // the retirement date to encoders is unnecessary noise.
-    //
     // The sync updates this on every run, so the value tracks webloan
     // within one sync interval (configurable, default 6h).
     [Column("IsRetired")]
@@ -124,14 +119,13 @@ public class LoanProduct
     [Column("LastSyncedAt")]
     public DateTime LastSyncedAt { get; set; }
 
-    // ── Audit (ALAS-owned) ───────────────────────────────────────────
+    // Audit (ALAS-owned)
     // Last-modification timestamp across BOTH the sync path and the
     // admin update path. Source of truth for "when did this row last
     // change?". Distinct from LastSyncedAt, which is only bumped when
     // webloan-side fields are refreshed — UpdatedDate is bumped on
     // every successful SaveChangesAsync, including admin edits of
     // policy fields.
-    //
     // Stored as datetime2 (not datetime) — same type used by
     // LoanApplication.LastActionDate and User.CreatedAt, so the
     // audit-log timeline across the system is homogeneous.
@@ -143,7 +137,6 @@ public class LoanProduct
     // attribution. The endpoint layer requires CanManageLoanProduct
     // and passes the caller's user id, so UpdatedById is non-null on
     // any admin-driven change.
-    //
     // Stored as int (matching LoanApplication.CreatedById /
     // LoanAction.ActionByUserId) rather than nvarchar(username) so
     // renames don't rewrite history. The FK is set with

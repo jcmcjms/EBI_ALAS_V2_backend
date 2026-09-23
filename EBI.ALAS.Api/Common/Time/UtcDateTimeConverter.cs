@@ -8,13 +8,11 @@ public sealed class UtcDateTimeConverter : JsonConverter<DateTime>
     {
         var dateTime = reader.GetDateTime();
         
-        // If the DateTime has no Kind specified, assume it's UTC
         if (dateTime.Kind == DateTimeKind.Unspecified)
         {
             return DateTime.SpecifyKind(dateTime, DateTimeKind.Utc);
         }
         
-        // Convert to UTC if it's Local
         if (dateTime.Kind == DateTimeKind.Local)
         {
             return dateTime.ToUniversalTime();
@@ -25,7 +23,6 @@ public sealed class UtcDateTimeConverter : JsonConverter<DateTime>
 
     public override void Write(Utf8JsonWriter writer, DateTime value, JsonSerializerOptions options)
     {
-        // Always write as UTC with 'Z' suffix
         var utc = value.Kind switch
         {
             DateTimeKind.Utc => value,
@@ -89,7 +86,6 @@ public sealed class DateTimeOffsetConverter : JsonConverter<DateTimeOffset>
 
     public override void Write(Utf8JsonWriter writer, DateTimeOffset value, JsonSerializerOptions options)
     {
-        // Write with offset information
         writer.WriteStringValue(value.ToString("yyyy-MM-ddTHH:mm:ss.fffzzz"));
     }
 }

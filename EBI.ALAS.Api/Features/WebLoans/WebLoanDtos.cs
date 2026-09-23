@@ -1,6 +1,6 @@
 namespace EBI.ALAS.Api.Features.WebLoans;
 
-// ─── Loan status ──────────────────────────────────────────────────────────
+// Loan status
 // Mirrors the SQL CASE block from the original webloan query. Translated
 // here so the frontend gets human-readable labels without parsing integers.
 public enum WebLoanStatus
@@ -14,7 +14,7 @@ public enum WebLoanStatus
     Unknown = 99
 }
 
-// ─── Region codes (cis_info.b_region_code) ────────────────────────────────
+// Region codes (cis_info.b_region_code)
 // The webloan column is varchar(20) and mixes numeric strings ("1".."18")
 // with codes for non-regional groupings ("NCR", "CRG"). Mapping here so the
 // API surface is consistent regardless of how webloan stores the value.
@@ -80,7 +80,7 @@ public static class WebLoanRegions
     };
 }
 
-// ─── GET /api/webloans/cis/{cisNo}/search ─────────────────────────────────
+// GET /api/webloans/cis/{cisNo}/search
 public record CisSearchResponse(
     BorrowerDto Borrower,
     IReadOnlyList<AccountDto> Accounts);
@@ -146,19 +146,16 @@ public record OutstandingLoanDto(
     // ISNULL(coalesce) rationale.
     string ProductWithDescription);
 
-// ─── GET /api/webloans/cis/{cisNo}/accounts/{accountId}/pending-loan ──────
+// GET /api/webloans/cis/{cisNo}/accounts/{accountId}/pending-loan
 // accountId is the combined "<branchCode>-<accountNo>" form
 // (e.g. "011-05-13081-1") — see WebLoanAccountId.
-//
 // Returns ALL in-flight pre_loan_data rows for the (bch, acct_no) pair
 // + NTHP (Net Take-Home Pay) enrichment joined from check_list_data
 // WHERE check_list_item = 'CCR07'. Used by underwriters while evaluating
 // pending loan applications.
-//
 // Multiple in-flight loans are possible because the schema permits
 // duplicates for (bch, acct_no) — e.g. an account with several
 // preparation cycles in progress.
-//
 // NTHP is hoisted to the response level because it is a CIS-level
 // attribute (joined on cis_no), not a loan-level one. Duplicating it
 // per loan would mislead the UI into thinking NTHP differs by loan.
@@ -195,24 +192,22 @@ public record PendingLoanDto(
     byte? CreationType,           // raw code from loan_data.creation_type
     string CreationTypeLabel);    // "New Loan" / "Reloan" / "Restructured" / "Additional Loan" / "Unknown"
 
-// ─── GET /api/webloans/loan-products ──────────────────────────────────────
+// GET /api/webloans/loan-products
 // Surfaces every row in dbo.loan_product where expiration IS NULL —
 // i.e. products that have not been retired by the webloan system.
 // Projects only id_code + description per the spec; the retirement
 // flag is server-side only.
-//
 // Ordered by id_code ascending (enforced in the repository) so
 // dropdowns render in a stable order across calls.
 public record LoanProductDto(
     string IdCode,
     string Description);
 
-// ─── GET /api/webloans/loan-class ──────────────────────────────────────────
+// GET /api/webloans/loan-class
 // Resolves `cat_loan_class` for a single (bch, loan_no, loan_product) tuple
 // in dbo.loan_data. The (bch, loan_no, loan_product) trio is taken from the
 // caller (composite input — all three required for determinism), so the
 // repository can issue an exact-match lookup.
-//
 // Why all three are required:
 //   * `(bch, loan_no)` alone is NOT unique in webloan — the same PN can
 //     appear under different branches or accounts (rebookings, branch
@@ -222,7 +217,6 @@ public record LoanProductDto(
 //   * `loan_product` is the most selective filter in the original SQL and
 //     matches the user's stated query shape (`WHERE loan_product = '...'`
 //     AND `bch = ...` AND `loan_no = ...`).
-//
 // 404 when no row matches the trio — mirrors the README §546 /active-loans
 // anti-enumeration stance (no row = unknown, not "no class").
 public record CatLoanClassResponse(
@@ -231,22 +225,17 @@ public record CatLoanClassResponse(
     string LoanProduct,
     string? CatLoanClass);   // null when dbo.loan_data.cat_loan_class IS NULL
 
-// ─── Combined account identifier ("branchCode-accountNo") ─────────────────
-//
+// Combined account identifier ("branchCode-accountNo")
 // The two drill-down endpoints (outstanding-loans, pending-loan) take a
 // single route parameter `accountId` instead of separate `branchCode` and
 // `accountNo` query/path parameters — the branch becomes part of the
 // account identity, mirroring how webloan itself stores it (bch + acct_no).
-//
 // Format: <branchCode>-<accountNo>  (e.g. "011-05-13081-1")
-//
 // Split rule: split on the FIRST '-' only. The remainder is treated as the
 // literal account number verbatim, so account numbers that themselves
 // contain hyphens ("05-13081-1") are preserved.
-//
 //   "011-05-13081-1"  →  bch="011",  acctNo="05-13081-1"
 //   "011-05-13081-1-A" → bch="011",  acctNo="05-13081-1-A"
-//
 // Validation: both segments must be non-empty after trimming. The format
 // is intentionally lenient on input characters because webloan's acct_no
 // column is varchar and accepts a wide range of values in production data.

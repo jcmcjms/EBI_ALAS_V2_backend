@@ -4,13 +4,13 @@ namespace EBI.ALAS.Api.Features.WebLoans;
 [Table("pre_loan_data", Schema = "dbo")]
 public class PreLoanData
 {
-    // ─── Identifiers ──────────────────────────────────────────────────────
+    // Identifiers
     [Column("bk")] public string BankCode { get; set; } = string.Empty;
     [Column("bch")] public string BranchCode { get; set; } = string.Empty;
     [Column("acct_no")] public string AccountNo { get; set; } = string.Empty;
     [Column("loan_no")] public string LoanNo { get; set; } = string.Empty;
 
-    // ─── Workflow dates ───────────────────────────────────────────────────
+    // Workflow dates
     // The pending-loan query filters WHERE all four of these are NULL —
     // meaning the loan is in flight (prepared, not yet approved/released).
     [Column("prepared_date")] public DateTime? PreparedDate { get; set; }

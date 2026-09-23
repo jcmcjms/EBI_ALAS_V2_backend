@@ -17,7 +17,7 @@ namespace EBI.ALAS.Api.Migrations
         {
 #pragma warning disable 612, 618
             modelBuilder
-                .HasAnnotation("ProductVersion", "8.0.0")
+                .HasAnnotation("ProductVersion", "8.0.8")
                 .HasAnnotation("Relational:MaxIdentifierLength", 128);
 
             SqlServerModelBuilderExtensions.UseIdentityColumns(modelBuilder);
@@ -56,6 +56,9 @@ namespace EBI.ALAS.Api.Migrations
 
                     b.HasKey("Key");
 
+                    b.HasIndex("Tier", "Priority")
+                        .HasDatabaseName("IX_ApprovalAuthorities_Tier_Priority");
+
                     b.ToTable("ApprovalAuthorities");
                 });
 
@@ -93,7 +96,8 @@ namespace EBI.ALAS.Api.Migrations
 
                     b.HasKey("UserId", "BranchCode");
 
-                    b.HasIndex("BranchCode");
+                    b.HasIndex("BranchCode")
+                        .HasDatabaseName("IX_UserBranchCoverages_BranchCode");
 
                     b.ToTable("UserBranchCoverages");
                 });
@@ -344,6 +348,12 @@ namespace EBI.ALAS.Api.Migrations
                     b.HasIndex("Username")
                         .IsUnique();
 
+                    b.HasIndex("IsActive", "ApprovalAuthorityKey", "Role")
+                        .HasDatabaseName("IX_Users_IsActive_ApprovalAuthorityKey_Role");
+
+                    b.HasIndex("Role", "BranchId", "IsActive")
+                        .HasDatabaseName("IX_Users_Role_BranchId_IsActive");
+
                     b.ToTable("Users");
                 });
 
@@ -378,6 +388,9 @@ namespace EBI.ALAS.Api.Migrations
                         .HasColumnType("nvarchar(100)");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("AreaCode")
+                        .HasDatabaseName("IX_Branches_AreaCode");
 
                     b.HasIndex("Code")
                         .IsUnique();
@@ -414,7 +427,8 @@ namespace EBI.ALAS.Api.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("LoanApplicationId");
+                    b.HasIndex("LoanApplicationId")
+                        .HasDatabaseName("IX_BuyOuts_LoanApplicationId");
 
                     b.ToTable("BuyOuts");
                 });
@@ -508,6 +522,9 @@ namespace EBI.ALAS.Api.Migrations
                     b.HasIndex("LoanApplicationId", "Status")
                         .HasDatabaseName("IX_DocumentChecklists_Loan_Status");
 
+                    b.HasIndex("LoanApplicationId", "Status", "Code")
+                        .HasDatabaseName("IX_DocumentChecklists_Loan_Status_Code");
+
                     b.ToTable("DocumentChecklists");
                 });
 
@@ -592,7 +609,8 @@ namespace EBI.ALAS.Api.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("LoanApplicationId");
+                    b.HasIndex("LoanApplicationId")
+                        .HasDatabaseName("IX_EbiReloans_LoanApplicationId");
 
                     b.ToTable("EbiReloans");
                 });
@@ -623,7 +641,8 @@ namespace EBI.ALAS.Api.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("LoanApplicationId");
+                    b.HasIndex("LoanApplicationId")
+                        .HasDatabaseName("IX_IncomingLoans_LoanApplicationId");
 
                     b.ToTable("IncomingLoans");
                 });
@@ -664,9 +683,17 @@ namespace EBI.ALAS.Api.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("ActionByUserId");
+                    b.HasIndex("LoanApplicationId")
+                        .HasDatabaseName("IX_LoanActions_LoanId");
 
-                    b.HasIndex("LoanApplicationId");
+                    b.HasIndex("ActionByUserId", "ActionDate")
+                        .HasDatabaseName("IX_LoanActions_ActionBy_ActionDate");
+
+                    b.HasIndex("LoanApplicationId", "ActionDate")
+                        .HasDatabaseName("IX_LoanActions_Loan_ApplicationDate");
+
+                    b.HasIndex("ToStatus", "ActionDate")
+                        .HasDatabaseName("IX_LoanActions_ToStatus_ActionDate");
 
                     b.ToTable("LoanActions");
                 });
@@ -1003,6 +1030,14 @@ namespace EBI.ALAS.Api.Migrations
                     b.HasIndex("LoanNo")
                         .HasDatabaseName("IX_LoanApplications_LoanNo");
 
+                    b.HasIndex("BranchCode", "ApplicationDate")
+                        .IsDescending(false, true)
+                        .HasDatabaseName("IX_LoanApplications_Branch_ApplicationDate");
+
+                    b.HasIndex("CreatedById", "ApplicationDate")
+                        .IsDescending(false, true)
+                        .HasDatabaseName("IX_LoanApplications_CreatedById_ApplicationDate");
+
                     b.HasIndex("CreatedById", "Status")
                         .HasDatabaseName("IX_LoanApplications_CreatedById_Status");
 
@@ -1011,6 +1046,17 @@ namespace EBI.ALAS.Api.Migrations
 
                     b.HasIndex("Status", "BranchCode")
                         .HasDatabaseName("IX_LoanApplications_Status_BranchCode");
+
+                    b.HasIndex("Status", "LastActionDate")
+                        .IsDescending(false, true)
+                        .HasDatabaseName("IX_LoanApplications_Status_LastAction");
+
+                    b.HasIndex("BranchCode", "Status", "ApplicationDate")
+                        .IsDescending(false, false, true)
+                        .HasDatabaseName("IX_LoanApplications_BranchCode_Status_ApplicationDate");
+
+                    b.HasIndex("Status", "AssignedApproverId", "RequiredApprovalTier")
+                        .HasDatabaseName("IX_LoanApplications_Status_Assigned_Tier");
 
                     b.HasIndex("Status", "BranchCode", "ApplicationDate")
                         .IsDescending(false, false, true)
@@ -1239,7 +1285,8 @@ namespace EBI.ALAS.Api.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("LoanApplicationId");
+                    b.HasIndex("LoanApplicationId")
+                        .HasDatabaseName("IX_OutstandingLoans_LoanApplicationId");
 
                     b.ToTable("OutstandingLoans");
                 });
@@ -1291,8 +1338,19 @@ namespace EBI.ALAS.Api.Migrations
                         .HasDatabaseName("IX_WorkflowQueueItems_Loan_Stage_Live")
                         .HasFilter("[State] IN ('Queued','Active')");
 
+                    b.HasIndex("PartitionKey", "State")
+                        .IsUnique()
+                        .HasDatabaseName("IX_WorkflowQueueItems_Partition_Active_Unique")
+                        .HasFilter("[State] = 'Active'");
+
+                    b.HasIndex("State", "OwnerUserId")
+                        .HasDatabaseName("IX_WorkflowQueueItems_State_OwnerUserId");
+
                     b.HasIndex("PartitionKey", "State", "EnqueuedAt", "Id")
                         .HasDatabaseName("IX_WorkflowQueueItems_Partition_Head");
+
+                    b.HasIndex("Stage", "State", "PartitionKey", "EnqueuedAt", "Id")
+                        .HasDatabaseName("IX_WorkflowQueueItems_Stage_State_Partition");
 
                     b.ToTable("WorkflowQueueItems");
                 });

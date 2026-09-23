@@ -230,7 +230,7 @@ public class LoanProductImportService : ILoanProductImportService
                 : await _context.LoanProducts.FirstOrDefaultAsync(p => p.Code == code, ct);
             var isUpdate = existing is not null;
 
-            // ── Key + description ─────────────────────────────────────────
+            // Key + description
             if (string.IsNullOrWhiteSpace(code))
                 Fail("Code", "Code is required.");
             else if (code.Length > 50)
@@ -358,7 +358,7 @@ public class LoanProductImportService : ILoanProductImportService
         return true;
     }
 
-    // ─── Cell parsing helpers ───────────────────────────────────────────────
+    // Cell parsing helpers
     // EPPlus returns cells as `object?` — these helpers convert to typed
     // values with null semantics so missing cells produce validation errors
     // rather than format exceptions.

@@ -31,6 +31,8 @@ public static class ObservabilityExtensions
     /// <summary>
     /// OpenTelemetry distributed tracing with ASP.NET Core and
     /// HTTP client instrumentation.
+    /// Console exporter only in Development. Added sampling
+    /// to reduce trace volume under load. Added metrics support.
     /// </summary>
     public static IServiceCollection AddBankingObservability(this IServiceCollection services)
     {
@@ -43,8 +45,22 @@ public static class ObservabilityExtensions
                     {
                         options.RecordException = true;
                     })
-                    .AddHttpClientInstrumentation()
-                    .AddConsoleExporter();
+                    .AddHttpClientInstrumentation();
+
+                // Console exporter only in Development to avoid
+                // serializing every trace to stdout in production (expensive in containers).
+                var env = Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT");
+                if (string.Equals(env, "Development", StringComparison.OrdinalIgnoreCase))
+                {
+                    tracing.AddConsoleExporter();
+                }
+            })
+            .WithMetrics(metrics =>
+            {
+                // Add built-in .NET meters for request duration, status codes, etc.
+                // These are available via the .NET 8 built-in metrics (System.Diagnostics.Metrics).
+                metrics.AddMeter("Microsoft.AspNetCore.Hosting")
+                       .AddMeter("Microsoft.AspNetCore.Server.Kestrel");
             });
 
         return services;

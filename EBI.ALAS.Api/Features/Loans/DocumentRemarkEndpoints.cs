@@ -26,7 +26,7 @@ public static class DocumentRemarkEndpoints
             .WithTags("Loan Document Remarks")
             .RequireAuthorization();
 
-        // ── GET /api/loans/{id}/document-remarks ────────────────────────
+        // GET /api/loans/{id}/document-remarks
         group.MapGet("/{id:int}/document-remarks", async (
             int id, ClaimsPrincipal user, AppDbContext db, CancellationToken ct) =>
         {
@@ -54,7 +54,7 @@ public static class DocumentRemarkEndpoints
         .WithName("GetDocumentRemarks")
         .RequireAuthorization("CanViewLoan");
 
-        // ── POST /api/loans/{id}/document-remarks ───────────────────────
+        // POST /api/loans/{id}/document-remarks
         // Reviewers remark on ONE specific checklist document; the submitting
         // Encoder may also add/reply on their OWN applications (ownership
         // enforced below, not in the UI). Closed at terminal states.
@@ -84,7 +84,6 @@ public static class DocumentRemarkEndpoints
             var userId = user.GetUserId();
             var role = user.GetRole();
 
-            // ── Write gate ──────────────────────────────────────────────
             // Reviewers: any loan they can read. Encoder: own submissions only.
             var isReviewer = WriterRoles.Contains(role);
             var isOwningEncoder = role == Roles.Encoder && loan.CreatedById == userId;
@@ -130,7 +129,6 @@ public static class DocumentRemarkEndpoints
             await auditLogger.LogActionAsync(id, userId, "DocumentRemarkAdded", null, null,
                 $"Remark on document '{item.ChecklistDescription ?? request.ChecklistIdCode}'");
 
-            // ── Counterparty notification (bell inbox) ──────────────────
             // reply            → author of the parent remark
             // top-level remark → submitting Encoder (reviewer feedback loop,
             //                     e.g. "Wrong attachment, pls update")

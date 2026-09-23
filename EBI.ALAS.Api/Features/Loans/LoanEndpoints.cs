@@ -25,7 +25,7 @@ public static class LoanEndpoints
         app.MapCancelLoanEndpoints();
         app.MapGetLoanTimelineEndpoints();
 
-        // ── POST /api/loans/{id}/assignment/release — release an active lease ──
+        // POST /api/loans/{id}/assignment/release — release an active lease
         var group = app.MapGroup("/api/loans")
             .WithTags("Loans")
             .RequireAuthorization();
@@ -44,7 +44,7 @@ public static class LoanEndpoints
         .Produces<ApiResponse>(200)
         .RequireAuthorization("CanViewLoan");
 
-        // ── GET /api/loans/{id}/routing — tier + matched rule + completeness ──
+        // GET /api/loans/{id}/routing — tier + matched rule + completeness
         group.MapGet("/{id:int}/routing", async (
             int id,
             AppDbContext db,
@@ -104,7 +104,7 @@ public static class LoanEndpoints
         .Produces<ApiResponse>(404)
         .RequireAuthorization("CanViewLoan");
 
-        // ── POST /api/loans/{id}/documents/verify — on-demand completeness recheck ──
+        // POST /api/loans/{id}/documents/verify — on-demand completeness recheck
         group.MapPost("/{id:int}/documents/verify", async (
             int id,
             ClaimsPrincipal principal,

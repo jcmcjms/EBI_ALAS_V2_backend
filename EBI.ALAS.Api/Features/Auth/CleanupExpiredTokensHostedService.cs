@@ -2,34 +2,28 @@ namespace EBI.ALAS.Api.Features.Auth;
 
 // Hourly cleanup job for the two unbounded-by-design tables that back the
 // auth subsystem:
-//
 //   * RefreshTokens  — one row per login (sliding + absolute expiry).
 //   * RevokedTokens  — JTI blacklist; one row per logout / refresh-with-
 //                      revocation / change-password.
-//
 // Without this, both tables grow forever. The unique indexes on TokenHash /
 // TokenId fragment over time, the JTI blacklist (which is hit on EVERY
 // authenticated request) keeps growing, and storage cost dominates.
-//
 // EF Core 8 `ExecuteDeleteAsync` translates to a single SQL
 // `DELETE FROM … WHERE ExpiresAt < @now [OR AbsoluteExpiry < @now]` bounded
 // by the IX_RevokedTokens_ExpiresAt / IX_RefreshTokens_ExpiresAt covering
 // indexes declared in AppDbContext.OnModelCreating. No SELECT, no entity
 // hydration, no change-tracker pollution.
-//
 // Lifecycle:
 //   * Host calls StartAsync once, ExecuteAsync runs the loop.
 //   * PeriodicTimer is cancellation-aware — app shutdown signals the
 //     stoppingToken and we exit cleanly.
 //   * Each tick gets its own DI scope (the repositories are scoped).
-//
 // Error policy:
 //   * A single failed tick logs and continues — the next tick will
 //     retry. A transient DB hiccup shouldn't take the API down for a
 //     housekeeping job.
 //   * If a tick leaves rows behind (e.g. DB was unreachable for hours),
 //     the next tick will pick them up; cleanup is idempotent.
-//
 // Multi-replica safety:
 //   * Multiple replicas running this service concurrently is fine.
 //     Both deletes are simple `WHERE ExpiresAt < @now` — no overlap

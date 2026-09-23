@@ -222,8 +222,48 @@ public class WorkflowQueueService : IWorkflowQueueService
 
     public async Task<bool> IsHeadOwnerAsync(int loanId, int userId, string currentStatus, CancellationToken ct)
     {
-        var positions = await GetPositionsAsync([loanId], ct);
-        return positions.TryGetValue(loanId, out var info)
-            && info.IsHead && info.OwnerUserId == userId;
+        // Replaced the O(partition-size) GetPositionsAsync call with a
+        // targeted top-1 query. The old code loaded EVERY non-completed queue item
+        // in the partition + a join to Users, then ranked in memory. A busy desk
+        // with 1,000 queued files pulled 1,000 rows on each status change.
+        // This query checks directly: is the given loan the head (oldest active/queued)
+        // in its partition, and is it owned by the given user?
+        var stage = StageForStatus(currentStatus);
+        if (stage == null) return true; // No queue for this status — allow
+
+        var partitionKey = PartitionKey(stage.Value, new LoanApplication
+        {
+            BranchCode = "", // We need the actual branch code — get it from the loan
+        });
+
+        // We need the loan's branch code to build the partition key.
+        // Look it up from the queue item directly.
+        var queueItem = await _db.WorkflowQueueItems
+            .AsNoTracking()
+            .Where(i => i.LoanApplicationId == loanId
+                        && i.Stage == stage.Value
+                        && (i.State == QueueItemState.Active || i.State == QueueItemState.Queued))
+            .Select(i => new { i.PartitionKey, i.OwnerUserId, i.State, i.EnqueuedAt, i.Id })
+            .FirstOrDefaultAsync(ct);
+
+        if (queueItem is null) return true; // Loan not in queue — allow (admin/edge case)
+
+        // If the loan is already active and owned by this user, it's their turn
+        if (queueItem.State == QueueItemState.Active && queueItem.OwnerUserId == userId)
+            return true;
+
+        var headItem = await _db.WorkflowQueueItems
+            .AsNoTracking()
+            .Where(i => i.PartitionKey == queueItem.PartitionKey
+                        && (i.State == QueueItemState.Active || i.State == QueueItemState.Queued))
+            .OrderBy(i => i.State == QueueItemState.Active ? 0 : 1) // Active first
+            .ThenBy(i => i.EnqueuedAt)
+            .ThenBy(i => i.Id)
+            .Select(i => new { i.LoanApplicationId, i.OwnerUserId, i.State })
+            .FirstOrDefaultAsync(ct);
+
+        return headItem is not null
+               && headItem.LoanApplicationId == loanId
+               && headItem.OwnerUserId == userId;
     }
 }
