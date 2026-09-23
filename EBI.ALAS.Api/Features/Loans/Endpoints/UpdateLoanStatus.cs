@@ -93,14 +93,6 @@ public static class UpdateLoanStatus
 
             if (request.Status == "ForApproval" && fromStatus == "ForChecking")
             {
-                var completeness = await completenessService.CheckAsync(loan, ct);
-                if (!completeness.Complete)
-                    return Results.Json(ApiResponse.ErrorResponse(
-                        "Application cannot proceed to approval: incomplete documents.",
-                        completeness.Missing.ToList()), statusCode: 422);
-
-                loan.DocumentsCompleteAt = timeProvider.UtcNow;
-
                 var decision = await routingService.RouteAsync(loan, ct);
                 loan.DeviationSeverity = decision.Severity;
                 loan.RequiredApprovalTier = decision.Tier;
@@ -152,38 +144,27 @@ public static class UpdateLoanStatus
                     statusCode: StatusCodes.Status403Forbidden);
             }
 
-            // Document completeness transitions
-
+            // Reviewer flag: route through DocumentGateService (the ONLY entry
+            // path into ForIncompleteDocuments — no automatic holds).
             if (request.Status == "ForIncompleteDocuments")
             {
-                // Manual override: remember which desk the hold came from
-                // so the automatic release returns it to the right queue.
-                loan.IncompleteReturnStatus = fromStatus;
+                // Validator guarantees non-empty codes + comment; re-check here
+                // so the invariant holds even for non-FluentValidation callers.
+                if (request.MissingRequirementCodes is not { Count: > 0 } || string.IsNullOrWhiteSpace(comments))
+                    return Results.UnprocessableEntity(ApiResponse.ErrorResponse(
+                        "Flagging a file requires at least one missing requirement and a written reason."));
 
-                // Server derives the authoritative pending set from the document
-                // server — client-supplied MissingRequirementCodes are used only
-                // for UI echo / audit comment, never for trust.
-                var items = await completenessService.GetItemsByLoanNoAsync(loan.LoanNo, ct);
-                var pending = items.Where(i => i.UploadStatus != "Uploaded").Select(i => i.IdCode).ToList();
+                await documentGateService.FlagIncompleteAsync(loan, request.MissingRequirementCodes, comments, userId, ct);
+                await realtimeService.NotifyDashboardUpdateAsync(loan.BranchCode);
+                return Results.Ok(ApiResponse.SuccessResponse("File flagged as lacking documents."));
+            }
 
-                if (pending.Count == 0)
-                    return Results.ValidationProblem(new Dictionary<string, string[]>
-                    {
-                        ["status"] = ["All requirements are already uploaded — nothing to push back."],
-                    });
-
-                loan.DocumentsCompleteAt = null; // invalidate completeness stamp
-
-                // Human-readable labels: "Name (Code)" so auditors see both.
-                var pendingLabels = items
-                    .Where(i => i.UploadStatus != "Uploaded")
-                    .Select(i => $"{i.ChecklistDescription ?? i.IdCode} ({i.IdCode})")
-                    .ToList();
-
-                // Record the authoritative missing list in the audit comment
-                comments = $"{comments} | Missing: {string.Join(", ", pendingLabels)}";
-
-                await checklistStore.MarkMissingAsync(loan.Id, pending, userId, ct);
+            // Reviewer proceeding with a flagged file: justification is mandatory.
+            if (fromStatus == "ForIncompleteDocuments" && request.Status is "ForApproval" or "ForRecommendation"
+                && string.IsNullOrWhiteSpace(comments))
+            {
+                return Results.UnprocessableEntity(ApiResponse.ErrorResponse(
+                    "Proceeding with missing documents requires a written justification."));
             }
 
             if (fromStatus == "ForIncompleteDocuments" && request.Status == "ForChecking")
@@ -201,33 +182,6 @@ public static class UpdateLoanStatus
                         ["submittedRequirementCodes"] = [$"Documents still incomplete: {names}"],
                     });
                 }
-            }
-
-            // Entry gate: incomplete requirements hold the file automatically
-            // When promoting into a review desk, check documents first.
-            // If incomplete, auto-hold in ForIncompleteDocuments instead.
-            if (request.Status is "ForRecommendation" or "ForChecking" or "ForApproval"
-                && fromStatus != "ForIncompleteDocuments")
-            {
-                if (await documentGateService.HoldIfIncompleteAsync(loan, request.Status, userId, ct))
-                {
-                    await realtimeService.NotifyDashboardUpdateAsync(loan.BranchCode);
-                    return Results.Ok(ApiResponse.SuccessResponse(
-                        "Held in Incomplete Documents — missing requirements must be uploaded first."));
-                }
-            }
-
-            // Escape guard: leaving ForIncompleteDocuments requires complete docs
-            // Admin force-release is blocked when the document server still says incomplete.
-            // Encoder resubmission is already guarded by the unresolved check above.
-            if (fromStatus == "ForIncompleteDocuments" && request.Status != "ForIncompleteDocuments")
-            {
-                var escapeItems = await completenessService.GetItemsByLoanNoAsync(loan.LoanNo, ct);
-                if (escapeItems.Any(i => i.UploadStatus != "Uploaded"))
-                    return Results.ValidationProblem(new Dictionary<string, string[]>
-                    {
-                        ["status"] = ["Requirements are still missing — the release is automatic once uploaded."],
-                    });
             }
 
             var actionName = (fromStatus, request.Status, verdict) switch
@@ -394,12 +348,17 @@ public class UpdateLoanStatusValidator : AbstractValidator<UpdateLoanStatusReque
                 .WithMessage("Comments (min 10 characters) are required for pushbacks, rejections, and a Not Recommended evaluation.");
         });
 
-        // ForIncompleteDocuments requires at least one missing requirement code.
+        // ForIncompleteDocuments requires at least one missing requirement code
+        // and a written reason (reviewer-initiated flag, not system-held).
         When(x => x.Status == "ForIncompleteDocuments", () =>
         {
             RuleFor(x => x.MissingRequirementCodes)
                 .NotEmpty().WithMessage("At least one missing requirement code is required.")
                 .ForEach(c => c.NotEmpty().MaximumLength(64));
+
+            RuleFor(x => x.Comments)
+                .NotEmpty().WithMessage("A reason is required when flagging a file as lacking documents.")
+                .MinimumLength(5).WithMessage("Reason must be at least 5 characters.");
         });
 
         When(x => x.SubmittedRequirementCodes != null, () =>

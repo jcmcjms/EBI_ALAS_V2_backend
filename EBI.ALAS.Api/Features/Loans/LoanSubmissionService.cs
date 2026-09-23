@@ -22,8 +22,7 @@ public class LoanSubmissionService(
     ILoanComputationService computationService,
     ILoanProductRepository productRepository,
     IWorkflowConfiguration workflowConfig,
-    IWorkflowQueueService queueService,
-    IDocumentGateService documentGate) : ILoanSubmissionService
+    IWorkflowQueueService queueService) : ILoanSubmissionService
 {
     private const int MaxSequenceCollisions = 2;
     private const string IdempotencyIndexName = "IX_LoanSubmissionIdempotency_Key_User";
@@ -184,13 +183,11 @@ public class LoanSubmissionService(
         // never leave applications without their replay guard (or vice versa).
         await loanRepository.CreateSubmissionAsync(applications, idempotency, ct);
 
-        // Enqueue each loan into its initial review desk
-        // The document gate checks completeness first: incomplete loans are
-        // auto-held in ForIncompleteDocuments and queue themselves there.
+        // Enqueue each loan into its initial review desk.
+        // Documents no longer block submission — reviewers flag missing docs explicitly.
         foreach (var application in applications)
         {
-            if (!await documentGate.HoldIfIncompleteAsync(application, workflowService.InitialStatus, userId, ct))
-                await queueService.EnqueueAsync(application, workflowService.InitialStatus, ct);
+            await queueService.EnqueueAsync(application, workflowService.InitialStatus, ct);
         }
 
         // Stamp real ids onto the response, persist the JSON so a replay returns it verbatim.

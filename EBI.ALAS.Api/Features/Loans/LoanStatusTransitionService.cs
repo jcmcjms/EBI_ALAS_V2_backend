@@ -69,33 +69,27 @@ public sealed class LoanStatusTransitionService(
                 "It is not your turn: this application is queued behind the file currently on the desk.");
         }
 
-        // Document completeness transitions
+        // Document flag: reviewer-initiated (not system-held).
+        // Trust client-supplied missingCodes — the endpoint validates they are non-empty.
         if (targetStatus == "ForIncompleteDocuments")
         {
-            // Server derives the authoritative pending set from the document
-            // server — client-supplied missingCodes are ignored for trust.
-            var items = await completenessService.GetItemsByLoanNoAsync(loan.LoanNo, ct);
-            var pending = items.Where(i => i.UploadStatus != "Uploaded").Select(i => i.IdCode).ToList();
-
-            if (pending.Count == 0)
+            if (missingCodes is not { Count: > 0 })
                 return new LoanTransitionResult(loan.LamId,
-                    "All requirements are already uploaded — nothing to push back.");
+                    "At least one missing requirement code is required to flag a file.");
 
             // Human-readable labels: "Name (Code)" so auditors see both.
-            var pendingLabels = items
-                .Where(i => i.UploadStatus != "Uploaded")
+            var items = await completenessService.GetItemsByLoanNoAsync(loan.LoanNo, ct);
+            var missingLabels = items
+                .Where(i => missingCodes.Contains(i.IdCode))
                 .Select(i => $"{i.ChecklistDescription ?? i.IdCode} ({i.IdCode})")
                 .ToList();
 
-            // Remember which desk the hold came from so the automatic
-            // release returns it to the right queue.
-            loan.IncompleteReturnStatus = fromStatus;
-            loan.DocumentsCompleteAt = null; // invalidate completeness stamp
+            loan.IncompleteReturnStatus = fromStatus; // auto-release returns to the flagging desk
+            loan.DocumentsCompleteAt = null;
 
-            // Record the authoritative missing list in the audit comment
-            comments = $"{comments} | Missing: {string.Join(", ", pendingLabels)}";
+            comments = $"Flagged as lacking documents — missing: {string.Join(", ", missingLabels)}. Reason: {comments}";
 
-            await checklistStore.MarkMissingAsync(loanId, pending, userId, ct);
+            await checklistStore.MarkMissingAsync(loanId, missingCodes.ToList(), userId, ct);
         }
 
         if (fromStatus == "ForIncompleteDocuments" && targetStatus == "ForChecking")
@@ -111,19 +105,24 @@ public sealed class LoanStatusTransitionService(
             }
         }
 
-        // Approval routing (same as UpdateLoanStatus endpoint)
+        // Approval routing (same as UpdateLoanStatus endpoint).
+        // Documents no longer block approval — reviewers may proceed with justification.
         if (targetStatus == "ForApproval" && fromStatus == "ForChecking")
         {
-            var completeness = await completenessService.CheckAsync(loan, ct);
-            if (!completeness.Complete)
-                return new LoanTransitionResult(loan.LamId, "Application cannot proceed to approval: incomplete documents.");
-
             loan.DocumentsCompleteAt = timeProvider.UtcNow;
             var decision = await routingService.RouteAsync(loan, ct);
             loan.DeviationSeverity = decision.Severity;
             loan.RequiredApprovalTier = decision.Tier;
             await loanRepo.UpdateAsync(loan);
             await assignmentService.AssignAsync(loan, ct);
+        }
+
+        // Reviewer proceeding with a flagged file: justification is mandatory.
+        if (fromStatus == "ForIncompleteDocuments" && targetStatus is "ForApproval" or "ForRecommendation"
+            && string.IsNullOrWhiteSpace(comments))
+        {
+            return new LoanTransitionResult(loan.LamId,
+                "Proceeding with missing documents requires a written justification.");
         }
 
         var actionName = (fromStatus, targetStatus, verdict) switch

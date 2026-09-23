@@ -40,27 +40,32 @@ public sealed class SystemPrincipal(AppDbContext db, IMemoryCache cache) : ISyst
 }
 
 /// <summary>
-/// Owns the ForIncompleteDocuments lifecycle so queue membership is ALWAYS derived
-/// from the document server, never from a human remembering to click:
-///   entry  — submission or any promotion into a review desk,
-///   exit   — completeness sweep, or an on-demand /documents/verify recheck.
+/// Owns the ForIncompleteDocuments lifecycle:
+///   entry  — a reviewer explicitly flags a file with the requirements they found
+///            lacking plus a written reason (this is the ONLY entry path).
+///   exit   — completeness sweep auto-releases when every requirement verifies
+///            complete on the document server.
 ///
-/// Mid-review regressions (stamp flips to null while a reviewer holds the file)
-/// deliberately do NOT auto-hold: yanking a file mid-evaluation is worse than
-/// letting the reviewer use the manual override with remarks.
+/// Submission and desk promotions never hold automatically — files go straight
+/// to the review desk regardless of document completeness.
 /// </summary>
 public interface IDocumentGateService
 {
     /// <summary>
-    /// Entry gate: if the document server reports missing requirements,
-    /// hold the loan in ForIncompleteDocuments instead of the intended review desk.
-    /// Returns true when the loan was held.
+    /// The ONLY entry path into ForIncompleteDocuments: a reviewer explicitly
+    /// flags the file with the requirements they found lacking plus a written
+    /// reason. Submission and desk promotions never hold automatically.
     /// </summary>
-    Task<bool> HoldIfIncompleteAsync(LoanApplication loan, string intendedStatus, int actorUserId, CancellationToken ct);
+    Task FlagIncompleteAsync(
+        LoanApplication loan,
+        IReadOnlyCollection<string> missingCodes,
+        string comment,
+        int actorUserId,
+        CancellationToken ct);
 
     /// <summary>
     /// Exit gate: when a held loan becomes document-complete, return it to
-    /// the desk it was held from and re-queue it. Returns true when released.
+    /// the desk it was flagged from and re-queue it. Returns true when released.
     /// </summary>
     Task<bool> ReleaseIfCompleteAsync(LoanApplication loan, int? actorUserId, CancellationToken ct);
 }
@@ -79,53 +84,48 @@ public sealed class DocumentGateService(
     private static readonly string[] ReviewStatuses =
         ["ForRecommendation", "ForChecking", "ForApproval"];
 
-    public async Task<bool> HoldIfIncompleteAsync(
-        LoanApplication loan, string intendedStatus, int actorUserId, CancellationToken ct)
+    public async Task FlagIncompleteAsync(
+        LoanApplication loan, IReadOnlyCollection<string> missingCodes, string comment,
+        int actorUserId, CancellationToken ct)
     {
+        ArgumentNullException.ThrowIfNull(loan);
+        if (missingCodes.Count == 0)
+            throw new ArgumentException("At least one missing requirement is required to flag a file.", nameof(missingCodes));
+
+        // Labels for audit/notification: "Name (Code)" so encoders and auditors
+        // never cross-reference the checklist by code alone.
         var items = await completeness.GetItemsByLoanNoAsync(loan.LoanNo, ct);
-        var missing = items.Where(i => i.UploadStatus != "Uploaded").Select(i => i.IdCode).ToList();
-
-        if (missing.Count == 0)
-        {
-            loan.DocumentsCompleteAt ??= timeProvider.UtcNow;
-            return false;
-        }
-
-        // Human-readable labels: "Name (Code)" so auditors see both.
         var missingLabels = items
-            .Where(i => i.UploadStatus != "Uploaded")
+            .Where(i => missingCodes.Contains(i.IdCode))
             .Select(i => $"{i.ChecklistDescription ?? i.IdCode} ({i.IdCode})")
             .ToList();
 
         var from = loan.Status;
 
-        // Record missing items first so the checklist is populated before
-        // the status change is persisted (avoids a held loan with no checklist).
-        await checklistStore.MarkMissingAsync(loan.Id, missing, actorUserId, ct);
+        await checklistStore.MarkMissingAsync(loan.Id, missingCodes.ToList(), actorUserId, ct);
 
         loan.Status = "ForIncompleteDocuments";
-        loan.IncompleteReturnStatus = intendedStatus;
+        loan.IncompleteReturnStatus = from;      // auto-release returns to the flagging desk
         loan.DocumentsCompleteAt = null;
         loan.LastActionDate = timeProvider.UtcNow;
         await db.SaveChangesAsync(ct);
 
-        // Desk lifecycle: leave the review desk, enter the document desk.
         if (WorkflowQueueService.StageForStatus(from) != null)
             await queueService.DequeueAndPromoteAsync(loan, from, ct);
         await queueService.EnqueueAsync(loan, "ForIncompleteDocuments", ct);
 
         await auditLogger.LogActionAsync(loan.Id, actorUserId, "StatusChanged", from,
             "ForIncompleteDocuments",
-            $"Auto-held on entry to {intendedStatus} — missing: {string.Join(", ", missingLabels)}");
+            $"Flagged as lacking documents — missing: {string.Join(", ", missingLabels)}. Reason: {comment}");
 
         var link = $"/loans/monitoring?id={loan.Id}";
         var title = "Documents Incomplete — Action Required";
-        var body = $"{loan.LamId} was placed in the Incomplete Documents queue automatically. " +
-                   $"Missing: {string.Join(", ", missingLabels)}. It returns to {intendedStatus} once uploaded.";
+        var body = $"A reviewer flagged {loan.LamId} as lacking documents. " +
+                   $"Missing: {string.Join(", ", missingLabels)}. Reason: {comment} " +
+                   $"It returns to {from} once every requirement verifies complete.";
         await notifications.CreateAsync(loan.CreatedById, title, body, link);
         await realtime.NotifyUserAsync(loan.CreatedById, title, body, link);
         await realtime.NotifyDashboardUpdateAsync(loan.BranchCode);
-        return true;
     }
 
     public async Task<bool> ReleaseIfCompleteAsync(
