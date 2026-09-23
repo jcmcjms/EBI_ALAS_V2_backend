@@ -8,7 +8,7 @@ using EBI.ALAS.Api.Features.AuditLogs;
 using EBI.ALAS.Api.Features.Branches;
 using EBI.ALAS.Api.Features.Dashboard;
 using EBI.ALAS.Api.Features.Loans;
-using Microsoft.Extensions.Caching.Distributed;
+using EBI.ALAS.Api.Infrastructure.Caching;
 using EBI.ALAS.Api.Features.Loans.Computation;
 using EBI.ALAS.Api.Features.Notifications;
 using EBI.ALAS.Api.Features.SystemSettings;
@@ -17,6 +17,7 @@ using EBI.ALAS.Api.Features.WebLoans;
 using EBI.ALAS.Api.Infrastructure.Data;
 using EBI.ALAS.Api.Infrastructure.Security;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.Extensions.Caching.Distributed;
 using Microsoft.Extensions.Caching.Memory;
 
 namespace EBI.ALAS.Api.Common.Extensions;
@@ -64,17 +65,29 @@ public static class ServiceCollectionExtensions
         // decorator (below) can resolve it without an infinite-recursion guard.
         services.AddScoped<TokenRevocationRepository>();
         // Hot-path: every authenticated request resolves the caching decorator.
-        // The decorator reads IMemoryCache so revoked JTIs are rejected
-        // within the same process for the rest of the access-token window.
-        // Per-process — single-pod deployment assumption documented in
-        // README §"Cache topology & limits".
+        // When Garnet is configured, uses direct IDatabase calls with FireAndForget
+        // for maximum performance. Falls back to IDistributedCache (in-memory) when
+        // Garnet is not available (dev/single-pod).
         services.AddScoped<ITokenRevocationRepository>(sp =>
-            new CachingTokenRevocationRepository(
+        {
+            var multiplexer = sp.GetService<GarnetConnectionMultiplexer>();
+            if (multiplexer is not null)
+            {
+                return new CachingTokenRevocationRepository(
+                    sp.GetRequiredService<TokenRevocationRepository>(),
+                    sp.GetRequiredService<IMemoryCache>(),
+                    multiplexer,
+                    sp.GetRequiredService<ITimeProvider>(),
+                    sp.GetRequiredService<ILogger<CachingTokenRevocationRepository>>());
+            }
+
+            return new CachingTokenRevocationRepository(
                 sp.GetRequiredService<TokenRevocationRepository>(),
                 sp.GetRequiredService<IMemoryCache>(),
                 sp.GetRequiredService<IDistributedCache>(),
                 sp.GetRequiredService<ITimeProvider>(),
-                sp.GetRequiredService<ILogger<CachingTokenRevocationRepository>>()));
+                sp.GetRequiredService<ILogger<CachingTokenRevocationRepository>>());
+        });
         services.AddScoped<IRefreshTokenRepository, RefreshTokenRepository>();
         services.AddScoped<IAuthService, AuthService>();
 

@@ -9,6 +9,12 @@
     Uses NSSM (Non-Sucking Service Manager) to wrap the console app as a
     proper Windows Service with log rotation and recovery.
 
+    Performance flags are tuned for banking workloads:
+    - Memory limit at 50% of available RAM to prevent OOM
+    - Pub/Sub enabled for SignalR backplane
+    - Max connections set to 1000 for multi-pod deployments
+    - Client idle timeout at 300s for connection hygiene
+
 .EXAMPLE
     .\install-garnet-service.ps1
 #>
@@ -46,6 +52,13 @@ if (-not $NssmPath) {
 $DataDir = "C:\GarnetData"
 $LogDir = "C:\GarnetLogs"
 
+# ─── Calculate memory limit (50% of available RAM) ──────────────────
+$TotalMemoryGB = [math]::Round((Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory / 1GB, 0)
+$MemoryLimitGB = [math]::Max(1, [math]::Floor($TotalMemoryGB / 2))
+$MemoryArg = "${MemoryLimitGB}g"
+
+Write-Host "System RAM: ${TotalMemoryGB}GB — Garnet memory limit: ${MemoryLimitGB}GB" -ForegroundColor Cyan
+
 # ─── Create directories ─────────────────────────────────────────────
 New-Item -ItemType Directory -Force -Path $DataDir | Out-Null
 New-Item -ItemType Directory -Force -Path $LogDir | Out-Null
@@ -67,13 +80,31 @@ if ($existing) {
 # ─── Create the service using NSSM ──────────────────────────────────
 # Garnet is a console app — NSSM wraps it as a proper Windows Service
 # with stdout/stderr capture, graceful shutdown, and log rotation.
+#
+# Performance flags for banking workloads:
+#   --bind 0.0.0.0        : Listen on all interfaces
+#   --port 6379            : Standard Redis port (client compatibility)
+#   --recover              : Recover data from AOF on startup
+#   --storage-tier         : Enable tiered storage (memory + disk)
+#   --memory <50% RAM>     : Cap memory usage to prevent OOM
+#   --pubsub               : Enable pub/sub for SignalR backplane
+#   --max-connections 1000 : Support multi-pod connection pools
+#   --timeout 300          : Close idle clients after 5 minutes
 
 Write-Host "Creating Windows Service via NSSM..." -ForegroundColor Green
-& $NssmPath install $ServiceName $GarnetPath "--bind" "0.0.0.0" "--port" "6379" "--recover" "--storage-tier"
+& $NssmPath install $ServiceName $GarnetPath `
+    "--bind" "0.0.0.0" `
+    "--port" "6379" `
+    "--recover" `
+    "--storage-tier" `
+    "--memory" $MemoryArg `
+    "--pubsub" `
+    "--max-connections" "1000" `
+    "--timeout" "300"
 
 # ─── Service metadata ───────────────────────────────────────────────
 & $NssmPath set $ServiceName DisplayName $ServiceDisplayName
-& $NssmPath set $ServiceName Description "Microsoft Garnet Redis-compatible cache server for EBI.ALAS.V2"
+& $NssmPath set $ServiceName Description "Microsoft Garnet Redis-compatible cache server for EBI.ALAS.V2 (memory=${MemoryLimitGB}GB, pubsub=enabled)"
 & $NssmPath set $ServiceName Start SERVICE_AUTO_START
 
 # ─── Process lifecycle ──────────────────────────────────────────────
@@ -106,4 +137,7 @@ Write-Host "Status:      Get-Service -Name $ServiceName" -ForegroundColor Cyan
 Write-Host ""
 Write-Host "Connection:  127.0.0.1:6379" -ForegroundColor Yellow
 Write-Host "Data dir:    $DataDir" -ForegroundColor Yellow
+Write-Host "Memory cap:  ${MemoryLimitGB}GB" -ForegroundColor Yellow
+Write-Host "Pub/Sub:     Enabled" -ForegroundColor Yellow
+Write-Host "Max conns:   1000" -ForegroundColor Yellow
 Write-Host ""

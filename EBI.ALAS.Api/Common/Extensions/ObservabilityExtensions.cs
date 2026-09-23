@@ -1,3 +1,4 @@
+using EBI.ALAS.Api.Infrastructure.Caching;
 using OpenTelemetry.Resources;
 using OpenTelemetry.Trace;
 using Serilog;
@@ -60,14 +61,20 @@ public static class ObservabilityExtensions
                 // Add built-in .NET meters for request duration, status codes, etc.
                 // These are available via the .NET 8 built-in metrics (System.Diagnostics.Metrics).
                 metrics.AddMeter("Microsoft.AspNetCore.Hosting")
-                       .AddMeter("Microsoft.AspNetCore.Server.Kestrel");
+                       .AddMeter("Microsoft.AspNetCore.Server.Kestrel")
+                       // Garnet cache metrics (hit/miss, latency)
+                       .AddMeter("EBI.ALAS.Caching")
+                       // Token revocation L2 cache metrics
+                       .AddMeter("EBI.ALAS.TokenCache");
             });
 
         return services;
     }
 
     /// <summary>
-    /// Health checks for SQL Server, Redis, RabbitMQ, and the application itself.
+    /// Health checks for SQL Server, Garnet, RabbitMQ, and the application itself.
+    /// When Garnet is configured, uses a custom health check with PING latency
+    /// measurement instead of the generic Redis health check.
     /// </summary>
     public static IServiceCollection AddBankingHealthChecks(
         this IServiceCollection services,
@@ -88,9 +95,12 @@ public static class ObservabilityExtensions
 
         if (!string.IsNullOrWhiteSpace(redisConnection))
         {
-            healthChecksBuilder.AddRedis(
-                redisConnection,
-                name: "redis",
+            // Custom Garnet health check with PING latency measurement.
+            // More informative than the generic AddRedis check — reports
+            // latency, endpoint count, and connection state.
+            healthChecksBuilder.AddCheck<GarnetHealthCheck>(
+                "garnet",
+                failureStatus: Microsoft.Extensions.Diagnostics.HealthChecks.HealthStatus.Unhealthy,
                 tags: ["cache"],
                 timeout: TimeSpan.FromSeconds(5));
         }
