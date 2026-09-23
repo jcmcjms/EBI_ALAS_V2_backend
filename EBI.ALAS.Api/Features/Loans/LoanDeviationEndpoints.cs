@@ -19,7 +19,7 @@ public static class LoanDeviationEndpoints
             .WithTags("Loan Deviations")
             .RequireAuthorization();
 
-        // ── GET /api/loans/{id}/deviations ──────────────────────────────
+        // GET /api/loans/{id}/deviations
         // Deviations + their remark threads. TWO queries, grouped in memory:
         // one round-trip for the deviation rows, one for all remarks of the
         // loan — never one-per-thread (N+1).
@@ -65,7 +65,7 @@ public static class LoanDeviationEndpoints
         .WithName("GetLoanDeviations")
         .RequireAuthorization("CanViewLoan");
 
-        // ── POST /api/loans/{id}/deviations/{deviationId}/remarks ───────
+        // POST /api/loans/{id}/deviations/{deviationId}/remarks
         // Four-eyes conversation on ONE specific deviation:
         //   Recommender / Evaluator remark on any deviation of any loan they can view.
         //   The encoder (creator) answers remarks on their own application.

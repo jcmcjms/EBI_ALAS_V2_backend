@@ -34,7 +34,6 @@ public sealed class ApprovalRoutingService : IApprovalRoutingService
         var authorities = await GetAuthoritiesAsync(ct);
         var catalog = await GetCatalogAsync(ct);
 
-        // Compute deviation severity from the loan's deviations
         var severity = DeviationSeverity.None;
         if (loan.Deviations is not null)
         {

@@ -2,14 +2,11 @@ using System.ComponentModel.DataAnnotations.Schema;
 
 namespace EBI.ALAS.Api.Features.WebLoans;
 
-// ─── PendingLoanRow ──────────────────────────────────────────────────────────
-//
 // Keyless projection entity used ONLY by
 // WebLoanRepository.GetPendingLoansAsync. Carries every column the
 // consolidated pending-loan SQL projects — a five-table LEFT JOIN against
 // pre_loan_data, loan_data, loan_product, loan_purpose, loan_acct_info,
 // and check_list_data:
-//
 //   SELECT
 //     pld.bch, pld.acct_no, pld.loan_no,            -- identifiers
 //     ld.principal, ld.granted_rate,                -- loan_data scalars
@@ -26,7 +23,6 @@ namespace EBI.ALAS.Api.Features.WebLoans;
 //     lp2.description                                  AS loan_purpose,
 //     cld.description                                 AS nthp,
 //     cld.expiration                                  AS nthp_date
-//
 // Why a separate entity (mirroring OutstandingLoanRow):
 //   * `creation_type_label`, `total_term_days`, `product_with_desc` are
 //     DERIVED columns, not real webloan columns. EF enforces that every
@@ -37,17 +33,16 @@ namespace EBI.ALAS.Api.Features.WebLoans;
 //   * Materializing through a dedicated keyless entity whose columns
 //     match the SELECT list 1:1 lets EF's materializer populate each
 //     property positionally — no surprises, no missing-column errors.
-//
 // No [Table] attribute is needed because the entity is keyless and never
 // maps to a single underlying table — it is a projection shape only.
 public class PendingLoanRow
 {
-    // ─── pre_loan_data identifiers (always non-null) ─────────────────────
+    // pre_loan_data identifiers (always non-null)
     [Column("bch")] public string BranchCode { get; set; } = string.Empty;
     [Column("acct_no")] public string AccountNo { get; set; } = string.Empty;
     [Column("loan_no")] public string LoanNo { get; set; } = string.Empty;
 
-    // ─── loan_data scalars (LEFT JOIN → NULL when no ledger row exists) ──
+    // loan_data scalars (LEFT JOIN → NULL when no ledger row exists)
     [Column("principal")] public decimal? Principal { get; set; }
     [Column("granted_rate")] public decimal? GrantedRate { get; set; }
     [Column("total_amortization")] public int? TotalAmortization { get; set; }
@@ -55,7 +50,7 @@ public class PendingLoanRow
     [Column("date_maturity")] public DateTime? DateMaturity { get; set; }
     [Column("creation_type")] public byte? CreationType { get; set; }
 
-    // ─── Derived columns (CASE / DATEDIFF / CONCAT in SQL) ───────────────
+    // Derived columns (CASE / DATEDIFF / CONCAT in SQL)
     // Bound to the SELECT-list alias `creation_type_label`. Mirrors the
     // original SQL's CASE block: 0=New, 1=Reloan, 2=Restructured,
     // 6=Additional Loan, anything else (including NULL when no
@@ -71,9 +66,7 @@ public class PendingLoanRow
     public int? TotalTermDays { get; set; }
 
     // Bound to the SELECT-list alias `product_with_desc`:
-    //
     //   ld.loan_product + ' - ' + ISNULL(lp.description, '')
-    //
     // Sourced from a LEFT JOIN to webloan.dbo.loan_product on
     // (ld.loan_product = lp.id_code). When no loan_product row matches
     // (orphaned product code in loan_data, or the product was retired
@@ -85,21 +78,18 @@ public class PendingLoanRow
     [Column("product_with_desc")]
     public string? ProductWithDescription { get; set; }
 
-    // ─── loan_purpose (LEFT JOIN, nullable description) ──────────────────
+    // loan_purpose (LEFT JOIN, nullable description)
     [Column("loan_purpose")] public string? LoanPurpose { get; set; }
 
-    // ─── check_list_data NTHP (LEFT JOIN, both fields nullable) ──────────
+    // check_list_data NTHP (LEFT JOIN, both fields nullable)
     // Sourced from a LEFT JOIN chain:
-    //
     //   loan_acct_info AS la ON pld.acct_no = la.acct_no AND pld.bch = la.bch
     //   check_list_data AS cld ON la.cis_no = cld.cis_no
     //                             AND cld.check_list_item = 'CCR07'
-    //
     // The (bch, acct_no) → cis_no hop on loan_acct_info is the
     // authoritative CIS for the account — the anti-enumeration guard at
     // the service layer ensures la.cis_no equals the URL's cisNo, so
     // this matches the old single-row CCR07 fetch exactly.
-    //
     // Cartesian-product caveat: if check_list_data carries more than
     // one CCR07 row for the same cis_no (different vintages), this
     // query produces one row per CCR07 match per pre_loan_data row —

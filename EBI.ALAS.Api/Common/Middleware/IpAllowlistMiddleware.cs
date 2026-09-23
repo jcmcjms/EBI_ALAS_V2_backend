@@ -121,12 +121,15 @@ public sealed class IpAllowlistMiddleware
         return true;
     }
 
+    /// <summary>
+    /// Returns the client IP address from the trusted connection info.
+    /// Removed raw X-Forwarded-For header reading — any client can spoof it.
+    /// Instead, use UseForwardedHeaders() middleware (configured in Program.cs with
+    /// KnownProxies/KnownNetworks) which validates and strips untrusted proxy headers
+    /// before populating RemoteIpAddress. This middleware simply reads the already-trusted value.
+    /// </summary>
     private static string? GetClientIpAddress(HttpContext context)
     {
-        var forwardedFor = context.Request.Headers["X-Forwarded-For"].FirstOrDefault();
-        if (!string.IsNullOrEmpty(forwardedFor))
-            return forwardedFor.Split(',')[0].Trim();
-
         return context.Connection.RemoteIpAddress?.ToString();
     }
 }

@@ -40,7 +40,6 @@ public sealed class LoanAssignmentService : ILoanAssignmentService
     {
         if (loan.RequiredApprovalTier is not { } requiredTier) return;
 
-        // ── Tier escalation: try required tier first, then escalate ────
         var tier = requiredTier;
         var candidates = await CandidatesAsync(loan, tier, ct);
 
@@ -88,7 +87,6 @@ public sealed class LoanAssignmentService : ILoanAssignmentService
                         && u.ApprovalAuthorityKey != null && tierKeys.Contains(u.ApprovalAuthorityKey))
             .ToListAsync(ct);
 
-        // Build coverage map: userId → set of covered branch codes
         var coverage = await _db.UserBranchCoverages.AsNoTracking()
             .Where(ubc => users.Select(u => u.Id).Contains(ubc.UserId))
             .GroupBy(ubc => ubc.UserId)
@@ -153,7 +151,6 @@ public sealed class LoanAssignmentService : ILoanAssignmentService
             .FirstOrDefaultAsync(a => a.Key == user.ApprovalAuthorityKey, ct);
         if (auth is null) return;
 
-        // Load multi-branch coverage for this user
         var coverage = new HashSet<string>(
             await _db.UserBranchCoverages.AsNoTracking()
                 .Where(ubc => ubc.UserId == userId)

@@ -7,12 +7,10 @@ public class CheckListData
     // EAV-style attribute store: same column names carry different meanings
     // depending on the (cis_no, check_list_item) pair. Concrete semantics
     // currently used by this service:
-    //
     //   check_list_item = 'CCR10' → description is hire date (varchar)
     //                                  expiration is contract-end date
     //   check_list_item = 'CCR07' → description is NTHP amount (varchar number)
     //                                  expiration is NTHP date
-    //
     // description and expiration are kept as nullable strings — never try
     // to parse centrally; let the caller decode per item code.
     [Column("cis_no")] public string CisNo { get; set; } = string.Empty;

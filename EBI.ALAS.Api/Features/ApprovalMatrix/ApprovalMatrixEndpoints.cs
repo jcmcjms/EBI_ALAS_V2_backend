@@ -17,7 +17,7 @@ public static class ApprovalMatrixEndpoints
             .WithTags("Approval Matrix")
             .RequireAuthorization();
 
-        // ── GET /api/approval-authorities — the full matrix for UI rendering ──
+        // GET /api/approval-authorities — the full matrix for UI rendering
         group.MapGet("/approval-authorities", async (
             AppDbContext db,
             CancellationToken ct) =>
@@ -45,7 +45,7 @@ public static class ApprovalMatrixEndpoints
         .Produces<ApiResponse<List<ApprovalAuthorityDto>>>(200)
         .RequireAuthorization("CanViewLoan");
 
-        // ── GET /api/deviation-catalog — deviation severity catalog ───────────
+        // GET /api/deviation-catalog — deviation severity catalog
         group.MapGet("/deviation-catalog", async (
             AppDbContext db,
             CancellationToken ct) =>
@@ -66,7 +66,7 @@ public static class ApprovalMatrixEndpoints
         .Produces<ApiResponse<List<DeviationCatalogDto>>>(200)
         .RequireAuthorization("CanViewLoan");
 
-        // ── GET /api/presence/approvers — online/reviewing snapshot ───────────
+        // GET /api/presence/approvers — online/reviewing snapshot
         group.MapGet("/presence/approvers", async (
             ClaimsPrincipal principal,
             AppDbContext db,
@@ -77,7 +77,6 @@ public static class ApprovalMatrixEndpoints
             var myBranch = principal.GetBranchCode();
             var myRole = principal.GetRole();
 
-            // Get approvers in scope (same branch for Branch scope, all for Area/Global)
             var approvers = await db.Users.AsNoTracking()
                 .Where(u => u.Role == Roles.Approver && u.IsActive && u.ApprovalAuthorityKey != null)
                 .Select(u => new { u.Id, u.FirstName, u.LastName, u.BranchId, u.ApprovalAuthorityKey })

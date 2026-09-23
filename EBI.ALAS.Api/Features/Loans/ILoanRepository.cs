@@ -20,7 +20,7 @@ public interface ILoanRepository
     Task<int> GetCountByStatusAsync(string status, string? branchId = null, CancellationToken ct = default);
     Task<decimal> GetTotalAmountByStatusAsync(string status, string? branchId = null, CancellationToken ct = default);
 
-    // ── Multi-loan submission (POST /api/loans) ──
+    // Multi-loan submission (POST /api/loans)
     /// <summary>Display name resolved from the Users table; null when the user is missing.</summary>
     Task<string?> GetOfficerDisplayNameAsync(int userId, CancellationToken ct = default);
 
@@ -33,7 +33,7 @@ public interface ILoanRepository
     /// <summary>Updates the serialized response on the idempotency row after the PKs are known.</summary>
     Task UpdateIdempotencyResponseAsync(LoanSubmissionIdempotency idempotency, CancellationToken ct = default);
 
-    // ── Notification routing helpers ──
+    // Notification routing helpers
     /// <summary>
     /// Active users in <paramref name="branchId"/> whose <c>Role</c> matches
     /// <paramref name="role"/>. Returns an empty list when no match — the

@@ -1,7 +1,6 @@
 namespace EBI.ALAS.Api.Features.Loans;
 
 // Repository contract for the LoanProducts table.
-//
 // The implementation targets AppDbContext (ALASv2_DB), NOT webloan.
 // LoanProduct is an ALAS-owned mirror of webloan's loan_product
 // catalog; the source of truth for the policy fields (min/max/term/
@@ -9,7 +8,7 @@ namespace EBI.ALAS.Api.Features.Loans;
 // `expiration IS NOT NULL` by the sync service.
 public interface ILoanProductRepository
 {
-    // ─── Read paths (used by the loan-creation form and admin screens) ──
+    // Read paths (used by the loan-creation form and admin screens)
     // All products, both active and retired. Admin-only views typically.
     Task<IReadOnlyList<LoanProduct>> GetAllAsync(CancellationToken ct = default);
 
@@ -18,7 +17,7 @@ public interface ILoanProductRepository
     // the admin edit form.
     Task<LoanProduct?> GetByCodeAsync(string code, CancellationToken ct = default);
 
-    // ─── Write paths (Admin / sync) ─────────────────────────────────────
+    // Write paths (Admin / sync)
     // Upsert by natural key. Called by:
     //   * The sync service when webloan introduces a new product or
     //     changes a retirement flag. updatedByUserId=null (system
@@ -26,13 +25,11 @@ public interface ILoanProductRepository
     //   * The admin update endpoint when ops changes the policy
     //     fields. updatedByUserId is the caller's User.Id, resolved
     //     from the ClaimsPrincipal at the endpoint layer.
-    //
     // `preservePolicyFields` controls whether the upsert overwrites
     // MinAmount/MaxAmount/TermDays/fees (true = leave them alone,
     // false = overwrite with the supplied values). The sync passes
     // true so it never wipes out ops-configured policy on a refresh;
     // the admin endpoint passes false to write the new policy.
-    //
     // `updatedDate` is server-supplied via ITimeProvider so audit
     // timestamps are testable and timezone handling stays centralized
     // — callers NEVER pass DateTime.UtcNow directly.

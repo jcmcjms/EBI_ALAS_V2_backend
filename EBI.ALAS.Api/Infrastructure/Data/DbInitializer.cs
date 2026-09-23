@@ -10,7 +10,6 @@ public static class DbInitializer
 {
     public static async Task InitializeAsync(AppDbContext context, IServiceProvider serviceProvider)
     {
-        // Get time provider for consistent timestamp generation
         var timeProvider = serviceProvider.GetRequiredService<ITimeProvider>();
         var logger = serviceProvider.GetRequiredService<ILogger<AppDbContext>>();
 
@@ -20,13 +19,11 @@ public static class DbInitializer
         // no-op, and any pending migration is silently ignored. We use
         // MigrateAsync instead, which walks the __EFMigrationsHistory
         // table and applies whatever's missing.
-        //
         // If you have a fresh dev environment and want the schema
         // bootstrapped without authoring migrations yet, run:
         //   dotnet ef database update
         // from the project directory — this generates the
         // __EFMigrationsHistory row automatically.
-        //
         // Any failure here (missing connection, auth error, pending
         // migration that conflicts) is logged loudly and rethrown so
         // the app fails fast rather than silently booting with a
@@ -41,11 +38,14 @@ public static class DbInitializer
             throw;
         }
 
-        // Check if database already has data
-        if (await context.Users.AnyAsync())
-        {
-            return; // Database already seeded
-        }
+        // Removed the outer `if (Users.AnyAsync()) return;` guard.
+        // Each seed method already has its own idempotency guard (e.g., Branches.AnyAsync(),
+        // Users.AnyAsync(u => u.Username == "system")). The outer guard was harmful because:
+        // 1. If any Users row existed first (migration backfill, service account), loan products
+        //    and approval matrix were never seeded — causing silent failures on loan submission.
+        // 2. Multi-pod startup race: two replicas both observe Users.AnyAsync()==false, both seed,
+        //    unique-index violations crash one pod.
+        // Each method's inner guard is sufficient and idempotent.
 
         // Seed branches first (if not already seeded by migration)
         await SeedBranchesAsync(context, timeProvider);
@@ -119,16 +119,22 @@ public static class DbInitializer
 
     private static async Task SeedAdminUserAsync(AppDbContext context, ITimeProvider timeProvider)
     {
+        if (await context.Users.AnyAsync(u => u.Username == "admin"))
+            return;
+
+        // MustChangePassword = true forces password rotation on first login.
+        // Real employee name replaced with role label to avoid PII in a public repo.
         var adminUser = new User
         {
             Username = "admin",
             PasswordHash = BCrypt.Net.BCrypt.HashPassword("admin123"),
-            FirstName = "James",
-            MiddleName = "Jecemeco A.",
-            LastName = "Tabilog",
+            FirstName = "System",
+            MiddleName = null,
+            LastName = "Administrator",
             BranchId = "011", // Head Office Branch
             Role = "Admin",
             IsActive = true,
+            MustChangePassword = true,
             CreatedAt = timeProvider.UtcNow
         };
 
@@ -356,7 +362,7 @@ public static class DbInitializer
 
     private static async Task SeedApprovalAuthoritiesAsync(AppDbContext context)
     {
-        // ── Migration: merge separate CEO + President rows into one ──
+        // Migration: merge separate CEO + President rows into one
         // For databases that already have the old two-row setup, consolidate
         // into a single "CEOPresident" key. Reassign any users first.
         var ceoRow = await context.ApprovalAuthorities.FindAsync("CEO");
@@ -377,7 +383,6 @@ public static class DbInitializer
             context.ApprovalAuthorities.Remove(ceoRow);
             context.ApprovalAuthorities.Remove(presidentRow);
 
-            // Insert the consolidated row
             context.ApprovalAuthorities.Add(new ApprovalAuthority
             {
                 Key = "CEOPresident",
@@ -394,7 +399,6 @@ public static class DbInitializer
             await context.SaveChangesAsync();
         }
 
-        // ── Fresh database seed ──────────────────────────────────────
         if (await context.ApprovalAuthorities.AnyAsync())
             return;
 

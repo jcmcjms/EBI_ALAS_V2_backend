@@ -9,7 +9,7 @@ namespace EBI.ALAS.Api.Features.Loans;
 public class LoanRepository(AppDbContext context) : ILoanRepository
 {
 
-    // ── Compiled Queries for Hot Paths ──────────────────────────────────
+    // Compiled Queries for Hot Paths
     // EF compiled queries skip the expression-tree visit on every call.
     // For high-traffic endpoints (loan detail, list), this shaves ~0.5ms
     // per invocation and avoids repeated plan-cache lookups in SQL Server.
@@ -93,7 +93,6 @@ public class LoanRepository(AppDbContext context) : ILoanRepository
             };
         }
 
-        // Apply branch filtering
         if (!string.IsNullOrEmpty(branchId) && role != Roles.Admin)
         {
             query = query.Where(l => l.BranchCode == branchId);
@@ -174,7 +173,7 @@ public class LoanRepository(AppDbContext context) : ILoanRepository
         return await query.SumAsync(l => l.ProposedAmount, ct);
     }
 
-    // ── Multi-loan submission ─────────────────────────────────────────
+    // Multi-loan submission
 
     public async Task<string?> GetOfficerDisplayNameAsync(int userId, CancellationToken ct = default)
     {
@@ -218,7 +217,7 @@ public class LoanRepository(AppDbContext context) : ILoanRepository
         await context.SaveChangesAsync(ct);
     }
 
-    // ── Notification routing helpers ─────────────────────────────────────
+    // Notification routing helpers
 
     public async Task<List<User>> GetUsersByRoleAndBranchAsync(
         string role, string branchId, CancellationToken ct = default)

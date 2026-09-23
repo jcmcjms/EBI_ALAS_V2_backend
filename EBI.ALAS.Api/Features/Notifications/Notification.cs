@@ -17,7 +17,6 @@ public sealed class Notification
     public bool IsRead { get; set; }
     public DateTime CreatedAt { get; init; }
 
-    // Navigation Property
     public User? User { get; set; }
 }
 

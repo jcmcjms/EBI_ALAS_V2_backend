@@ -60,7 +60,7 @@ public class UserService : IUserService
             CreatedAt = _timeProvider.UtcNow,
         };
 
-        // ── Approver: JobTitle is the authority key, sync both fields ────
+        // Approver: JobTitle is the authority key, sync both fields
         ApprovalAuthority? authority = null;
         if (request.Role == Roles.Approver && !string.IsNullOrWhiteSpace(request.JobTitle))
         {
@@ -86,7 +86,7 @@ public class UserService : IUserService
 
         await _userRepository.AddUserAsync(user);
 
-        // ── Multi-branch coverage for Branch-scope approvers ──────────
+        // Multi-branch coverage for Branch-scope approvers
         // Only persist when Role == Approver AND authority scope is
         // Branch AND the caller supplied a non-empty list. Otherwise
         // no coverage rows are written — the user's home branch (in
@@ -119,7 +119,7 @@ public class UserService : IUserService
         user.BranchId = request.BranchId;
         user.Role = request.Role;
 
-        // ── Approver: sync authority key from JobTitle dropdown value ────
+        // Approver: sync authority key from JobTitle dropdown value
         if (request.Role == Roles.Approver && !string.IsNullOrWhiteSpace(request.JobTitle))
         {
             var authority = await _context.ApprovalAuthorities
@@ -151,8 +151,7 @@ public class UserService : IUserService
 
         await _userRepository.UpdateUserAsync();
 
-        // ── Multi-branch coverage for Branch-scope approvers ──────────
-        // Load the authority ONCE to decide the coverage action.
+        // Multi-branch coverage for Branch-scope approvers
         // Rules:
         //   1. Role != Approver or authority is null → clear existing
         //      coverage (handles role/authority changes away from
@@ -246,7 +245,6 @@ public class UserService : IUserService
         if (user == null)
             throw new NotFoundException("User", id);
 
-        // Get count of active sessions before revoking
         var activeSessions = await _context.RefreshTokens
             .Where(rt => rt.UserId == id && rt.ExpiresAt > _timeProvider.UtcNow && !rt.IsRevoked)
             .CountAsync();
@@ -303,7 +301,6 @@ public class UserService : IUserService
                     authority.Priority,
                     authority.MaxTotalExposure);
 
-                // Load multi-branch coverage for Branch-scope approvers
                 if (authority.ScopeType == AuthorityScope.Branch)
                 {
                     coveredBranches = await _context.UserBranchCoverages

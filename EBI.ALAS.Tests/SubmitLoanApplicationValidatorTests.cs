@@ -88,7 +88,6 @@ public class SubmitLoanApplicationValidatorTests
     public async Task Fee_override_requires_that_loans_own_justification()
     {
         var loan = ValidLoan("CL1", "C21");
-        // Override notarial fee (snapshot is 0)
         loan = loan with
         {
             Parameters = loan.Parameters with { NotarialFee = 900m },
@@ -97,13 +96,11 @@ public class SubmitLoanApplicationValidatorTests
         var request = ValidRequest(loan);
         var validator = new SubmitLoanApplicationValidator(new StubProducts());
 
-        // Should fail — fee deviated but no justification
         var result = await validator.ValidateAsync(request);
         Assert.False(result.IsValid);
         Assert.Contains(result.Errors, e =>
             e.PropertyName == "Loans[0].Deviations.FeeDeviationJustification");
 
-        // Should pass — justification provided
         var justified = loan with
         {
             Deviations = loan.Deviations with
@@ -128,7 +125,6 @@ public class SubmitLoanApplicationValidatorTests
             },
         };
 
-        // loan2 has fee override but NO justification
         var loan2 = ValidLoan("CL2", "C02") with
         {
             Parameters = ValidLoan("CL2", "C02").Parameters with { DocStamps = 500m },
@@ -139,7 +135,6 @@ public class SubmitLoanApplicationValidatorTests
             .ValidateAsync(ValidRequest(loan1, loan2));
 
         Assert.False(result.IsValid);
-        // loan1 is fine (has justification), loan2 is not
         Assert.DoesNotContain(result.Errors, e =>
             e.PropertyName == "Loans[0].Deviations.FeeDeviationJustification");
         Assert.Contains(result.Errors, e =>
@@ -155,7 +150,6 @@ public class SubmitLoanApplicationValidatorTests
             {
                 HasDeviations = true,
                 DeviationDetails = ["Age not within the prescribed parameters"],
-                // Missing justification for the selected reason
                 DeviationJustifications = new Dictionary<string, string>(),
                 OtherRemarks = "None.",
             },
@@ -165,7 +159,6 @@ public class SubmitLoanApplicationValidatorTests
             .ValidateAsync(ValidRequest(loan));
 
         Assert.False(result.IsValid);
-        // The relational rule emits on the Deviations object itself
         Assert.Contains(result.Errors, e =>
             e.PropertyName == "Loans[0].Deviations");
     }

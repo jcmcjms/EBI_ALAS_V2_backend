@@ -25,6 +25,15 @@ public interface IChecklistDocumentRepository
     Task<DocumentContentDto?> GetDocumentContentAsync(
         int docId,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Resolves a docId to its parent loan number (cis_no) from doc_ref.
+    /// Used for authorization — the caller must verify loan access before fetching content.
+    /// Returns null if the document doesn't exist or has been soft-deleted.
+    /// </summary>
+    Task<string?> GetDocumentLoanNoAsync(
+        int docId,
+        CancellationToken cancellationToken = default);
 }
 
 /// <summary>

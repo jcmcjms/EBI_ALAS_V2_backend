@@ -187,7 +187,7 @@ public static class WorkflowConfigurationEndpoints
                 request.RequireRecommendation.ToString(),
                 $"Workflow recommendation step {(request.RequireRecommendation ? "enabled" : "disabled")}");
 
-            // ── Notify all active workflow users about the pipeline change ──
+            // Notify all active workflow users about the pipeline change
             var workflowRoles = new[] { Roles.Encoder, Roles.Recommender, Roles.Evaluator, Roles.Approver, Roles.Admin };
             var activeUsers = await db.Users
                 .Where(u => u.IsActive && workflowRoles.Contains(u.Role))
@@ -217,7 +217,7 @@ public static class WorkflowConfigurationEndpoints
                 await db.SaveChangesAsync(ct);
             }
 
-            // ── Real-time broadcast to all connected users ──────────────
+            // Real-time broadcast to all connected users
             // Every officer sees the pipeline shape change instantly in
             // their UI without waiting for the next poll cycle.
             await realtimeService.NotifyAllAsync(title, description, "/admin/workflow");

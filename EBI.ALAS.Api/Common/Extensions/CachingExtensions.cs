@@ -43,16 +43,18 @@ public static class CachingExtensions
 
     /// <summary>
     /// Output caching for read-heavy endpoints.
-    /// Reduces DB load for branches, dashboard, and loan products.
+    /// No global base policy — only public, genuinely cacheable endpoints
+    /// should opt in via .CacheOutput("PolicyName"). A global policy applied before
+    /// authentication could serve one user's data to another.
     /// </summary>
     private static IServiceCollection AddOutputCaching(this IServiceCollection services)
     {
         services.AddOutputCache(options =>
         {
-            options.AddBasePolicy(builder => builder.Expire(TimeSpan.FromSeconds(10)));
+            // Branches and loan products rarely change — long TTL.
             options.AddPolicy("BranchCache", builder => builder.Expire(TimeSpan.FromMinutes(5)));
-            options.AddPolicy("DashboardCache", builder => builder.Expire(TimeSpan.FromSeconds(30)));
             options.AddPolicy("LoanProductCache", builder => builder.Expire(TimeSpan.FromMinutes(10)));
+            options.AddPolicy("DashboardCache", builder => builder.Expire(TimeSpan.FromSeconds(30)));
         });
 
         return services;

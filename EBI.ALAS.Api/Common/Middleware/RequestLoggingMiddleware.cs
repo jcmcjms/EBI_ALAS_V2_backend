@@ -31,11 +31,17 @@ public sealed class RequestLoggingMiddleware(
 
         var stopwatch = Stopwatch.StartNew();
         var method = context.Request.Method;
+
+        // Truncate User-Agent to prevent log flooding.
+        // A client sending a 16 KB User-Agent header would get 16 KB logged per request.
         var userAgent = context.Request.Headers.UserAgent.ToString();
+        var truncatedUserAgent = string.IsNullOrEmpty(userAgent)
+            ? "unknown"
+            : userAgent.Length > 200 ? userAgent[..200] + "…" : userAgent;
 
         logger.LogInformation(
-            "HTTP {Method} {Path} started | UserAgent={UserAgent}",
-            method, path, userAgent);
+            "HTTP {Method} {Path} started | UA={UserAgent}",
+            method, path, truncatedUserAgent);
 
         try
         {

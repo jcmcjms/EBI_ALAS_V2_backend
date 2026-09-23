@@ -86,7 +86,7 @@ public static class GetLoans
                 query = query.Where(l => l.ApplicationDate <= endDate);
             }
 
-            // ── "My turn" filter: only loans where the current user is the head owner ──
+            // "My turn" filter: only loans where the current user is the head owner
             if (myTurn == true)
             {
                 query = query.Where(l => db.WorkflowQueueItems.Any(i =>
@@ -155,7 +155,7 @@ public static class GetLoans
                 .Take(ps)
                 .ToListAsync(ct);
 
-            // ── Resolve queue positions for this page ──
+            // Resolve queue positions for this page
             var queueService = ctx.RequestServices.GetRequiredService<IWorkflowQueueService>();
             var loanIds = rows.Select(r => r.Id).ToList();
             var positions = await queueService.GetPositionsAsync(loanIds, ct);
@@ -196,7 +196,7 @@ public static class GetLoans
                                 RequiredApprovalTier = r.RequiredApprovalTier,
                                 AssignedApproverId = r.AssignedApproverId,
                                 AssignedApproverName = r.AssignedApproverName,
-                                // ── Queue position fields ──
+                                // Queue position fields
                                 QueueStage = queueInfo?.Stage.ToString(),
                                 QueuePosition = queueInfo?.Position,
                                 QueueLength = queueInfo?.QueueLength,

@@ -12,7 +12,6 @@ public static class DashboardEndpoints
             .WithTags("Dashboard")
             .RequireAuthorization();
 
-        // GET /api/dashboard/overview — the entire dashboard page in one call.
         // CanViewLoan: the payload is loan aggregates, branch-scoped in-service
         // (non-admins only ever see their own branch; Admin sees all).
         group.MapGet("/overview", async (

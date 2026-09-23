@@ -28,8 +28,6 @@ public class UserRepositoryTests : IDisposable
 
     public void Dispose() => _context.Dispose();
 
-    // ── Helpers ──────────────────────────────────────────────────────────
-
     private static User CreateUser(int id, string branchId, DateTime createdAt) => new()
     {
         Id = id,
@@ -52,8 +50,6 @@ public class UserRepositoryTests : IDisposable
         }
         await _context.SaveChangesAsync();
     }
-
-    // ── Deterministic ordering: pages are disjoint and complete ──────────
 
     [Fact]
     public async Task GetUsersAsync_PagesAreDisjoint_WhenCreatedAtTies()
@@ -107,8 +103,6 @@ public class UserRepositoryTests : IDisposable
         Assert.Equal(5, page3.Items.Count);
     }
 
-    // ── Branch filter ────────────────────────────────────────────────────
-
     [Fact]
     public async Task GetUsersAsync_BranchFilter_ReducesItemsAndTotalCount()
     {
@@ -160,12 +154,10 @@ public class UserRepositoryTests : IDisposable
         Assert.Equal(10, page1.Items.Count);
         Assert.Equal(5, page2.Items.Count);
 
-        // Pages are disjoint
         var page1Ids = page1.Items.Select(u => u.Id).ToHashSet();
         var page2Ids = page2.Items.Select(u => u.Id).ToHashSet();
         Assert.Empty(page1Ids.Intersect(page2Ids));
 
-        // All items belong to the filtered branch
         Assert.All(page1.Items, u => Assert.Equal("011", u.BranchId));
         Assert.All(page2.Items, u => Assert.Equal("011", u.BranchId));
     }
@@ -188,8 +180,6 @@ public class UserRepositoryTests : IDisposable
         Assert.Equal("011", result.Items[0].BranchId);
     }
 
-    // ── Search + branch filter combo ─────────────────────────────────────
-
     [Fact]
     public async Task GetUsersAsync_SearchAndBranchFilter_CombineCorrectly()
     {
@@ -200,7 +190,6 @@ public class UserRepositoryTests : IDisposable
         _context.Users.Add(CreateUser(4, "008", timestamp)); // user004
         await _context.SaveChangesAsync();
 
-        // Search for "user00" in branch "011" only
         var result = await _repository.GetUsersAsync(
             new UserQueryParameters("user00", null, "011", null, PageNumber: 1, PageSize: 50));
 
@@ -208,8 +197,6 @@ public class UserRepositoryTests : IDisposable
         Assert.Equal(2, result.Items.Count);
         Assert.All(result.Items, u => Assert.Equal("011", u.BranchId));
     }
-
-    // ── Empty branch filter is ignored ───────────────────────────────────
 
     [Fact]
     public async Task GetUsersAsync_EmptyBranchFilter_ReturnsAllUsers()
@@ -224,8 +211,6 @@ public class UserRepositoryTests : IDisposable
 
         Assert.Equal(2, result.TotalCount);
     }
-
-    // ── Ordering stability ───────────────────────────────────────────────
 
     [Fact]
     public async Task GetUsersAsync_OrdersByCreatedAtDescending_ThenById()
@@ -242,10 +227,8 @@ public class UserRepositoryTests : IDisposable
             new UserQueryParameters(null, null, null, null, PageNumber: 1, PageSize: 50));
 
         Assert.Equal(3, result.Items.Count);
-        // First two should be from t2 (newest), ordered by Id
         Assert.Equal(2, result.Items[0].Id);
         Assert.Equal(3, result.Items[1].Id);
-        // Last should be from t1 (oldest)
         Assert.Equal(1, result.Items[2].Id);
     }
 }

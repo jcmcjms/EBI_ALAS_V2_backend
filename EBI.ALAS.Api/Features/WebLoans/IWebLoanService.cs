@@ -1,7 +1,6 @@
 namespace EBI.ALAS.Api.Features.WebLoans;
 
 // Service contract for the read-only WebLoan drill-down flow.
-//
 // Branch scoping rules differ per endpoint:
 //   * `SearchByCisAsync` — `bch` is the auth user's branch (null for Admin).
 //     Non-Admin callers (e.g. Encoder) are scoped to their branch so they
@@ -20,7 +19,6 @@ public interface IWebLoanService
     // `accountId` is the combined "<branchCode>-<accountNo>" form, e.g.
     // "011-05-13081-1" — see WebLoanAccountId.Parse. The service splits
     // it and passes the two halves down to the repository.
-    //
     // Pagination defaults match the original TOP (10) behaviour for
     // accounts with a handful of active loans, while letting the UI
     // ask for more when needed. Hard ceiling on pageSize is enforced
@@ -48,11 +46,9 @@ public interface IWebLoanService
     // exist, mirroring how GetOutstandingLoansAsync handles empty pages.
     Task<IReadOnlyList<LoanProductDto>> GetActiveLoanProductsAsync(CancellationToken ct = default);
 
-    // ─── Loan class lookup ────────────────────────────────────────────────
     // Resolves `cat_loan_class` from dbo.loan_data for the composite key
     // (bch, loan_no, loan_product). All three are caller-supplied via
     // query string — no JWT-derived branch fallback.
-    //
     // Returns null when no matching row exists. The endpoint maps null
     // to 404, distinguishing "loan not in webloan" from "loan in webloan
     // but cat_loan_class IS NULL" (both surface the same null — the UI

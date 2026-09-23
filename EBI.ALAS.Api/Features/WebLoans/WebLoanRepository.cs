@@ -173,7 +173,6 @@ public class WebLoanRepository(IDbContextFactory<WebLoanDbContext> contextFactor
         //     CASE logic that EF cannot translate. The JOIN is on the
         //     natural key of amort_data — (bk, bch, acct_no, loan_no) —
         //     matching the original sample SQL.
-        //
         // Branch scoping note: previously this method accepted a nullable
         // `bch` to express the JWT-derived branch + Admin bypass
         // (`(@bch IS NULL OR bch = @bch)`). After the move to the
@@ -181,7 +180,6 @@ public class WebLoanRepository(IDbContextFactory<WebLoanDbContext> contextFactor
         // and treated as part of the account identity — there is no
         // bypass and no JWT-derived branch. The (bch, acct_no) pair is
         // an exact match; the existing index covers it.
-        //
         // Why a dedicated projection row (OutstandingLoanRow) instead of
         // adding `ComputedAmortAmount` to the LoanData entity:
         //   * `ComputedAmortAmount` is a DERIVED column, not a webloan
@@ -193,22 +191,18 @@ public class WebLoanRepository(IDbContextFactory<WebLoanDbContext> contextFactor
         //     EXACTLY the columns this query projects (LoanData's 19 +
         //     ComputedAmortAmount). EF's materializer maps each column
         //     positionally to the property of the same name.
-        //
         // FromSqlInterpolated parameterizes both inputs as DbParameters —
         // no SQL injection. The FormattableString overload is the only
         // one that accepts inline values safely.
-        //
         // LEFT JOIN semantics: when amort_data has no row for the (bk,
         // bch, acct_no, loan_no, amort_no=1) tuple, the CASE falls through
         // to NULL for non-C35/C23 products — the UI renders this as "—".
-        //
         // principal_bal > 0 filter: drop rows with a settled balance of 0
         // (e.g. fully-paid but not yet status=10, or zero at issuance).
         // NULLs are intentionally retained — a missing balance is treated
         // as "unknown, show it" rather than "hide it", because `NULL != 0`
         // evaluates to NULL and a bare `principal_bal <> 0` predicate
         // would silently drop those rows too.
-        //
         // product_with_desc: a SECOND LEFT JOIN to webloan.dbo.loan_product
         // on (ld.loan_product = lp.id_code) enriches each row with a
         // human-readable description, producing
@@ -218,7 +212,6 @@ public class WebLoanRepository(IDbContextFactory<WebLoanDbContext> contextFactor
         // GetPendingLoansAsync) so the same product_with_desc string
         // surfaces from both endpoints without a separate
         // per-row repository lookup.
-        //
         // ISNULL(lp.description, ''): the LEFT JOIN can miss when an
         // open loan carries a product code that no longer exists in
         // loan_product (e.g. product was retired, loans still active).
@@ -269,7 +262,6 @@ public class WebLoanRepository(IDbContextFactory<WebLoanDbContext> contextFactor
             .ToListAsync(ct);
     }
 
-    // ─── Pending loans (pre_loan_data) ─────────────────────────────────
     public async Task<IReadOnlyList<PendingLoanRow>> GetPendingLoansAsync(
         string branchCode,
         string accountNo,
@@ -279,7 +271,6 @@ public class WebLoanRepository(IDbContextFactory<WebLoanDbContext> contextFactor
         // SQL. (bch, acct_no) is an exact match from the URL's combined
         // `accountId` parameter; all four workflow dates NULL means
         // "in flight" (prepared, not yet approved/released/voided).
-        //
         // One execution returns everything the service needs to render
         // the pending-loan response:
         //   * pre_loan_data identifiers + workflow gate
@@ -294,13 +285,11 @@ public class WebLoanRepository(IDbContextFactory<WebLoanDbContext> contextFactor
         //     authoritative CIS for the (bch, acct_no) pair
         //   * check_list_data CCR07 row on (cis_no, item='CCR07') —
         //     NTHP amount + NTHP date
-        //
         // Replaces the previous N+1 fan-out (1 pre_loan_data + N
         // loan_data + N loan_product + N loan_purpose + 1 NTHP
         // round-trips). For an account with 3 in-flight rows, the old
         // shape issued 1 + 3 + 3 + 3 + 1 = 11 round-trips; this query
         // issues 1.
-        //
         // Derived expressions computed in SQL:
         //   * `creation_type_label` — the original CASE block
         //     (0=New Loan, 1=Reloan, 2=Restructured, 6=Additional Loan,
@@ -313,7 +302,6 @@ public class WebLoanRepository(IDbContextFactory<WebLoanDbContext> contextFactor
         //     per period. NULL when either date is NULL.
         //   * `product_with_desc` — ISNULL-wrapped concat to keep "<code> - "
         //     instead of NULL when the product row is missing.
-        //
         // Cartesian-product caveat (CCR07): the LEFT JOIN against
         // check_list_data is a true cartesian match — if there are
         // multiple CCR07 rows for the same cis_no (different vintages),
@@ -322,12 +310,10 @@ public class WebLoanRepository(IDbContextFactory<WebLoanDbContext> contextFactor
         // (per-loan fields are identical across duplicates). To
         // suppress duplicates at the SQL level, wrap the check_list_data
         // join in a subquery with TOP 1 ordered by expiration DESC.
-        //
         // Ordered deterministically by (bch, acct_no, loan_no) so
         // repeat calls return the same shape — the schema permits
         // duplicates for (bch, acct_no) and "FirstOrDefault" would
         // silently pick a different one each call.
-        //
         // All inputs are parameterized via FromSqlInterpolated → no SQL
         // injection. The `USE webloan;` preamble from the original
         // sample SQL is omitted: the connection string already targets
@@ -399,7 +385,6 @@ public class WebLoanRepository(IDbContextFactory<WebLoanDbContext> contextFactor
         // expose. Loan_product is a small lookup table (~tens of rows
         // in practice) so no pagination is needed — the whole set fits
         // in one trip.
-        //
         // Ordered by id_code ascending for a deterministic response; the
         // PK on id_code makes this an index scan with no sort cost.
         await using var context = await contextFactory.CreateDbContextAsync(ct);
@@ -418,7 +403,6 @@ public class WebLoanRepository(IDbContextFactory<WebLoanDbContext> contextFactor
         // IsRetired=true. The LoanProductLookup entity now exposes
         // Expiration (nullable DateTime) so the sync can read the
         // retirement signal in one round-trip; no second query needed.
-        //
         // Webloan's loan_product table is small enough that the full
         // scan is cheaper than a delta query — and a delta would
         // miss rows webloan DELETED entirely (rare, but possible if
@@ -430,7 +414,6 @@ public class WebLoanRepository(IDbContextFactory<WebLoanDbContext> contextFactor
             .ToListAsync(ct);
     }
 
-    // ─── Loan class lookup (loan_data.cat_loan_class) ──────────────────
     /// <summary>
     /// Returns the cat_loan_class value for a loan, or null if no loan row exists.
     /// Uses a sentinel to distinguish "row exists but cat_loan_class IS NULL" from "no row found".
@@ -449,10 +432,8 @@ public class WebLoanRepository(IDbContextFactory<WebLoanDbContext> contextFactor
         //      subquery that selects ALL mapped properties, causing
         //      "Invalid column name" when cat_loan_class isn't in the DB.
         //   3. SqlQuery<string?>() still goes through EF's result materializer.
-        //
         // Using raw ADO.NET means only the explicitly-named cat_loan_class
         // column is ever sent to or from SQL — no EF property mapping.
-        //
         // Composite input (bch, loan_no, loan_product) is caller-supplied.
         // All three are parameterized via DbParameter — no SQL injection.
         await using var context = await contextFactory.CreateDbContextAsync(ct);

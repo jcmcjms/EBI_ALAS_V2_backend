@@ -1,6 +1,6 @@
 namespace EBI.ALAS.Api.Features.Loans;
 
-// ─── DTOs ──────────────────────────────────────────────────────────────────
+// DTOs
 // Read-side response shape used by every endpoint that returns a
 // product. Mirrors the entity 1:1 so the admin form can round-trip
 // without field renaming. Decimals are kept as `decimal` (not `double`)
@@ -54,7 +54,6 @@ public record LoanProductSyncResult(
     int Preserved,
     DateTime SyncedAt);
 
-// ─── Service contract ──────────────────────────────────────────────────────
 public interface ILoanProductService
 {
     Task<IReadOnlyList<LoanProductResponse>> GetAllAsync(CancellationToken ct = default);
@@ -62,7 +61,6 @@ public interface ILoanProductService
 
     // Returns null when the code does not exist in the mirror. The
     // endpoint layer maps that to 404.
-    //
     // `updatedByUserId` is the caller's User.Id (resolved from the
     // ClaimsPrincipal at the endpoint layer). It is recorded on the
     // UpdatedById column so admin edits stay attributable. The sync

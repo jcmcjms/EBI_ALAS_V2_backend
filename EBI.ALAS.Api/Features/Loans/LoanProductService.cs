@@ -92,7 +92,6 @@ public class LoanProductService(
         return await syncService.SyncAsync(ct);
     }
 
-    // ─── Helpers ────────────────────────────────────────────────────────
     private static LoanProductResponse ToResponse(LoanProduct p) => new(
         p.Code,
         p.Description,

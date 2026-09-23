@@ -24,10 +24,9 @@ public static class ChecklistDocumentEndpoints
             .WithTags("Checklist Documents")
             .RequireAuthorization();
 
-        // ── GET /api/loans/{id}/checklist-documents ───────────────────────
+        // GET /api/loans/{id}/checklist-documents
         // Fetches checklist documents from BPB_BINARY_SERVER via OPENQUERY.
         // Shows required documents for the loan product and their upload status.
-        //
         // Real-time stamp: after fetching the docs, we also refresh
         // DocumentsCompleteAt so the monitoring table's "Docs" badge
         // stays current without waiting for the background sweep.
@@ -53,10 +52,8 @@ public static class ChecklistDocumentEndpoints
                     ApiResponse.ErrorResponse("You do not have permission to view this loan's documents."),
                     statusCode: StatusCodes.Status403Forbidden);
 
-            // Query BPB_BINARY_SERVER for checklist documents
             var documents = await checklistRepo.GetChecklistDocumentsAsync(loan.LoanNo, ct);
 
-            // ── Real-time stamp refresh ─────────────────────────────────
             // The OPENQUERY call is already paid — check completeness and
             // update the stamp if it changed. This keeps the monitoring
             // table's "Docs" badge accurate the moment someone views the
@@ -79,8 +76,10 @@ public static class ChecklistDocumentEndpoints
         .WithName("GetChecklistDocuments")
         .RequireAuthorization("CanViewLoan");
 
-        // ── GET /api/loans/checklist-documents/{docId}/view ──────────────
+        // GET /api/loans/checklist-documents/{docId}/view
         // Fetches the actual document content from BPB_BINARY_SERVER for viewing.
+        // Resolves docId → loan → branch/owner before serving content.
+        // Returns 404 (not 403) when the loan isn't visible to prevent document existence enumeration.
         group.MapGet("/checklist-documents/{docId:int}/view", async (
             int docId, string? disposition, ClaimsPrincipal user, AppDbContext db,
             IChecklistDocumentRepository checklistRepo, CancellationToken ct) =>
@@ -89,6 +88,25 @@ public static class ChecklistDocumentEndpoints
                 return Results.Json(
                     ApiResponse.ErrorResponse("You do not have permission to view documents."),
                     statusCode: StatusCodes.Status403Forbidden);
+
+            // Resolve docId → loan number, then verify the caller can access that loan.
+            var loanNo = await checklistRepo.GetDocumentLoanNoAsync(docId, ct);
+            if (string.IsNullOrEmpty(loanNo))
+                return Results.NotFound(ApiResponse.ErrorResponse("Document not found or empty."));
+
+            // Look up the loan in the local DB to apply branch/owner scoping.
+            var loan = await db.LoanApplications.AsNoTracking()
+                .Where(l => l.LoanNo == loanNo)
+                .Select(l => new { l.Id, l.CreatedById, l.BranchCode })
+                .FirstOrDefaultAsync(ct);
+
+            if (loan is null)
+                return Results.NotFound(ApiResponse.ErrorResponse("Document not found or empty."));
+
+            // - Admin/Evaluator can see all loans in their branch scope
+            // - Regular users can only see loans they created or have permission for
+            if (!CanRead(user, loan.CreatedById))
+                return Results.NotFound(ApiResponse.ErrorResponse("Document not found or empty."));
 
             var document = await checklistRepo.GetDocumentContentAsync(docId, ct);
 

@@ -10,7 +10,6 @@ namespace EBI.ALAS.Tests;
 /// </summary>
 public class ApprovalFormConventionsTests
 {
-    // ── ResolveApprovalTermDays ─────────────────────────────────────────
 
     [Theory]
     [InlineData(2572, 84, 2520)]  // Your bug: grace 52d ≤ 120 → policy wins
@@ -64,8 +63,6 @@ public class ApprovalFormConventionsTests
         Assert.Equal(2399, ApprovalFormConventions.ResolveApprovalTermDays(2399, 84));
     }
 
-    // ── ToAnnualRatePercent ─────────────────────────────────────────────
-
     [Theory]
     [InlineData(0.2157, 21.57)]   // Fraction → percent
     [InlineData(21.57, 21.57)]    // Already in percent (idempotent)
@@ -96,8 +93,6 @@ public class ApprovalFormConventionsTests
         // Negative rates pass through unchanged
         Assert.Equal(-5m, ApprovalFormConventions.ToAnnualRatePercent(-5m));
     }
-
-    // ── Constants ───────────────────────────────────────────────────────
 
     [Fact]
     public void DaysPerMonth_IsThirty()

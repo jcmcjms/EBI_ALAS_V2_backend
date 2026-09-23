@@ -4,7 +4,6 @@ namespace EBI.ALAS.Api.Features.WebLoans;
 
 public class WebLoanService(IWebLoanRepository repository) : IWebLoanService
 {
-    // ─── CIS search ───────────────────────────────────────────────────────
     public async Task<CisSearchResponse?> SearchByCisAsync(
         string cisNo,
         string? bch,
@@ -70,7 +69,6 @@ public class WebLoanService(IWebLoanRepository repository) : IWebLoanService
         var misGroupsByPath = await misGroupsByPathTask;
         var solicitorsByPath = await solicitorsByPathTask;
 
-        // Build lookups keyed by path for O(1) resolution below.
         var byPath = misGroupsByPath
             .Where(m => !string.IsNullOrEmpty(m.Path))
             .ToDictionary(m => m.Path!, m => m.Description);
@@ -129,7 +127,6 @@ public class WebLoanService(IWebLoanRepository repository) : IWebLoanService
         return new CisSearchResponse(borrower, accountDtos);
     }
 
-    // ─── Outstanding loans ───────────────────────────────────────────────
     public async Task<OutstandingLoansResponse?> GetOutstandingLoansAsync(
         string cisNo,
         string accountId,
@@ -158,7 +155,6 @@ public class WebLoanService(IWebLoanRepository repository) : IWebLoanService
         // (and the Admin bypass that used to live here) is intentionally
         // not consulted — the branch is part of the account identity in
         // the combined-id model.
-        //
         // Pagination: pushed to SQL via OFFSET/FETCH so the database
         // returns only the page slice. Without this, a long-tenured
         // borrower with hundreds of historical outstanding loans would
@@ -178,9 +174,7 @@ public class WebLoanService(IWebLoanRepository repository) : IWebLoanService
                 // Product-with-description string, computed in SQL via a
                 // LEFT JOIN to webloan.dbo.loan_product on
                 // (ld.loan_product = lp.id_code):
-                //
                 //   ld.loan_product + ' - ' + ISNULL(lp.description, '')
-                //
                 // When the loan_product row is missing (orphaned/retired
                 // product code), the SQL coerces the description to ''
                 // and we end up with "<code> - " here. Trim the trailing
@@ -207,7 +201,6 @@ public class WebLoanService(IWebLoanRepository repository) : IWebLoanService
                     // (first installment, amort_no = 1). LEFT JOIN → NULL
                     // when no amort_data row exists for a non-C35/C23
                     // loan, which the UI renders as "—".
-                    //
                     // Sourced from OutstandingLoanRow (the projection row
                     // type returned by the repository), not LoanData —
                     // because the derived column cannot live on the
@@ -238,7 +231,6 @@ public class WebLoanService(IWebLoanRepository repository) : IWebLoanService
             Loans: loans);
     }
 
-    // ─── Pending loans ───────────────────────────────────────────────────
     public async Task<PendingLoanResponse?> GetPendingLoanAsync(
         string cisNo,
         string accountId,
@@ -330,7 +322,6 @@ public class WebLoanService(IWebLoanRepository repository) : IWebLoanService
             NthpDate: nthpRow?.NthpDate);
     }
 
-    // ─── Active loan products ────────────────────────────────────────────
     public async Task<IReadOnlyList<LoanProductDto>> GetActiveLoanProductsAsync(CancellationToken ct = default)
     {
         // Single SQL roundtrip: the repository already filters
@@ -338,7 +329,6 @@ public class WebLoanService(IWebLoanRepository repository) : IWebLoanService
         // two columns the spec asks for (id_code + description) — the
         // retirement flag is a server-side predicate only and never
         // surfaces to clients.
-        //
         // Empty list is a valid result (no active products in webloan
         // is a real — though unusual — state, e.g. during a cutover).
         // The endpoint maps that to 200 with `data: []`, mirroring the
@@ -350,7 +340,6 @@ public class WebLoanService(IWebLoanRepository repository) : IWebLoanService
             .ToList();
     }
 
-    // ─── Loan class lookup ───────────────────────────────────────────────
     public async Task<CatLoanClassResponse?> GetCatLoanClassAsync(
         string bch,
         string loanNo,
@@ -382,7 +371,6 @@ public class WebLoanService(IWebLoanRepository repository) : IWebLoanService
             CatLoanClass: string.IsNullOrEmpty(catLoanClass) ? null : catLoanClass);
     }
 
-    // ─── Helpers ──────────────────────────────────────────────────────────
     private static DateTime? ParseBirthDate(string? raw)
     {
         if (string.IsNullOrWhiteSpace(raw)) return null;
@@ -423,7 +411,6 @@ public class WebLoanService(IWebLoanRepository repository) : IWebLoanService
         // Mirrors the original SQL's DATEDIFF math:
         //   CAST(DATEDIFF(YEAR, hire_date, GETDATE()) AS VARCHAR(3)) + ' years, ' +
         //   CAST(DATEDIFF(MONTH, hire_date, GETDATE()) % 12 AS VARCHAR(2)) + ' months'
-        //
         // Edge cases:
         //   * rawHireDate is null/whitespace (no CCR10 row recorded) → null
         //   * rawHireDate is unparseable → null (don't surface garbage)

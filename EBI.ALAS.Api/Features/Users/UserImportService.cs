@@ -42,6 +42,11 @@ public class UserImportService : IUserImportService
 
     public async Task<byte[]> ExportUsersAsync(ExportUsersParameters parameters, CancellationToken ct)
     {
+        // Cap export at 50,000 rows to prevent OOM on large datasets.
+        // Without this, an unbounded ToListAsync materializes every User row
+        // (including 2MB ESignature columns) into memory at once.
+        const int maxExportRows = 50_000;
+
         var query = _context.Users.AsNoTracking();
 
         if (!string.IsNullOrWhiteSpace(parameters.Search))
@@ -64,7 +69,18 @@ public class UserImportService : IUserImportService
 
         var users = await query
             .OrderByDescending(u => u.CreatedAt)
+            .Take(maxExportRows)
+            .Select(u => new { u.Id, u.Username, u.FirstName, u.MiddleName, u.LastName,
+                               u.BranchId, u.Role, u.JobTitle, u.IsActive, u.CreatedAt })
             .ToListAsync(ct);
+
+        // Load all branch coverage in ONE grouped query instead of N per-row queries.
+        var userIds = users.Select(u => u.Id).ToList();
+        var branchCoverage = await _context.UserBranchCoverages
+            .Where(ubc => userIds.Contains(ubc.UserId))
+            .GroupBy(ubc => ubc.UserId)
+            .Select(g => new { UserId = g.Key, Branches = g.Select(x => x.BranchCode).ToList() })
+            .ToDictionaryAsync(x => x.UserId, x => x.Branches, ct);
 
         using var package = new ExcelPackage();
         var worksheet = package.Workbook.Worksheets.Add("Users");
@@ -95,11 +111,8 @@ public class UserImportService : IUserImportService
             worksheet.Cells[excelRow, 6].Value = user.Role;
             worksheet.Cells[excelRow, 7].Value = user.JobTitle ?? "";
 
-            // Covered branches for approvers
-            var coveredBranches = await _context.UserBranchCoverages
-                .Where(ubc => ubc.UserId == user.Id)
-                .Select(ubc => ubc.BranchCode)
-                .ToListAsync(ct);
+            // Branch coverage from the preloaded dictionary (0 extra queries)
+            var coveredBranches = branchCoverage.GetValueOrDefault(user.Id) ?? [];
             worksheet.Cells[excelRow, 8].Value = string.Join(", ", coveredBranches);
 
             worksheet.Cells[excelRow, 9].Value = user.IsActive ? "Active" : "Suspended";
@@ -190,7 +203,12 @@ public class UserImportService : IUserImportService
         // Skip header row (row 1)
         totalRows = 0;
 
-        // Load lookup data once
+        // Cap import rows to prevent unbounded processing.
+        // 10 MB of compressed XLSX can contain 500K+ rows. Each row costs
+        // ~1.5s of BCrypt + 4 DB round trips. 5,000 rows ≈ 2 hours.
+        const int maxImportRows = 5_000;
+        var processedRows = 0;
+
         var validBranchCodes = (await _context.Branches.Select(b => b.Code).ToListAsync(ct)).ToHashSet();
         var validRoles = new[] { "Encoder", "Recommender", "Evaluator", "Approver", "Admin" };
         var approvalAuthorities = await _context.ApprovalAuthorities.ToListAsync(ct);
@@ -203,7 +221,17 @@ public class UserImportService : IUserImportService
             if (IsBlankRow(worksheet, excelRow)) continue;
 
             totalRows++;
+            processedRows++;
             var rowNumber = excelRow;   // report the real Excel row, not a data index
+
+            // Enforce row cap
+            if (processedRows > maxImportRows)
+            {
+                errors.Add(new UserImportValidationError(rowNumber, "Row",
+                    $"Import capped at {maxImportRows} rows. Split the file and import in batches."));
+                break;
+            }
+
             var username = GetCellString(worksheet, excelRow, 1);
             var firstName = GetCellString(worksheet, excelRow, 2);
             var middleName = GetCellString(worksheet, excelRow, 3);
@@ -256,7 +284,6 @@ public class UserImportService : IUserImportService
             if (errors.Any(e => e.RowNumber == rowNumber))
                 continue;
 
-            // Create user
             var tempPassword = _tempPasswordGenerator.Generate();
             var user = new User
             {

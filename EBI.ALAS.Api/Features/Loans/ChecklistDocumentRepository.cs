@@ -138,7 +138,6 @@ public class ChecklistDocumentRepository : IChecklistDocumentRepository
         int docId,
         CancellationToken cancellationToken = default)
     {
-        // Query to get document content from BPB_BINARY_SERVER
         // doc_str is the binary content column
         var sql = $@"
             SELECT TOP 1
@@ -165,7 +164,6 @@ public class ChecklistDocumentRepository : IChecklistDocumentRepository
                     ? "application/octet-stream"
                     : reader.GetString(reader.GetOrdinal("content_type"));
 
-                // Get the base64-encoded content from doc_str and decode it
                 byte[] content;
                 if (!reader.IsDBNull(reader.GetOrdinal("doc_str")))
                 {
@@ -220,5 +218,42 @@ public class ChecklistDocumentRepository : IChecklistDocumentRepository
             "text/html" => "html",
             _ => "bin"
         };
+    }
+
+    /// <inheritdoc/>
+    public async Task<string?> GetDocumentLoanNoAsync(
+        int docId,
+        CancellationToken cancellationToken = default)
+    {
+        // Resolve docId → cis_no (loan number) from doc_ref.
+        // This is used to verify the caller has access to the loan before serving content.
+        // NOTE: OPENQUERY executes the string on the linked server, so we must interpolate
+        // the value into the string literal (like the other two methods in this class).
+        // docId is an int — safe from SQL injection.
+        var sql = $@"
+            SELECT TOP 1 cis_no
+            FROM OPENQUERY(BPB_BINARY_SERVER,
+                'SELECT cis_no
+                 FROM bpb_binary.dbo.doc_ref
+                 WHERE doc_id = {docId}
+                   AND deleted IS NULL'
+            );";
+
+        try
+        {
+            using var connection = new SqlConnection(_connectionString);
+            await connection.OpenAsync(cancellationToken);
+
+            using var command = new SqlCommand(sql, connection);
+            command.CommandTimeout = 30;
+
+            var result = await command.ExecuteScalarAsync(cancellationToken);
+            return result as string;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error resolving loan number for docId {DocId}", docId);
+            return null;
+        }
     }
 }

@@ -40,7 +40,7 @@ public sealed class QueueReconciliationHostedService : BackgroundService
                 var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
                 var queueService = scope.ServiceProvider.GetRequiredService<IWorkflowQueueService>();
 
-                // ── 1. Dequeue stale items (loan status no longer matches stage) ──
+                // 1. Dequeue stale items (loan status no longer matches stage)
                 var staleItems = await db.WorkflowQueueItems
                     .Include(i => i.LoanApplication)
                     .Where(i => i.State == QueueItemState.Queued || i.State == QueueItemState.Active)
@@ -61,7 +61,7 @@ public sealed class QueueReconciliationHostedService : BackgroundService
                 if (staleItems.Count > 0)
                     await db.SaveChangesAsync(ct);
 
-                // ── 2. Promote heads of partitions that have no Active item ──
+                // 2. Promote heads of partitions that have no Active item
                 // Find partitions with Queued items but no Active item.
                 var partitionsNeedingPromotion = await db.WorkflowQueueItems
                     .Where(i => i.State == QueueItemState.Queued)
@@ -73,7 +73,6 @@ public sealed class QueueReconciliationHostedService : BackgroundService
 
                 foreach (var partitionKey in partitionsNeedingPromotion)
                 {
-                    // Get the head item and its loan for owner resolution.
                     var head = await db.WorkflowQueueItems
                         .Include(i => i.LoanApplication)
                         .Where(i => i.PartitionKey == partitionKey && i.State == QueueItemState.Queued)

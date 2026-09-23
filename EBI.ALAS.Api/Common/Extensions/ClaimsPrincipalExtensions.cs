@@ -5,8 +5,10 @@ public static class ClaimsPrincipalExtensions
 {
     public static int GetUserId(this ClaimsPrincipal principal)
     {
+        // Use TryParse instead of int.Parse to prevent FormatException → 500
+        // on malformed or missing userId claims.
         var claim = principal.FindFirst("userId");
-        return claim != null ? int.Parse(claim.Value) : 0;
+        return claim != null && int.TryParse(claim.Value, out var userId) ? userId : 0;
     }
 
     public static int? GetCurrentSessionId(this ClaimsPrincipal principal) =>
@@ -79,7 +81,6 @@ public static class ClaimsPrincipalExtensions
     {
         var role = principal.GetRole();
 
-        // Admin wildcard check
         if (role == Common.Constants.Roles.Admin)
             return true;
 

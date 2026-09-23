@@ -1,7 +1,5 @@
 namespace EBI.ALAS.Api.Features.Loans.Computation;
 
-// ─── Config & input records ─────────────────────────────────────────────
-
 /// <summary>Per-product fee schedule rates. Config-driven from LoanProduct table.</summary>
 public record FeeSchedule(
     decimal ApplicationChargeRate,
@@ -104,8 +102,6 @@ public record LoanComputationInput(
     IReadOnlyList<ObligationRow> BuyOuts,
     IReadOnlyList<decimal> IncomingDeductions);
 
-// ─── Results ────────────────────────────────────────────────────────────
-
 /// <summary>
 /// Full set of derived loan metrics. Snapshot columns
 /// (TotalDeductions, GrossProceeds, MonthlyAmortization, TotalExposure,
@@ -132,8 +128,6 @@ public record LoanComputationResults(
     bool AmortizationExceedsDisposable,
     bool NthpBelowMinimum);
 
-// ─── Service contract ───────────────────────────────────────────────────
-
 public interface ILoanComputationService
 {
     /// <summary>
@@ -149,8 +143,6 @@ public interface ILoanComputationService
     /// </summary>
     LoanComputationResults ComputeLoanMetrics(LoanComputationInput input);
 }
-
-// ─── Implementation ─────────────────────────────────────────────────────
 
 /// <summary>
 /// Authoritative loan computation engine. Mirrors the LAM Excel workbook
@@ -196,7 +188,7 @@ public sealed class LoanComputationService : ILoanComputationService
         var proposed = input.ProposedAmount;
         var product = input.Product;
 
-        // ── Row 1–4: Deductions ──────────────────────────────────────
+        // Row 1–4: Deductions
         var totalDeductions = Round(
             input.Fees.ApplicationCharge
             + input.Fees.DocStamp
@@ -204,16 +196,16 @@ public sealed class LoanComputationService : ILoanComputationService
             + input.Fees.Insurance
             + input.Fees.AdvanceInterest);
 
-        // ── Row 5: Gross Proceeds ────────────────────────────────────
+        // Row 5: Gross Proceeds
         var grossProceeds = Round(proposed - totalDeductions);
 
-        // ── Row 6–7: Net Proceeds ────────────────────────────────────
+        // Row 6–7: Net Proceeds
         var totalAccountsBalance = Round(Sum(input.Reloans.Select(r => r.OutstandingBalance)));
         var netProceedsOnDS = Round(grossProceeds - totalAccountsBalance);
         var totalBuyOutBalance = Round(Sum(input.BuyOuts.Select(b => b.OutstandingBalance)));
         var netProceedsToClient = Round(netProceedsOnDS - totalBuyOutBalance);
 
-        // ── Row 8–9: Term & Amortization ─────────────────────────────
+        // Row 8–9: Term & Amortization
         // Use PolicyTermMonths when available (authoritative for amortization);
         // fall back to TermDays / 30 only when PolicyTermMonths is not set.
         var termMonths = product.PolicyTermMonths > 0
@@ -229,10 +221,10 @@ public sealed class LoanComputationService : ILoanComputationService
 
         var monthlyAmortization = Math.Max(diminishingAmortization, minimumAmortization);
 
-        // ── Row 10: Total Exposure ───────────────────────────────────
+        // Row 10: Total Exposure
         var totalExposure = Round(proposed + Sum(input.OutstandingPrincipalBalances));
 
-        // ── Row 11–14: Disposable Income Chain ───────────────────────
+        // Row 11–14: Disposable Income Chain
         var releasedDeductions = Round(
             Sum(input.Reloans.Select(r => r.Deductions))
             + Sum(input.BuyOuts.Select(b => b.Deductions)));
@@ -242,12 +234,12 @@ public sealed class LoanComputationService : ILoanComputationService
         var capacityDeductions = Round(input.MinimumNthp + Sum(input.IncomingDeductions));
         var netDisposableIncome = Round(grossDisposableIncome - capacityDeductions);
 
-        // ── Row 15: Maximum Loanable Amount (closed-form) ────────────
+        // Row 15: Maximum Loanable Amount (closed-form)
         var maximumLoanableAmount = factor > 0
             ? FloorToStep(netDisposableIncome / factor, product.MaxLoanableStep)
             : 0m;
 
-        // ── Row 16: Gates ────────────────────────────────────────────
+        // Row 16: Gates
         var amortizationExceedsDisposable = monthlyAmortization > netDisposableIncome;
         var nthpBelowMinimum = input.NetTakeHomePay < input.MinimumNthp;
 
@@ -271,8 +263,6 @@ public sealed class LoanComputationService : ILoanComputationService
             AmortizationExceedsDisposable: amortizationExceedsDisposable,
             NthpBelowMinimum: nthpBelowMinimum);
     }
-
-    // ─── Annuity factor ──────────────────────────────────────────────
 
     /// <summary>
     /// Standard annuity factor: i(1+i)^n / ((1+i)^n - 1).
@@ -309,8 +299,6 @@ public sealed class LoanComputationService : ILoanComputationService
 
         return result;
     }
-
-    // ─── Helpers ─────────────────────────────────────────────────────
 
     private static decimal Sum(IEnumerable<decimal> values) => values.Sum();
 

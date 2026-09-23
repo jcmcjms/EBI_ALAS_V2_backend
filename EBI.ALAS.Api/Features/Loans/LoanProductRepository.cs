@@ -42,7 +42,6 @@ public class LoanProductRepository(AppDbContext context) : ILoanProductRepositor
         //   * preservePolicyFields=false → admin endpoint. Caller
         //     supplied the full record; overwrite the row wholesale.
         //     updatedByUserId is the caller-resolved User.Id.
-        //
         // Both paths bump UpdatedDate to `updatedDate` (server-supplied
         // via ITimeProvider, not DateTime.UtcNow) and set UpdatedById
         // from `updatedByUserId`. Centralizing the audit-field writes
@@ -50,7 +49,6 @@ public class LoanProductRepository(AppDbContext context) : ILoanProductRepositor
         // "the row changed" — every successful SaveChangesAsync
         // touches UpdatedDate, so the admin grid's "last modified"
         // column reflects reality across both paths.
-        //
         // Why merge instead of delete+insert: the PK is the natural
         // key (Code) — the row has no surrogate Id — so a
         // delete+insert would change nothing observable but would
@@ -66,7 +64,6 @@ public class LoanProductRepository(AppDbContext context) : ILoanProductRepositor
             // a sync-inserted row is hidden from the dropdown until
             // the FIRST sync run explicitly marks it active. Prevents
             // a half-configured mirror from leaking into production.
-            //
             // Audit fields: stamp UpdatedDate at insert time so a
             // brand-new row already carries a "when did this enter the
             // mirror?" signal. UpdatedById is whatever the caller
