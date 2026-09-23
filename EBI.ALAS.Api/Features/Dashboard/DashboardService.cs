@@ -266,6 +266,7 @@ public class DashboardService : IDashboardService
             .ToList();
 
         // 8 ── Document completion queue (incomplete documents waiting on encoder).
+        //     Now shows reviewer-flagged files only (not system-held).
         var docQueueRows = await _context.WorkflowQueueItems.AsNoTracking()
             .Where(i => i.Stage == QueueStage.DocumentCompletion && i.State != QueueItemState.Completed)
             .Where(i => !scoped || i.LoanApplication.BranchCode == branchCode)
@@ -279,12 +280,22 @@ public class DashboardService : IDashboardService
                 EncoderName = i.LoanApplication.CreatedBy.FirstName + " " + i.LoanApplication.CreatedBy.LastName,
                 i.EnqueuedAt,
                 MissingCount = i.LoanApplication.DocumentChecklists.Count(d => d.Status == "Missing" || d.Status == "Pending"),
+                FlaggedByName = _context.LoanActions
+                    .Where(a => a.LoanApplicationId == i.LoanApplicationId && a.ToStatus == "ForIncompleteDocuments")
+                    .OrderByDescending(a => a.ActionDate)
+                    .Select(a => a.ActionByUser.FirstName + " " + a.ActionByUser.LastName)
+                    .FirstOrDefault(),
+                FlaggedAt = _context.LoanActions
+                    .Where(a => a.LoanApplicationId == i.LoanApplicationId && a.ToStatus == "ForIncompleteDocuments")
+                    .OrderByDescending(a => a.ActionDate)
+                    .Select(a => (DateTime?)a.ActionDate)
+                    .FirstOrDefault(),
             })
             .Take(QueueSize)
             .ToListAsync(ct);
 
         var documentQueue = docQueueRows
-            .Select((d, i) => new DocumentQueueItemDto(d.LoanApplicationId, i + 1, d.LamId, d.BranchCode, d.EnqueuedAt, d.MissingCount, d.ClientName, d.EncoderName))
+            .Select((d, i) => new DocumentQueueItemDto(d.LoanApplicationId, i + 1, d.LamId, d.BranchCode, d.EnqueuedAt, d.MissingCount, d.ClientName, d.EncoderName, d.FlaggedByName, d.FlaggedAt))
             .ToList();
 
         return new DashboardOverviewResponse(
