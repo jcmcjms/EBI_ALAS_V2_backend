@@ -56,6 +56,16 @@ public class RefreshTokenRepository : IRefreshTokenRepository
         }
     }
 
+    /// <inheritdoc/>
+    public async Task<bool> IsTokenRevokedAsync(string tokenHash)
+    {
+        // Check if a token with this hash exists and is revoked.
+        // This enables reuse detection — a revoked token being presented
+        // again indicates it was stolen and already rotated.
+        return await _context.RefreshTokens
+            .AnyAsync(t => t.TokenHash == tokenHash && t.IsRevoked);
+    }
+
     public async Task RevokeAllUserTokensAsync(int userId)
     {
         var activeTokens = await _context.RefreshTokens
@@ -76,14 +86,29 @@ public class RefreshTokenRepository : IRefreshTokenRepository
 
     public async Task<int> CleanupExpiredTokensAsync()
     {
-        // EF Core 8 bulk DELETE — translates to a single
-        //   DELETE FROM RefreshTokens WHERE ExpiresAt < @now OR AbsoluteExpiry < @now
-        // bounded by the IX_RefreshTokens_ExpiresAt covering index. No
-        // SELECT roundtrip, no entity hydration, no change-tracker
-        // pollution. The int return is the row count deleted (informational;
-        // the hosted-service caller logs it).
-        return await _context.RefreshTokens
-            .Where(t => t.ExpiresAt < _timeProvider.UtcNow || t.AbsoluteExpiry < _timeProvider.UtcNow)
-            .ExecuteDeleteAsync();
+        // Batched DELETE to prevent log growth and lock escalation on large tables.
+        // The original unbounded ExecuteDeleteAsync on a table with hundreds of millions
+        // of rows would cause SQL Server log growth and block live logins.
+        // Loop with DELETE TOP (10000) until no more rows are eligible.
+        const int batchSize = 10_000;
+        var totalDeleted = 0;
+
+        while (true)
+        {
+            var deleted = await _context.RefreshTokens
+                .Where(t => t.ExpiresAt < _timeProvider.UtcNow || t.AbsoluteExpiry < _timeProvider.UtcNow)
+                .Take(batchSize)
+                .ExecuteDeleteAsync();
+
+            totalDeleted += deleted;
+
+            if (deleted < batchSize)
+                break; // No more rows to delete
+
+            // Yield between batches to avoid monopolizing the connection
+            await Task.Delay(100);
+        }
+
+        return totalDeleted;
     }
 }
