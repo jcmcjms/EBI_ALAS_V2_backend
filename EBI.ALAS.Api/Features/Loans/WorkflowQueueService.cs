@@ -4,6 +4,7 @@ using EBI.ALAS.Api.Features.Auth;
 using EBI.ALAS.Api.Features.Notifications;
 using EBI.ALAS.Api.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 
 namespace EBI.ALAS.Api.Features.Loans;
 
@@ -14,19 +15,22 @@ public class WorkflowQueueService : IWorkflowQueueService
     private readonly INotificationService _notifications;
     private readonly IRealtimeNotificationService _realtime;
     private readonly ITimeProvider _time;
+    private readonly IOptionsMonitor<QueueOptions> _queueOptions;
 
     public WorkflowQueueService(
         AppDbContext db,
         ILoanRepository loanRepo,
         INotificationService notifications,
         IRealtimeNotificationService realtime,
-        ITimeProvider time)
+        ITimeProvider time,
+        IOptionsMonitor<QueueOptions> queueOptions)
     {
         _db = db;
         _loanRepo = loanRepo;
         _notifications = notifications;
         _realtime = realtime;
         _time = time;
+        _queueOptions = queueOptions;
     }
 
     /// <summary>
@@ -266,5 +270,167 @@ public class WorkflowQueueService : IWorkflowQueueService
         return headItem is not null
                && headItem.LoanApplicationId == loanId
                && headItem.OwnerUserId == userId;
+    }
+
+    // ── Review Desk: atomic head-lease ──────────────────────────────────
+
+    /// <summary>
+    /// Maps a role + branch code to the set of partition keys the reviewer
+    /// can claim from. Recommender → REC:{bch}, Evaluator → EVA:{bch},
+    /// Approver → all APP:{bch}:{tier} the approval matrix authorizes.
+    /// </summary>
+    private async Task<List<string>> DeskPartitionsAsync(string role, string branchCode, CancellationToken ct)
+    {
+        return role switch
+        {
+            Roles.Recommender => [$"REC:{branchCode}"],
+            Roles.Evaluator => [$"EVA:{branchCode}"],
+            Roles.Approver =>
+            [
+                ..(await _db.ApprovalAuthorities.AsNoTracking()
+                    .Select(a => a.Tier)
+                    .Distinct()
+                    .ToListAsync(ct))
+                    .Select(tier => $"APP:{branchCode}:{tier}")
+            ],
+            _ => [],
+        };
+    }
+
+    /// <summary>
+    /// Human-readable desk label for the UI.
+    /// </summary>
+    private static string DeskLabelFor(string role) => role switch
+    {
+        Roles.Recommender => "Recommendation",
+        Roles.Evaluator => "Evaluation",
+        Roles.Approver => "Approval",
+        _ => "Review",
+    };
+
+    public async Task<ClaimResponse?> ClaimHeadAsync(
+        int userId, string role, string branchCode, CancellationToken ct)
+    {
+        var prefixes = await DeskPartitionsAsync(role, branchCode, ct);
+        if (prefixes.Count == 0) return null;
+
+        var now = _time.UtcNow;
+        var stealBefore = now.AddMinutes(-_queueOptions.CurrentValue.LeaseTtlMinutes);
+
+        // Bounded optimistic-concurrency loop: pick the FIFO candidate, then
+        // win it with a conditional UPDATE. Losers retry on the next head;
+        // after 3 misses the desk is genuinely busy → null, never a double-lease.
+        for (var attempt = 0; attempt < 3; attempt++)
+        {
+            var candidate = await _db.WorkflowQueueItems.AsNoTracking()
+                .Where(i => i.State == QueueItemState.Active
+                            && prefixes.Contains(i.PartitionKey)
+                            && (i.OwnerUserId == null
+                                || i.OwnerUserId == userId
+                                || i.LeasedAt <= stealBefore))
+                .OrderBy(i => i.EnqueuedAt).ThenBy(i => i.Id)
+                .Select(i => new { i.Id, i.LoanApplicationId, i.PartitionKey })
+                .FirstOrDefaultAsync(ct);
+
+            if (candidate is null) return null;
+
+            var won = await _db.WorkflowQueueItems
+                .Where(i => i.Id == candidate.Id
+                            && i.State == QueueItemState.Active
+                            && (i.OwnerUserId == null
+                                || i.OwnerUserId == userId
+                                || i.LeasedAt <= stealBefore))
+                .ExecuteUpdateAsync(s => s
+                    .SetProperty(i => i.OwnerUserId, userId)
+                    .SetProperty(i => i.LeasedAt, now), ct);
+
+            if (won == 1)
+            {
+                // Load the loan for the response DTO
+                var loan = await _db.LoanApplications.AsNoTracking()
+                    .Where(l => l.Id == candidate.LoanApplicationId)
+                    .Select(l => new { l.Id, l.LamId, l.FirstName, l.LastName, l.Status })
+                    .FirstOrDefaultAsync(ct);
+
+                if (loan is null) return null;
+
+                var clientName = $"{loan.FirstName} {loan.LastName}".Trim();
+                return new ClaimResponse(loan.Id, loan.LamId, clientName, loan.Status, now);
+            }
+            // Lost the race — retry on the next head
+        }
+
+        return null; // contended desk → caller surfaces "queue is busy, retry"
+    }
+
+    public async Task<DeskQueueResponse> GetDeskAsync(
+        int userId, string role, string branchCode, CancellationToken ct)
+    {
+        var prefixes = await DeskPartitionsAsync(role, branchCode, ct);
+        if (prefixes.Count == 0)
+            return new DeskQueueResponse(DeskLabelFor(role), [], null);
+
+        var items = await _db.WorkflowQueueItems.AsNoTracking()
+            .Include(i => i.OwnerUser)
+            .Include(i => i.LoanApplication)
+            .Where(i => prefixes.Contains(i.PartitionKey)
+                        && i.State == QueueItemState.Active)
+            .OrderBy(i => i.EnqueuedAt).ThenBy(i => i.Id)
+            .ToListAsync(ct);
+
+        var rank = 0;
+        var dtos = new List<QueuedLoanDto>(items.Count);
+        QueuedLoanDto? currentClaim = null;
+
+        foreach (var item in items)
+        {
+            rank++;
+            var ownerName = item.OwnerUser == null
+                ? null
+                : $"{item.OwnerUser.FirstName} {item.OwnerUser.LastName}";
+            var clientName = item.LoanApplication == null
+                ? "Unknown"
+                : $"{item.LoanApplication.FirstName} {item.LoanApplication.LastName}".Trim();
+
+            var dto = new QueuedLoanDto(
+                item.LoanApplicationId,
+                item.LoanApplication?.LamId ?? "",
+                clientName,
+                rank,
+                rank == 1,
+                item.OwnerUserId,
+                ownerName,
+                item.EnqueuedAt,
+                item.LoanApplication?.Status ?? "");
+
+            dtos.Add(dto);
+
+            if (item.OwnerUserId == userId)
+                currentClaim = dto;
+        }
+
+        return new DeskQueueResponse(DeskLabelFor(role), dtos, currentClaim);
+    }
+
+    public async Task<bool> ReleaseClaimAsync(int userId, CancellationToken ct)
+    {
+        var item = await _db.WorkflowQueueItems
+            .FirstOrDefaultAsync(i =>
+                i.OwnerUserId == userId
+                && i.State == QueueItemState.Active, ct);
+
+        if (item is null) return false;
+
+        item.OwnerUserId = null;
+        item.LeasedAt = null;
+        await _db.SaveChangesAsync(ct);
+
+        // Re-promote: the head is now unowned, so the next claim wins it.
+        // The existing PromoteAsync handles this, but we need the loan to call it.
+        var loan = await _db.LoanApplications.FindAsync([item.LoanApplicationId], ct);
+        if (loan is not null)
+            await PromoteAsync(item.PartitionKey, loan, ct);
+
+        return true;
     }
 }
