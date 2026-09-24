@@ -41,6 +41,10 @@ public sealed class QueueReconciliationHostedService : BackgroundService
                 var queueService = scope.ServiceProvider.GetRequiredService<IWorkflowQueueService>();
 
                 // 1. Dequeue stale items (loan status no longer matches stage)
+                // Note: ForIncompleteDocuments is a tracking state with no queue row.
+                // After the cleanup script (release_doc_queue_rows.sql) runs, no
+                // DocumentCompletion items should exist. The stale-item check below
+                // covers the three real desks only.
                 var staleItems = await db.WorkflowQueueItems
                     .Include(i => i.LoanApplication)
                     .Where(i => i.State == QueueItemState.Queued || i.State == QueueItemState.Active)
