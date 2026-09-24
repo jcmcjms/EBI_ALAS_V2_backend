@@ -71,6 +71,8 @@ builder.Services.AddBankingCaching(configuration);
 builder.Services.AddApplicationServices();
 builder.Services.Configure<WorkflowOptions>(
     configuration.GetSection(WorkflowOptions.SectionName));
+builder.Services.Configure<QueueOptions>(
+    configuration.GetSection(QueueOptions.SectionName));
 
 builder.Services.AddBankingMessaging(configuration);
 
