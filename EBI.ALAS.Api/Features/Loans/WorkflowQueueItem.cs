@@ -58,6 +58,12 @@ public class WorkflowQueueItem
     /// <summary>Timestamp when this item was promoted to Active.</summary>
     public DateTime? PromotedAt { get; set; }
 
+    /// <summary>
+    /// Timestamp when the current owner claimed this item via the Review Desk.
+    /// Null when unowned. Past <c>Queue:LeaseTtlMinutes</c> = stealable.
+    /// </summary>
+    public DateTime? LeasedAt { get; set; }
+
     /// <summary>Timestamp when this item was dequeued (status transition or cancel).</summary>
     public DateTime? DequeuedAt { get; set; }
 }

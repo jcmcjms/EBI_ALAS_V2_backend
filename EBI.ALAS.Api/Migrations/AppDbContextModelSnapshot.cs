@@ -1305,6 +1305,9 @@ namespace EBI.ALAS.Api.Migrations
                     b.Property<DateTime>("EnqueuedAt")
                         .HasColumnType("datetime2");
 
+                    b.Property<DateTime?>("LeasedAt")
+                        .HasColumnType("datetime2");
+
                     b.Property<int>("LoanApplicationId")
                         .HasColumnType("int");
 
@@ -1331,12 +1334,14 @@ namespace EBI.ALAS.Api.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("OwnerUserId");
-
                     b.HasIndex("LoanApplicationId", "Stage")
                         .IsUnique()
                         .HasDatabaseName("IX_WorkflowQueueItems_Loan_Stage_Live")
                         .HasFilter("[State] IN ('Queued','Active')");
+
+                    b.HasIndex("OwnerUserId", "LeasedAt")
+                        .HasDatabaseName("IX_WorkflowQueueItems_Owner_LeasedAt")
+                        .HasFilter("[OwnerUserId] IS NOT NULL");
 
                     b.HasIndex("PartitionKey", "State")
                         .IsUnique()
