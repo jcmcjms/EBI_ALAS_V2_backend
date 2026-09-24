@@ -34,10 +34,13 @@ public static class LoanEndpoints
             int id,
             ClaimsPrincipal principal,
             ILoanAssignmentService assignment,
+            IWorkflowQueueService queue,
             CancellationToken ct) =>
         {
             var userId = principal.GetUserId();
             await assignment.ReleaseAsync(id, userId, ct);
+            // Also clear the queue item lease so the desk recovers.
+            await queue.ReleaseClaimAsync(userId, ct);
             return Results.Ok(ApiResponse.SuccessResponse("Assignment released."));
         })
         .WithName("ReleaseAssignment")
