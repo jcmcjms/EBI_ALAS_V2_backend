@@ -54,6 +54,12 @@ public class WorkflowQueueItemConfiguration : IEntityTypeConfiguration<WorkflowQ
         builder.HasIndex(e => new { e.State, e.OwnerUserId })
             .HasDatabaseName("IX_WorkflowQueueItems_State_OwnerUserId");
 
+        // Lease expiry sweep: QueueReconciliationHostedService finds
+        // stealable leases (OwnerUserId != null && LeasedAt <= stealBefore).
+        builder.HasIndex(e => new { e.OwnerUserId, e.LeasedAt })
+            .HasFilter("[OwnerUserId] IS NOT NULL")
+            .HasDatabaseName("IX_WorkflowQueueItems_Owner_LeasedAt");
+
         // FK to LoanApplication. Cascade — deleting a loan cleans its queue rows.
         builder.HasOne(e => e.LoanApplication)
             .WithMany()
