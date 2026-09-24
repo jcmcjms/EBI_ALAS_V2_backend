@@ -37,6 +37,21 @@ public sealed class WorkflowOptions
     public decimal MinimumNthp { get; set; } = 5_800m;
 }
 
+/// <summary>
+/// Review Desk queue tuning. Bound from appsettings "Queue" section.
+/// IOptionsMonitor means changes take effect on the next request without restart.
+/// </summary>
+public sealed class QueueOptions
+{
+    public const string SectionName = "Queue";
+
+    /// <summary>
+    /// Minutes before a lease is considered abandoned and stealable.
+    /// Default 30 — a reviewer who crashes or walks away doesn't hold a desk hostage.
+    /// </summary>
+    public int LeaseTtlMinutes { get; set; } = 30;
+}
+
 public interface IWorkflowConfiguration
 {
     bool RequireRecommendation { get; }
