@@ -20,7 +20,6 @@ public enum QueueStage
     Recommendation,
     Evaluation,
     Approval,
-    DocumentCompletion,
 }
 
 public enum QueueItemState

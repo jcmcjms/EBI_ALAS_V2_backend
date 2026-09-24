@@ -112,7 +112,9 @@ public sealed class DocumentGateService(
 
         if (WorkflowQueueService.StageForStatus(from) != null)
             await queueService.DequeueAndPromoteAsync(loan, from, ct);
-        await queueService.EnqueueAsync(loan, "ForIncompleteDocuments", ct);
+        // ForIncompleteDocuments is a tracking state — no queue row.
+        // Document completion is parallel work; reviewers may route flagged
+        // files at any time without occupying a FIFO desk.
 
         await auditLogger.LogActionAsync(loan.Id, actorUserId, "StatusChanged", from,
             "ForIncompleteDocuments",
@@ -151,7 +153,8 @@ public sealed class DocumentGateService(
         loan.LastActionDate = timeProvider.UtcNow;
         await db.SaveChangesAsync(ct);
 
-        await queueService.DequeueAndPromoteAsync(loan, from, ct);
+        // from-status is ForIncompleteDocuments (tracking state, no queue row),
+        // so only the destination enqueue runs — FIFO resumes at the real desk.
         await queueService.EnqueueAsync(loan, target, ct);
 
         await auditLogger.LogActionAsync(loan.Id, actor, "StatusChanged", from, target,

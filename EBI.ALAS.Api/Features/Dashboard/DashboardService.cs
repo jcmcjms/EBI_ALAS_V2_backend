@@ -88,9 +88,20 @@ public class DashboardService : IDashboardService
         var activeSinceUtc = _timeProvider.UtcNow.Add(-ActiveWindow);
         var servingSinceUtc = _timeProvider.UtcNow.Add(-ServingWindow);
 
+        // Statuses where a human action is still owed — this IS the "pending" queue.
+        // ForIncompleteDocuments is a tracking state (no queue row), but it IS
+        // pending work for encoders (upload missing docs) and evaluators (route
+        // the flagged file). Other roles never see it in their pending count.
+        var pendingStatuses = role switch
+        {
+            Roles.Encoder => PendingStatuses.Concat(["ForIncompleteDocuments"]).ToArray(),
+            Roles.Evaluator => PendingStatuses.Concat(["ForIncompleteDocuments"]).ToArray(),
+            _ => PendingStatuses,
+        };
+
         // 1 ── Pending queue (oldest first) + total.
         var pendingRows = await loans
-            .Where(l => PendingStatuses.Contains(l.Status))
+            .Where(l => pendingStatuses.Contains(l.Status))
             .OrderBy(l => l.LastActionDate)
             .Select(l => new
             {
@@ -102,7 +113,7 @@ public class DashboardService : IDashboardService
             .ToListAsync(ct);
 
         var pendingTotal = await loans
-            .CountAsync(l => PendingStatuses.Contains(l.Status), ct);
+            .CountAsync(l => pendingStatuses.Contains(l.Status), ct);
 
         // 2 ── Submission delta (today vs yesterday).
         var submittedToday = await loans
@@ -266,27 +277,27 @@ public class DashboardService : IDashboardService
             .ToList();
 
         // 8 ── Document completion queue (incomplete documents waiting on encoder).
-        //     Now shows reviewer-flagged files only (not system-held).
-        var docQueueRows = await _context.WorkflowQueueItems.AsNoTracking()
-            .Where(i => i.Stage == QueueStage.DocumentCompletion && i.State != QueueItemState.Completed)
-            .Where(i => !scoped || i.LoanApplication.BranchCode == branchCode)
-            .OrderBy(i => i.PartitionKey).ThenBy(i => i.EnqueuedAt).ThenBy(i => i.Id)
-            .Select(i => new
+        //     ForIncompleteDocuments is a tracking state — no queue row — so we
+        //     query LoanApplications directly by status instead of WorkflowQueueItems.
+        var docQueueRows = await loans
+            .Where(l => l.Status == "ForIncompleteDocuments")
+            .OrderBy(l => l.LastActionDate)
+            .Select(l => new
             {
-                i.LoanApplicationId,
-                i.LoanApplication.LamId,
-                i.LoanApplication.BranchCode,
-                ClientName = i.LoanApplication.FirstName + " " + i.LoanApplication.LastName,
-                EncoderName = i.LoanApplication.CreatedBy.FirstName + " " + i.LoanApplication.CreatedBy.LastName,
-                i.EnqueuedAt,
-                MissingCount = i.LoanApplication.DocumentChecklists.Count(d => d.Status == "Missing" || d.Status == "Pending"),
+                l.Id,
+                l.LamId,
+                l.BranchCode,
+                ClientName = l.FirstName + " " + l.LastName,
+                EncoderName = l.CreatedBy.FirstName + " " + l.CreatedBy.LastName,
+                l.LastActionDate,
+                MissingCount = l.DocumentChecklists.Count(d => d.Status == "Missing" || d.Status == "Pending"),
                 FlaggedByName = _context.LoanActions
-                    .Where(a => a.LoanApplicationId == i.LoanApplicationId && a.ToStatus == "ForIncompleteDocuments")
+                    .Where(a => a.LoanApplicationId == l.Id && a.ToStatus == "ForIncompleteDocuments")
                     .OrderByDescending(a => a.ActionDate)
                     .Select(a => a.ActionByUser.FirstName + " " + a.ActionByUser.LastName)
                     .FirstOrDefault(),
                 FlaggedAt = _context.LoanActions
-                    .Where(a => a.LoanApplicationId == i.LoanApplicationId && a.ToStatus == "ForIncompleteDocuments")
+                    .Where(a => a.LoanApplicationId == l.Id && a.ToStatus == "ForIncompleteDocuments")
                     .OrderByDescending(a => a.ActionDate)
                     .Select(a => (DateTime?)a.ActionDate)
                     .FirstOrDefault(),
@@ -295,7 +306,7 @@ public class DashboardService : IDashboardService
             .ToListAsync(ct);
 
         var documentQueue = docQueueRows
-            .Select((d, i) => new DocumentQueueItemDto(d.LoanApplicationId, i + 1, d.LamId, d.BranchCode, d.EnqueuedAt, d.MissingCount, d.ClientName, d.EncoderName, d.FlaggedByName, d.FlaggedAt))
+            .Select((d, i) => new DocumentQueueItemDto(d.Id, i + 1, d.LamId, d.BranchCode, d.LastActionDate, d.MissingCount, d.ClientName, d.EncoderName, d.FlaggedByName, d.FlaggedAt))
             .ToList();
 
         return new DashboardOverviewResponse(

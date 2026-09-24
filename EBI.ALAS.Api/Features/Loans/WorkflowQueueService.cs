@@ -38,7 +38,10 @@ public class WorkflowQueueService : IWorkflowQueueService
         "ForRecommendation" => QueueStage.Recommendation,
         "ForChecking" => QueueStage.Evaluation,
         "ForApproval" => QueueStage.Approval,
-        "ForIncompleteDocuments" => QueueStage.DocumentCompletion,
+        // ForIncompleteDocuments is a tracking state, not a turn-based desk.
+        // Document completion is parallel work (no head owner); reviewers may
+        // route flagged files at any time. Returning null keeps the ownership
+        // guard and FIFO promotion out of the flagged state entirely.
         _ => null,
     };
 
@@ -50,7 +53,6 @@ public class WorkflowQueueService : IWorkflowQueueService
     private static string PartitionKey(QueueStage stage, LoanApplication loan) => stage switch
     {
         QueueStage.Approval => $"APP:{loan.BranchCode}:{loan.RequiredApprovalTier ?? 0}",
-        QueueStage.DocumentCompletion => $"DOC:{loan.BranchCode}",
         _ => $"{stage.ToString()[..3].ToUpperInvariant()}:{loan.BranchCode}",
     };
 
@@ -147,7 +149,6 @@ public class WorkflowQueueService : IWorkflowQueueService
         {
             QueueStage.Recommendation => Roles.Recommender,
             QueueStage.Evaluation => Roles.Evaluator,
-            QueueStage.DocumentCompletion => Roles.Encoder,
             _ => Roles.Approver,
         };
 
