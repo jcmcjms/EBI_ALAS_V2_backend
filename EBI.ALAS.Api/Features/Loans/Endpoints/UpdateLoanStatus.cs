@@ -91,8 +91,14 @@ public static class UpdateLoanStatus
                 loan.DocumentsCompleteAt = completeness.Complete ? timeProvider.UtcNow : null;
             }
 
-            if (request.Status == "ForApproval" && fromStatus == "ForChecking")
+            if (request.Status == "ForApproval" && fromStatus is "ForChecking" or "ForIncompleteDocuments")
             {
+                // Only stamp completeness when the file actually left the checking desk.
+                // From ForIncompleteDocuments the documents are still missing — that's
+                // the reviewer exercising discretion with justification.
+                if (fromStatus == "ForChecking")
+                    loan.DocumentsCompleteAt = timeProvider.UtcNow;
+
                 var decision = await routingService.RouteAsync(loan, ct);
                 loan.DeviationSeverity = decision.Severity;
                 loan.RequiredApprovalTier = decision.Tier;
@@ -119,7 +125,7 @@ public static class UpdateLoanStatus
             }
 
             var verdict = request.Verdict;
-            if (fromStatus == "ForChecking" && request.Status == "ForApproval"
+            if (fromStatus is "ForChecking" or "ForIncompleteDocuments" && request.Status == "ForApproval"
                 && userRole == Roles.Evaluator)
             {
                 if (verdict is not ("Recommended" or "NotRecommended"))
@@ -129,7 +135,7 @@ public static class UpdateLoanStatus
             else if (verdict is not null)
             {
                 return Results.BadRequest(ApiResponse.ErrorResponse(
-                    "A verdict is only accepted on the evaluator's ForChecking → ForApproval transition."));
+                    "A verdict is only accepted on the evaluator's ForChecking/ForIncompleteDocuments → ForApproval transition."));
             }
 
             // Apply the permission-based authorization that was registered but never used.
@@ -159,14 +165,6 @@ public static class UpdateLoanStatus
                 return Results.Ok(ApiResponse.SuccessResponse("File flagged as lacking documents."));
             }
 
-            // Reviewer proceeding with a flagged file: justification is mandatory.
-            if (fromStatus == "ForIncompleteDocuments" && request.Status is "ForApproval" or "ForRecommendation"
-                && string.IsNullOrWhiteSpace(comments))
-            {
-                return Results.UnprocessableEntity(ApiResponse.ErrorResponse(
-                    "Proceeding with missing documents requires a written justification."));
-            }
-
             if (fromStatus == "ForIncompleteDocuments" && request.Status == "ForChecking")
             {
                 if (request.SubmittedRequirementCodes is { Count: > 0 })
@@ -186,8 +184,8 @@ public static class UpdateLoanStatus
 
             var actionName = (fromStatus, request.Status, verdict) switch
             {
-                ("ForChecking", "ForApproval", "NotRecommended") => "EvaluatedNotRecommended",
-                ("ForChecking", "ForApproval", "Recommended")    => "EvaluatedRecommended",
+                ("ForChecking" or "ForIncompleteDocuments", "ForApproval", "NotRecommended") => "EvaluatedNotRecommended",
+                ("ForChecking" or "ForIncompleteDocuments", "ForApproval", "Recommended")    => "EvaluatedRecommended",
                 (_, "ForRevision", _)                            => "PushedBack",
                 _                                                => "StatusChanged",
             };

@@ -56,9 +56,14 @@ public class LoanWorkflowService : ILoanWorkflowService
             [("ForIncompleteDocuments", "ForChecking")] = Roles.Encoder,
             [("ForIncompleteDocuments", "Cancelled")] = Roles.Encoder,
 
-            // ── Reviewer discretion: a flagged file can still proceed to approval
-            //    (endpoint requires a written justification). Admin keeps the escape hatch.
+            // ── Evaluator edges from the flagged desk: identical to ForChecking.
+            //    Recommend / Not Recommend → ForApproval with verdict,
+            //    Push back → ForRevision. Remarks remain mandatory on every edge,
+            //    so the written justification lives in the normal audit trail.
             [("ForIncompleteDocuments", "ForApproval")] = Roles.Evaluator,
+            [("ForIncompleteDocuments", "ForRevision")] = Roles.Evaluator,
+
+            // ── Admin escape hatch (document server wrong/unavailable).
             [("ForIncompleteDocuments", "ForRecommendation")] = Roles.Admin,
             [("ForApproval", "Approved")] = Roles.Approver,
             [("ForApproval", "Rejected")] = Roles.Approver,

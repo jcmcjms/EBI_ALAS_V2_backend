@@ -106,10 +106,14 @@ public sealed class LoanStatusTransitionService(
         }
 
         // Approval routing (same as UpdateLoanStatus endpoint).
-        // Documents no longer block approval — reviewers may proceed with justification.
-        if (targetStatus == "ForApproval" && fromStatus == "ForChecking")
+        if (targetStatus == "ForApproval" && fromStatus is "ForChecking" or "ForIncompleteDocuments")
         {
-            loan.DocumentsCompleteAt = timeProvider.UtcNow;
+            // Only stamp completeness when the file actually left the checking desk.
+            // From ForIncompleteDocuments the documents are still missing — that's
+            // the reviewer exercising discretion with justification.
+            if (fromStatus == "ForChecking")
+                loan.DocumentsCompleteAt = timeProvider.UtcNow;
+
             var decision = await routingService.RouteAsync(loan, ct);
             loan.DeviationSeverity = decision.Severity;
             loan.RequiredApprovalTier = decision.Tier;
@@ -117,18 +121,10 @@ public sealed class LoanStatusTransitionService(
             await assignmentService.AssignAsync(loan, ct);
         }
 
-        // Reviewer proceeding with a flagged file: justification is mandatory.
-        if (fromStatus == "ForIncompleteDocuments" && targetStatus is "ForApproval" or "ForRecommendation"
-            && string.IsNullOrWhiteSpace(comments))
-        {
-            return new LoanTransitionResult(loan.LamId,
-                "Proceeding with missing documents requires a written justification.");
-        }
-
         var actionName = (fromStatus, targetStatus, verdict) switch
         {
-            ("ForChecking", "ForApproval", "NotRecommended") => "EvaluatedNotRecommended",
-            ("ForChecking", "ForApproval", "Recommended") => "EvaluatedRecommended",
+            ("ForChecking" or "ForIncompleteDocuments", "ForApproval", "NotRecommended") => "EvaluatedNotRecommended",
+            ("ForChecking" or "ForIncompleteDocuments", "ForApproval", "Recommended")    => "EvaluatedRecommended",
             (_, "ForRevision", _) => "PushedBack",
             _ => "StatusChanged",
         };
