@@ -493,4 +493,20 @@ public class WebLoanRepository(IDbContextFactory<WebLoanDbContext> contextFactor
         if (strResult == "__NULL__") return string.Empty;
         return strResult;
     }
+
+    public async Task<IReadOnlyList<CheckListData>> GetCocreeItemsAsync(
+        string cisNo,
+        CancellationToken ct = default)
+    {
+        // Single query using the composite PK index (cis_no, check_list_item).
+        // The IN-clause filters to CCR01–CCR11; the PK index covers
+        // (cis_no, check_list_item) exactly → index seek + range scan.
+        // Returns ≤11 rows; AsNoTracking for read-only perf.
+        await using var context = await contextFactory.CreateDbContextAsync(ct);
+        return await context.CheckListDatas
+            .AsNoTracking()
+            .Where(c => c.CisNo == cisNo
+                        && CheckListData.CocreeItems.Contains(c.CheckListItem))
+            .ToListAsync(ct);
+    }
 }

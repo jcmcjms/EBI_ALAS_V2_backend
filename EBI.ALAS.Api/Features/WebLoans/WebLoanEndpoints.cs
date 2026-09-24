@@ -147,6 +147,26 @@ public static class WebLoanEndpoints
         .Produces<ApiResponse<IReadOnlyList<LoanProductDto>>>(200)
         .Produces<ApiResponse>(401);
 
+        // COCREE completion status for a CIS.
+        // Returns whether all 11 COCREE items (CCR01–CCR11) have a
+        // non-null Submitted date in dbo.check_list_data. The frontend
+        // calls this during loan creation to block applications for CIS
+        // numbers with incomplete COCREE.
+        // No caching: checklist data changes as officers submit items;
+        // stale cache would incorrectly block valid applications.
+        // 200 always — a CIS with zero rows returns IsComplete=false.
+        group.MapGet("/cis/{cisNo}/cocree-status", async (
+            string cisNo,
+            IWebLoanService webLoanService,
+            CancellationToken ct) =>
+        {
+            var result = await webLoanService.GetCocreeStatusAsync(cisNo, ct);
+            return Results.Ok(ApiResponse<CocreeStatusResponse>.SuccessResponse(result));
+        })
+        .WithName("GetCocreeStatus")
+        .Produces<ApiResponse<CocreeStatusResponse>>(200)
+        .Produces<ApiResponse>(401);
+
         // Returns the `cat_loan_class` value from dbo.loan_data for a
         // single (bch, loan_no, loan_product) composite key.
         // All three parameters are caller-supplied via query string.

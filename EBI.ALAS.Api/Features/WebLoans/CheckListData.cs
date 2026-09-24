@@ -16,10 +16,17 @@ public class CheckListData
     [Column("cis_no")] public string CisNo { get; set; } = string.Empty;
     [Column("check_list_item")] public string CheckListItem { get; set; } = string.Empty;
     [Column("description")] public string? Description { get; set; }
+    [Column("submitted")] public DateTime? Submitted { get; set; }
     [Column("expiration")] public DateTime? Expiration { get; set; }
 
     // Item codes referenced by this service. Centralized here so the
     // semantic-table-of-this-EAV-store is documented in one place.
     public const string LengthOfServiceItem = "CCR10";
     public const string NthpItem = "CCR07";
+
+    // COCREE completion item codes (CCR01–CCR11). A CIS is considered
+    // "COCREE complete" when ALL 11 items have a non-null Submitted date.
+    public static readonly IReadOnlyList<string> CocreeItems =
+        ["CCR01", "CCR02", "CCR03", "CCR04", "CCR05",
+         "CCR06", "CCR07", "CCR08", "CCR09", "CCR10", "CCR11"];
 }

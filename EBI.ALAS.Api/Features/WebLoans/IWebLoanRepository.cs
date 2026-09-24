@@ -157,4 +157,14 @@ public interface IWebLoanRepository
         string loanNo,
         string productCode,
         CancellationToken ct = default);
+
+    // COCREE completion check
+    // Returns the CCR01–CCR11 rows for a CIS from dbo.check_list_data.
+    // Uses the composite PK index (cis_no, check_list_item) for a
+    // single seek + range scan — returns ≤11 rows (~1KB).
+    // Returns an empty list (NOT null) when no rows exist — the service
+    // treats that as "all items incomplete".
+    Task<IReadOnlyList<CheckListData>> GetCocreeItemsAsync(
+        string cisNo,
+        CancellationToken ct = default);
 }
