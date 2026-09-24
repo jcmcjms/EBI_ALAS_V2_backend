@@ -371,6 +371,43 @@ public class WebLoanService(IWebLoanRepository repository) : IWebLoanService
             CatLoanClass: string.IsNullOrEmpty(catLoanClass) ? null : catLoanClass);
     }
 
+    public async Task<CocreeStatusResponse> GetCocreeStatusAsync(
+        string cisNo,
+        CancellationToken ct = default)
+    {
+        // Single round-trip: repository fetches ≤11 rows via the
+        // composite PK index (cis_no, check_list_item).
+        var rows = await repository.GetCocreeItemsAsync(cisNo, ct);
+
+        // Index the DB rows by item code for O(1) lookup. A CIS with
+        // zero rows produces an empty dictionary → all items incomplete.
+        var byItem = rows
+            .Where(r => !string.IsNullOrEmpty(r.CheckListItem))
+            .ToDictionary(r => r.CheckListItem, r => r);
+
+        // Build the full 11-item list, merging DB rows against the
+        // canonical CCR01–CCR11 set. Missing items → Submitted=null.
+        var items = CheckListData.CocreeItems
+            .Select(code =>
+            {
+                byItem.TryGetValue(code, out var row);
+                return new CocreeItemStatus(
+                    ItemCode: code,
+                    Submitted: row?.Submitted,
+                    Description: row?.Description,
+                    Expiration: row?.Expiration);
+            })
+            .ToList();
+
+        // IsComplete = true only when ALL 11 items have a non-null Submitted.
+        var isComplete = items.All(i => i.Submitted.HasValue);
+
+        return new CocreeStatusResponse(
+            CisNo: cisNo,
+            IsComplete: isComplete,
+            Items: items);
+    }
+
     private static DateTime? ParseBirthDate(string? raw)
     {
         if (string.IsNullOrWhiteSpace(raw)) return null;

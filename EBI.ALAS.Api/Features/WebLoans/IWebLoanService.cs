@@ -58,4 +58,13 @@ public interface IWebLoanService
         string loanNo,
         string loanProduct,
         CancellationToken ct = default);
+
+    // COCREE completion status for a CIS.
+    // Returns the completion state of all 11 COCREE items (CCR01–CCR11).
+    // A CIS with zero checklist rows → IsComplete=false, Items=[all incomplete].
+    // No anti-enumeration guard: CIS numbers are not considered sensitive
+    // in this context (the search endpoint already exposes full profiles).
+    Task<CocreeStatusResponse> GetCocreeStatusAsync(
+        string cisNo,
+        CancellationToken ct = default);
 }

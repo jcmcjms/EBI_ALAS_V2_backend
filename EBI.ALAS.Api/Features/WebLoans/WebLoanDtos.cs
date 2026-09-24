@@ -225,6 +225,24 @@ public record CatLoanClassResponse(
     string LoanProduct,
     string? CatLoanClass);   // null when dbo.loan_data.cat_loan_class IS NULL
 
+// GET /api/webloans/cis/{cisNo}/cocree-status
+// Returns the COCREE completion status for a CIS. The frontend calls
+// this during loan creation to block applications for CIS numbers
+// with incomplete COCREE (check_list_data items CCR01–CCR11).
+// A CIS with zero checklist rows → all items incomplete (not 404).
+// No caching: checklist data changes as officers submit; stale cache
+// would block valid applications.
+public record CocreeStatusResponse(
+    string CisNo,
+    bool IsComplete,
+    IReadOnlyList<CocreeItemStatus> Items);
+
+public record CocreeItemStatus(
+    string ItemCode,
+    DateTime? Submitted,
+    string? Description,
+    DateTime? Expiration);
+
 // Combined account identifier ("branchCode-accountNo")
 // The two drill-down endpoints (outstanding-loans, pending-loan) take a
 // single route parameter `accountId` instead of separate `branchCode` and
