@@ -180,6 +180,49 @@ public class WorkflowQueueService : IWorkflowQueueService
             .First();
     }
 
+    public async Task<LoanQueueState?> GetQueueStateAsync(
+        int loanId, int userId, string currentStatus, CancellationToken ct)
+    {
+        var stage = StageForStatus(currentStatus);
+        if (stage is null) return null;
+
+        var partitionKey = await _db.WorkflowQueueItems
+            .Where(i => i.LoanApplicationId == loanId
+                        && i.Stage == stage.Value
+                        && i.State != QueueItemState.Completed)
+            .Select(i => i.PartitionKey)
+            .FirstOrDefaultAsync(ct);
+
+        if (partitionKey is null) return null;
+
+        var ordered = await _db.WorkflowQueueItems.AsNoTracking()
+            .Include(i => i.OwnerUser)
+            .Where(i => i.PartitionKey == partitionKey && i.State != QueueItemState.Completed)
+            .OrderBy(i => i.EnqueuedAt).ThenBy(i => i.Id)
+            .ToListAsync(ct);
+
+        var position = 0;
+        foreach (var item in ordered)
+        {
+            position++;
+            if (item.LoanApplicationId != loanId) continue;
+
+            var ownerName = item.OwnerUser is null
+                ? null
+                : $"{item.OwnerUser.FirstName} {item.OwnerUser.LastName}";
+
+            return new LoanQueueState(
+                position,
+                position == 1,
+                item.OwnerUserId,
+                ownerName,
+                item.OwnerUserId == userId,
+                item.LeasedAt);
+        }
+
+        return null;
+    }
+
     public async Task<IReadOnlyDictionary<int, QueuePositionInfo>> GetPositionsAsync(
         IReadOnlyCollection<int> loanIds, CancellationToken ct)
     {
