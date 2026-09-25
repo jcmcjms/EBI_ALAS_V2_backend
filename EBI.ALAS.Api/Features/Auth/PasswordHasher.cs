@@ -1,14 +1,9 @@
 namespace EBI.ALAS.Api.Features.Auth;
 public class PasswordHasher : IPasswordHasher
 {
-    // Banking-grade: work factor 14 (~1.5s per hash on modern hardware).
-    // This makes brute-force attacks computationally infeasible.
-    // Previous value (12) was too low for banking security standards.
-    private const int WorkFactor = 14;
-
-    public string HashPassword(string password)
+    public string HashPassword(string password, int workFactor = IPasswordHasher.InteractiveWorkFactor)
     {
-        return BCrypt.Net.BCrypt.HashPassword(password, WorkFactor);
+        return BCrypt.Net.BCrypt.HashPassword(password, workFactor);
     }
 
     public bool VerifyPassword(string password, string hashedPassword)

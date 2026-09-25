@@ -43,6 +43,13 @@ public sealed class AuthService(
             return AuthResult.FailureResult("Invalid credentials");
         }
 
+        // Enforce temporary credential TTL — reject expired server-generated passwords.
+        if (user.TempPasswordExpiresAt is { } expires && timeProvider.UtcNow > expires)
+        {
+            logger.LogWarning("Expired temporary password for username: {Username}", request.Username);
+            return AuthResult.FailureResult("Temporary password expired. Contact your administrator for a new credential.");
+        }
+
         var jwtSettings = configuration.GetSection("Jwt").Get<JwtSettings>()!;
         var rawRefreshToken = jwtTokenService.GenerateRefreshToken();
         var refreshTokenHash = jwtTokenService.HashRefreshToken(rawRefreshToken);
@@ -189,6 +196,7 @@ public sealed class AuthService(
 
         user.PasswordHash = passwordHasher.HashPassword(request.NewPassword);
         user.MustChangePassword = false;
+        user.TempPasswordExpiresAt = null; // One-time credential consumed
         await authRepository.UpdateUserAsync(user);
 
         await refreshTokenRepository.RevokeAllUserTokensAsync(userId);

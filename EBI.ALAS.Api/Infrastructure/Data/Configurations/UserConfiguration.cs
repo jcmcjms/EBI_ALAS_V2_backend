@@ -65,6 +65,8 @@ public class UserConfiguration : IEntityTypeConfiguration<User>
 
         builder.Property(e => e.PasswordChangedAt);
 
+        builder.Property(e => e.TempPasswordExpiresAt);
+
         // JobTitle is a free-text role label (e.g. "Senior Credit
         // Analyst"). It complements the workflow `Role` field which
         // only carries the broad category (Encoder/Recommender/etc.).

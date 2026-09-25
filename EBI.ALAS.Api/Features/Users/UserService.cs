@@ -49,7 +49,7 @@ public class UserService : IUserService
         var user = new User
         {
             Username = request.Username,
-            PasswordHash = _passwordHasher.HashPassword(request.Password),
+            PasswordHash = _passwordHasher.HashPassword(request.Password, IPasswordHasher.TemporaryWorkFactor),
             FirstName = request.FirstName,
             MiddleName = request.MiddleName,
             LastName = request.LastName,
@@ -58,6 +58,7 @@ public class UserService : IUserService
             IsActive = true,
             MustChangePassword = true,
             CreatedAt = _timeProvider.UtcNow,
+            TempPasswordExpiresAt = _timeProvider.UtcNow.AddHours(24),
         };
 
         // Approver: JobTitle is the authority key, sync both fields
@@ -232,8 +233,9 @@ public class UserService : IUserService
         if (user == null)
             throw new NotFoundException("User", id);
 
-        user.PasswordHash = _passwordHasher.HashPassword(newPassword);
+        user.PasswordHash = _passwordHasher.HashPassword(newPassword, IPasswordHasher.TemporaryWorkFactor);
         user.MustChangePassword = true; // Force change on next login
+        user.TempPasswordExpiresAt = _timeProvider.UtcNow.AddHours(24);
         await _userRepository.UpdateUserAsync();
 
         return new ResetPasswordResponse(user.Username, newPassword, user.MustChangePassword);
