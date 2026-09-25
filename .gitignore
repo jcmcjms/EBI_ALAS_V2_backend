@@ -489,3 +489,6 @@ EBI.ALAS.Api/appsettings.Development.json
 /AGENT.md
 /CLEAN-CODE-PRINCIPLES.md
 /AGENTS.md
+.claude/
+.mimocode/
+docs/
