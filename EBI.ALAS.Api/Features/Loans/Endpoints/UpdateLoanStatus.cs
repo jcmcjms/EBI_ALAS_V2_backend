@@ -287,7 +287,8 @@ public sealed class UpdateLoanStatusValidator : AbstractValidator<UpdateLoanStat
 
         RuleFor(x => x.Comments)
             .NotEmpty()
-            .WithMessage("Remarks are required for every workflow action.");
+            .When(x => x.Action is not null && RemarkHeavy.Contains(x.Action.Value))
+            .WithMessage("Remarks are required for this workflow action.");
 
         RuleFor(x => x.Comments)
             .MinimumLength(10)
