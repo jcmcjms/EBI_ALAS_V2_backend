@@ -43,6 +43,14 @@ public record ClaimResponse(
     string Status,
     DateTime LeasedAt);
 
+public record LoanQueueState(
+    int Position,
+    bool IsHead,
+    int? OwnerUserId,
+    string? OwnerName,
+    bool IsMine,
+    DateTime? LeasedAt);
+
 public abstract record ClaimByIdResult
 {
     public sealed record Claimed(ClaimResponse Response) : ClaimByIdResult;
@@ -103,4 +111,6 @@ public interface IWorkflowQueueService
     Task<ClaimByIdResult> ClaimByIdAsync(int id, int userId, string role, string branchCode, CancellationToken ct);
 
     Task PromoteHeadAsync(string partitionKey, CancellationToken ct);
+
+    Task<LoanQueueState?> GetQueueStateAsync(int loanId, int userId, string currentStatus, CancellationToken ct);
 }

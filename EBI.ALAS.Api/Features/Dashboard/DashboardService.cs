@@ -86,7 +86,6 @@ public class DashboardService : IDashboardService
         var yesterdayStartUtc = todayStartUtc.AddDays(-1);
         var weekStartUtc = todayStartUtc.AddDays(-6);
         var activeSinceUtc = _timeProvider.UtcNow.Add(-ActiveWindow);
-        var servingSinceUtc = _timeProvider.UtcNow.Add(-ServingWindow);
 
         // Statuses where a human action is still owed — this IS the "pending" queue.
         var pendingStatuses = PendingStatuses;
@@ -150,6 +149,32 @@ public class DashboardService : IDashboardService
                 """).ToListAsync(ct);
 
         // 4 ── "Now serving": officers who acted in the last hour, latest first.
+        IQueryable<WorkflowQueueItem> queueItems = _context.WorkflowQueueItems.AsNoTracking();
+        if (scoped)
+        {
+            queueItems = queueItems.Where(i => i.LoanApplication.BranchCode == branchCode);
+        }
+
+        var servingSinceUtc = _timeProvider.UtcNow.AddMinutes(-60);
+
+        var nowServingItems = await queueItems
+            .Where(i => i.State == QueueItemState.Active
+                        && i.OwnerUserId != null
+                        && i.LeasedAt != null
+                        && i.LeasedAt >= servingSinceUtc)
+            .OrderByDescending(i => i.LeasedAt)
+            .Take(ListSize)
+            .Select(i => new
+            {
+                i.OwnerUserId,
+                OwnerName = i.OwnerUser != null
+                    ? i.OwnerUser.FirstName + " " + i.OwnerUser.LastName
+                    : null,
+                LamId = i.LoanApplication != null ? i.LoanApplication.LamId : "",
+                i.LeasedAt,
+            })
+            .ToListAsync(ct);
+
         var activeRows = await actions
             .Where(a => a.ActionDate >= activeSinceUtc)
             .OrderByDescending(a => a.ActionDate)
@@ -263,9 +288,12 @@ public class DashboardService : IDashboardService
         // g.First() is each officer's latest action. KPI counts ALL active
         // officers; the list shows the top five.
         var activeOfficers = activeRows.GroupBy(a => a.ActionByUserId).Select(g => g.First()).ToList();
-        var nowServing = activeOfficers
-            .Take(ListSize)
-            .Select((a, i) => new NowServingItemDto(i + 1, a.Name, a.LamId, a.ActionDate >= servingSinceUtc))
+        var nowServing = nowServingItems
+            .Select((s, i) => new NowServingItemDto(
+                i + 1,
+                s.OwnerName ?? "Reviewer",
+                s.LamId,
+                true))
             .ToList();
 
         // 8 ── Document flag queue (flagged files waiting on encoder).
@@ -302,7 +330,7 @@ public class DashboardService : IDashboardService
             new DashboardKpis(
                 pendingTotal,
                 submittedToday - submittedYesterday,
-                activeOfficers.Count,
+                nowServingItems.Count,
                 pushBacksToday,
                 approvedToday,
                 vsAvg),
