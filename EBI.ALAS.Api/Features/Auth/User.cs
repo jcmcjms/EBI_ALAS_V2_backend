@@ -37,6 +37,13 @@ public sealed class User
     /// <summary>Navigation property to the approval authority row.</summary>
     public ApprovalAuthority? ApprovalAuthority { get; set; }
 
+    /// <summary>
+    /// Expiry for server-generated temporary credentials (reset password / initial create).
+    /// Null for user-chosen passwords. Enforced at login — expired temps are rejected.
+    /// Cleared when the user completes a change-password flow.
+    /// </summary>
+    public DateTime? TempPasswordExpiresAt { get; set; }
+
     /// <summary>Multi-branch coverage for Branch-scope approvers.</summary>
     public ICollection<UserBranchCoverage> BranchCoverages { get; set; } = new List<UserBranchCoverage>();
 }
