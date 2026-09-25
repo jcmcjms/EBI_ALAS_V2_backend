@@ -96,6 +96,7 @@ public static class UpdateLoanStatus
                 loan.DocumentsCompleteAt = completeness.Complete ? timeProvider.UtcNow : null;
             }
 
+            var skipQueue = false;
             if (targetStatus == "ForApproval" && fromStatus == "ForChecking")
             {
                 loan.DocumentsCompleteAt = timeProvider.UtcNow;
@@ -108,6 +109,8 @@ public static class UpdateLoanStatus
 
                 if (decision.Tier > 0)
                     await assignmentService.AssignAsync(loan, ct);
+                else
+                    skipQueue = true;
             }
 
             if (fromStatus == "ForApproval" && userRole == Roles.Approver)
@@ -174,7 +177,7 @@ public static class UpdateLoanStatus
 
                 if (oldStage != null)
                     await queueService.DequeueAndPromoteAsync(loan, fromStatus, ct);
-                if (newStage != null)
+                if (newStage != null && !skipQueue)
                     await queueService.EnqueueAsync(loan, targetStatus, ct);
 
                 await auditLogger.LogActionAsync(
