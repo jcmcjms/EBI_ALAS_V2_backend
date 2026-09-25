@@ -10,7 +10,9 @@ public sealed record RoutingDecision(
     DeviationSeverity Severity,
     decimal TotalExposure,
     string LoanType,
-    string MatchedRule);
+    string MatchedRule,
+    int? MatchedButUnstaffedTier,
+    string? NoAuthorityReason);
 
 public interface IApprovalRoutingService
 {
@@ -40,31 +42,34 @@ public sealed class ApprovalRoutingService : IApprovalRoutingService
             foreach (var d in loan.Deviations)
             {
                 var s = d.IsFeeOverride
-                    ? DeviationSeverity.Major                       // "Discounted Application Fee"
+                    ? DeviationSeverity.Major
                     : catalog.GetValueOrDefault(d.ReasonText, DeviationSeverity.Minor);
                 if (s > severity) severity = s;
             }
         }
 
-        // TotalExposure is already computed at submission time by LoanMetrics
         var exposure = loan.TotalExposure;
         var loanType = loan.LoanType;
+        var cycle = loanType == "Renewal" ? LoanCycle.Renewal : LoanCycle.New;
 
-        // Lowest sufficient tier wins (delegation principle).
-        var match = authorities
-            .Where(a => (loanType == "Renewal" ? a.AllowRenewal : a.AllowNew)
-                        && a.MaxSeverity >= severity
-                        && a.MaxTotalExposure >= exposure)
-            .OrderBy(a => a.Tier)
-            .ThenBy(a => a.Priority)
-            .FirstOrDefault();
+        var inputs = new RoutingInputs(cycle, severity, exposure);
+        var match = ApprovalCycleResolver.Match(authorities, inputs);
 
         if (match is null)
-            throw new Common.Exceptions.InvalidWorkflowException(loan.Status, "ForApproval",
-                $"Total exposure {exposure:N2} / severity {severity} exceeds all delegated authorities; escalate to CreCom (full board).");
+        {
+            var reason = exposure > 1_500_000m
+                ? $"Exposure exceeds delegated authority (₱{exposure:N2}) — CreCom handling required."
+                : $"No authority covers {loanType} loans with {severity} deviation at ₱{exposure:N2} exposure.";
+            return new RoutingDecision(0, severity, exposure, loanType,
+                MatchedRule: "No matching authority",
+                MatchedButUnstaffedTier: null,
+                NoAuthorityReason: reason);
+        }
 
         return new RoutingDecision(match.Tier, severity, exposure, loanType,
-            $"{match.DisplayName} (Tier {match.Tier}, <= {match.MaxTotalExposure:N0}, {severity})");
+            MatchedRule: $"{match.DisplayName} (Tier {match.Tier}, ≤ {match.MaxTotalExposure:N0}, {severity})",
+            MatchedButUnstaffedTier: null,
+            NoAuthorityReason: null);
     }
 
     private Task<List<ApprovalAuthority>> GetAuthoritiesAsync(CancellationToken ct) =>

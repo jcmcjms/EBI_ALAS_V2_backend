@@ -99,6 +99,14 @@ public static class LoanEndpoints
                 MissingDocuments = completenessResult.Missing.ToList(),
                 AssignedApproverId = loan.AssignedApproverId,
                 AssignedApproverName = assignedName,
+                EscalatedFromTier = loan.MatchedButUnstaffedTier,
+                NoAuthorityReason = loan.NoAuthorityReason,
+                Evaluated = new RoutingEvaluatedInputsDto
+                {
+                    Cycle = loan.LoanType,
+                    Severity = loan.DeviationSeverity.ToString(),
+                    Exposure = loan.TotalExposure,
+                },
             };
 
             return Results.Ok(ApiResponse<LoanRoutingDto>.SuccessResponse(dto));

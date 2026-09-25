@@ -108,6 +108,16 @@ public sealed class LoanApplication
     public DateTime? AssignedAt { get; set; }
     public DateTime? DocumentsCompleteAt { get; set; }
 
+    /// <summary>When routing matched a rule but found no approver at that
+    /// tier, records which tier was matched before escalation. Null when
+    /// no escalation occurred.</summary>
+    public int? MatchedButUnstaffedTier { get; set; }
+
+    /// <summary>When no authority rule could route the file (exposure
+    /// exceeds all tiers or cycle/severity has no covering rule), stores
+    /// the reason. Null when routing succeeded.</summary>
+    public string? NoAuthorityReason { get; set; }
+
     // ── Document flag columns ──────────────────────────────────────────
     // A document deficiency is a FACT about paperwork, not a routing decision.
     // These columns record the flag without touching Status or workflow queues.
