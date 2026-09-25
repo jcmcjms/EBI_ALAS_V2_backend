@@ -115,53 +115,50 @@ public class WorkflowQueueService : IWorkflowQueueService
             .FirstOrDefaultAsync(ct);
         if (head == null) return;
 
-        var owner = await ResolveOwnerAsync(head.Stage, loan, ct);
-        head.State = QueueItemState.Active;
-        head.PromotedAt = _time.UtcNow;
-        head.OwnerUserId = owner?.Id;
-
-        // Keep the delegation-of-authority contract intact for approval prints/guards.
+        int? ownerId = null;
         if (head.Stage == QueueStage.Approval)
         {
+            var owner = await ResolveApproverAsync(loan, ct);
+            ownerId = owner?.Id;
+
             var application = await _db.LoanApplications.FindAsync([loan.Id], ct);
             if (application != null)
             {
                 application.AssignedApproverId = owner?.Id;
                 application.AssignedAt = owner == null ? null : _time.UtcNow;
             }
+
+            if (owner != null)
+            {
+                var link = $"/loans/monitoring?id={loan.Id}";
+                var title = "Your turn: application ready for review";
+                var body = $"{loan.LamId} ({loan.FirstName} {loan.LastName}) is next in your queue.";
+                await _notifications.CreateAsync(owner.Id, title, body, link);
+                await _realtime.NotifyUserAsync(owner.Id, title, body, link);
+            }
         }
+
+        head.State = QueueItemState.Active;
+        head.PromotedAt = _time.UtcNow;
+        head.OwnerUserId = ownerId;
+        head.LeasedAt = ownerId is null ? null : _time.UtcNow;
 
         await _db.SaveChangesAsync(ct);
-
-        if (owner != null)
-        {
-            var link = $"/loans/monitoring?id={loan.Id}";
-            var title = "Your turn: application ready for review";
-            var body = $"{loan.LamId} ({loan.FirstName} {loan.LastName}) is next in your queue.";
-            await _notifications.CreateAsync(owner.Id, title, body, link);
-            await _realtime.NotifyUserAsync(owner.Id, title, body, link);
-        }
     }
 
     /// <summary>
     /// Deterministic: least live items owned, then lowest Id.
-    /// Zero users → unowned desk.
+    /// Zero candidates → null so the promotion leaves the head unowned.
     /// </summary>
-    private async Task<User?> ResolveOwnerAsync(QueueStage stage, LoanApplication loan, CancellationToken ct)
+    private async Task<User?> ResolveApproverAsync(LoanApplication loan, CancellationToken ct)
     {
-        var role = stage switch
-        {
-            QueueStage.Recommendation => Roles.Recommender,
-            QueueStage.Evaluation => Roles.Evaluator,
-            _ => Roles.Approver,
-        };
+        var candidates = await _loanRepo.GetUsersByRoleAndBranchAsync(Roles.Approver, loan.BranchCode, ct);
 
-        var candidates = await _loanRepo.GetUsersByRoleAndBranchAsync(role, loan.BranchCode, ct);
-
-        if (stage == QueueStage.Approval && loan.RequiredApprovalTier is int tier)
+        if (loan.RequiredApprovalTier is int tier)
         {
             var keys = await _db.ApprovalAuthorities
                 .Where(a => a.Tier == tier).Select(a => a.Key).ToListAsync(ct);
+
             candidates = candidates
                 .Where(u => u.ApprovalAuthorityKey != null && keys.Contains(u.ApprovalAuthorityKey))
                 .ToList();
@@ -317,9 +314,6 @@ public class WorkflowQueueService : IWorkflowQueueService
         var now = _time.UtcNow;
         var stealBefore = now.AddMinutes(-_queueOptions.CurrentValue.LeaseTtlMinutes);
 
-        // Bounded optimistic-concurrency loop: pick the FIFO candidate, then
-        // win it with a conditional UPDATE. Losers retry on the next head;
-        // after 3 misses the desk is genuinely busy → null, never a double-lease.
         for (var attempt = 0; attempt < 3; attempt++)
         {
             var candidate = await _db.WorkflowQueueItems.AsNoTracking()
@@ -334,33 +328,48 @@ public class WorkflowQueueService : IWorkflowQueueService
 
             if (candidate is null) return null;
 
-            var won = await _db.WorkflowQueueItems
-                .Where(i => i.Id == candidate.Id
-                            && i.State == QueueItemState.Active
-                            && (i.OwnerUserId == null
-                                || i.OwnerUserId == userId
-                                || i.LeasedAt <= stealBefore))
-                .ExecuteUpdateAsync(s => s
-                    .SetProperty(i => i.OwnerUserId, userId)
-                    .SetProperty(i => i.LeasedAt, now), ct);
+            var (won, loanApplicationId) = await TryLeaseItemAsync(candidate.Id, userId, ct);
+            if (!won) continue;
 
-            if (won == 1)
-            {
-                // Load the loan for the response DTO
-                var loan = await _db.LoanApplications.AsNoTracking()
-                    .Where(l => l.Id == candidate.LoanApplicationId)
-                    .Select(l => new { l.Id, l.LamId, l.FirstName, l.LastName, l.Status })
-                    .FirstOrDefaultAsync(ct);
+            var loan = await _db.LoanApplications.AsNoTracking()
+                .Where(l => l.Id == loanApplicationId)
+                .Select(l => new { l.Id, l.LamId, l.FirstName, l.LastName, l.Status })
+                .FirstOrDefaultAsync(ct);
 
-                if (loan is null) return null;
+            if (loan is null) return null;
 
-                var clientName = $"{loan.FirstName} {loan.LastName}".Trim();
-                return new ClaimResponse(loan.Id, loan.LamId, clientName, loan.Status, now);
-            }
-            // Lost the race — retry on the next head
+            var clientName = $"{loan.FirstName} {loan.LastName}".Trim();
+            return new ClaimResponse(loan.Id, loan.LamId, clientName, loan.Status, now);
         }
 
-        return null; // contended desk → caller surfaces "queue is busy, retry"
+        return null;
+    }
+
+    private async Task<(bool Won, int LoanApplicationId)> TryLeaseItemAsync(
+        int itemId, int userId, CancellationToken ct)
+    {
+        var now = _time.UtcNow;
+        var stealBefore = now.AddMinutes(-_queueOptions.CurrentValue.LeaseTtlMinutes);
+
+        var won = await _db.WorkflowQueueItems
+            .Where(i => i.Id == itemId
+                        && i.State == QueueItemState.Active
+                        && (i.OwnerUserId == null
+                            || i.OwnerUserId == userId
+                            || i.LeasedAt <= stealBefore))
+            .ExecuteUpdateAsync(s => s
+                .SetProperty(i => i.OwnerUserId, userId)
+                .SetProperty(i => i.LeasedAt, now), ct);
+
+        if (won != 1)
+            return (false, 0);
+
+        var loanId = await _db.WorkflowQueueItems
+            .Where(i => i.Id == itemId)
+            .Select(i => i.LoanApplicationId)
+            .FirstAsync(ct);
+
+        return (true, loanId);
     }
 
     public async Task<DeskQueueResponse> GetDeskAsync(
@@ -432,5 +441,66 @@ public class WorkflowQueueService : IWorkflowQueueService
             await PromoteAsync(item.PartitionKey, loan, ct);
 
         return true;
+    }
+
+    public async Task<ClaimByIdResult> ClaimByIdAsync(
+        int id, int userId, string role, string branchCode, CancellationToken ct)
+    {
+        var prefixes = await DeskPartitionsAsync(role, branchCode, ct);
+        if (prefixes.Count == 0)
+            return new ClaimByIdResult.NotFound();
+
+        var item = await _db.WorkflowQueueItems.AsNoTracking()
+            .Where(i => i.LoanApplicationId == id
+                        && prefixes.Contains(i.PartitionKey)
+                        && (i.State == QueueItemState.Active || i.State == QueueItemState.Queued))
+            .OrderBy(i => i.EnqueuedAt).ThenBy(i => i.Id)
+            .Select(i => new { i.Id, i.OwnerUserId, i.State })
+            .FirstOrDefaultAsync(ct);
+
+        if (item is null)
+            return new ClaimByIdResult.NotFound();
+
+        if (item.State != QueueItemState.Active)
+            return new ClaimByIdResult.NotHead();
+
+        if (item.OwnerUserId is not null && item.OwnerUserId != userId)
+        {
+            var ownerName = await _db.Users
+                .Where(u => u.Id == item.OwnerUserId)
+                .Select(u => u.FirstName + " " + u.LastName)
+                .FirstOrDefaultAsync(ct) ?? "another reviewer";
+
+            return new ClaimByIdResult.LeasedByOther(ownerName);
+        }
+
+        var (won, loanApplicationId) = await TryLeaseItemAsync(item.Id, userId, ct);
+        if (!won)
+            return new ClaimByIdResult.LeasedByOther("another reviewer");
+
+        var loan = await _db.LoanApplications.AsNoTracking()
+            .Where(l => l.Id == loanApplicationId)
+            .Select(l => new { l.Id, l.LamId, l.FirstName, l.LastName, l.Status })
+            .FirstOrDefaultAsync(ct);
+
+        if (loan is null)
+            return new ClaimByIdResult.NotFound();
+
+        var clientName = $"{loan.FirstName} {loan.LastName}".Trim();
+        return new ClaimByIdResult.Claimed(
+            new ClaimResponse(loan.Id, loan.LamId, clientName, loan.Status, _time.UtcNow));
+    }
+
+    public async Task PromoteHeadAsync(string partitionKey, CancellationToken ct)
+    {
+        var head = await _db.WorkflowQueueItems
+            .Include(i => i.LoanApplication)
+            .Where(i => i.PartitionKey == partitionKey && i.State == QueueItemState.Queued)
+            .OrderBy(i => i.EnqueuedAt).ThenBy(i => i.Id)
+            .FirstOrDefaultAsync(ct);
+
+        if (head?.LoanApplication is null) return;
+
+        await PromoteAsync(partitionKey, head.LoanApplication, ct);
     }
 }

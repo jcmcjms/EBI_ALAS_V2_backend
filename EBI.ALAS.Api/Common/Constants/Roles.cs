@@ -6,6 +6,7 @@ public static class Roles
     public const string Evaluator = "Evaluator";
     public const string Approver = "Approver";
     public const string Admin = "Admin";
+    public const string System = "System";
     public static class DisplayNames
     {
         public const string Encoder = "Encoder (AO/CAA)";

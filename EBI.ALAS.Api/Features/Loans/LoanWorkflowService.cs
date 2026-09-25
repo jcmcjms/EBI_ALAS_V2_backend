@@ -60,6 +60,14 @@ public class LoanWorkflowService : ILoanWorkflowService
             [("Approved", "ForDisbursement")] = Roles.Admin,
             [("ForDisbursement", "Disbursed")] = Roles.Admin,
             [("Disbursed", "OnGoing")] = Roles.Admin,
+
+            // ── Incomplete documents transitions (document-deficiency workflow).
+            [("ForIncompleteDocuments", "ForRecommendation")] = $"{Roles.System}|{Roles.Admin}",
+            [("ForIncompleteDocuments", "ForChecking")] = $"{Roles.System}|{Roles.Encoder}",
+            [("ForIncompleteDocuments", "ForApproval")] = $"{Roles.System}|{Roles.Evaluator}",
+            [("ForIncompleteDocuments", "ForRevision")] = $"{Roles.Evaluator}|{Roles.Admin}",
+            [("ForIncompleteDocuments", "Cancelled")] = Roles.Encoder,
+            [("ForChecking", "ForIncompleteDocuments")] = Roles.Evaluator,
         };
     }
 
@@ -69,11 +77,18 @@ public class LoanWorkflowService : ILoanWorkflowService
             return false;
 
         // Admin can perform any transition
-        return userRole == Roles.Admin || requiredRole == userRole;
+        return userRole == Roles.Admin || requiredRole.Split('|').Contains(userRole);
     }
 
-    public string GetRequiredRoleForTransition(string fromStatus, string toStatus) =>
-        BuildTransitions().TryGetValue((fromStatus, toStatus), out var role) ? role : string.Empty;
+    public string GetRequiredRoleForTransition(string fromStatus, string toStatus)
+    {
+        if (!BuildTransitions().TryGetValue((fromStatus, toStatus), out var role))
+            return string.Empty;
+
+        return role
+            .Split('|')
+            .FirstOrDefault(r => r != Roles.System, role);
+    }
 
     public Dictionary<string, List<string>> GetAllowedTransitions()
     {
