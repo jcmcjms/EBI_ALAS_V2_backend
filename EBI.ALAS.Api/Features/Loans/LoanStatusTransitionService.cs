@@ -67,6 +67,7 @@ public sealed class LoanStatusTransitionService(
         }
 
         // Approval routing
+        var skipQueue = false;
         if (targetStatus == "ForApproval" && fromStatus == "ForChecking")
         {
             loan.DocumentsCompleteAt = timeProvider.UtcNow;
@@ -79,6 +80,8 @@ public sealed class LoanStatusTransitionService(
 
             if (decision.Tier > 0)
                 await assignmentService.AssignAsync(loan, ct);
+            else
+                skipQueue = true;
         }
 
         var actionName = (fromStatus, targetStatus, verdict) switch
@@ -98,7 +101,7 @@ public sealed class LoanStatusTransitionService(
         var newStage = WorkflowQueueService.StageForStatus(targetStatus);
         if (oldStage != null)
             await queueService.DequeueAndPromoteAsync(loan, fromStatus, ct);
-        if (newStage != null)
+        if (newStage != null && !skipQueue)
             await queueService.EnqueueAsync(loan, targetStatus, ct);
 
         await auditLogger.LogActionAsync(
