@@ -14,4 +14,6 @@ public interface ILoanWorkflowService
     bool IsValidTransition(string fromStatus, string toStatus, string userRole);
     string GetRequiredRoleForTransition(string fromStatus, string toStatus);
     Dictionary<string, List<string>> GetAllowedTransitions();
+
+    ResolvedAction ResolveAction(WorkflowAction action, string fromStatus);
 }
