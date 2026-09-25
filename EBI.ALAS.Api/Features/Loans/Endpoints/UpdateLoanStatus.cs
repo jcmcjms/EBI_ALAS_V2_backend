@@ -102,10 +102,12 @@ public static class UpdateLoanStatus
 
                 var decision = await routingService.RouteAsync(loan, ct);
                 loan.DeviationSeverity = decision.Severity;
-                loan.RequiredApprovalTier = decision.Tier;
+                loan.RequiredApprovalTier = decision.Tier == 0 ? null : decision.Tier;
+                loan.NoAuthorityReason = decision.NoAuthorityReason;
                 await loanRepository.UpdateAsync(loan);
 
-                await assignmentService.AssignAsync(loan, ct);
+                if (decision.Tier > 0)
+                    await assignmentService.AssignAsync(loan, ct);
             }
 
             if (fromStatus == "ForApproval" && userRole == Roles.Approver)

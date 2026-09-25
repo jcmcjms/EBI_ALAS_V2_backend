@@ -125,6 +125,13 @@ public class LoanResponse
     public DateTime? AssignedAt { get; set; }
     public DateTime? DocumentsCompleteAt { get; set; }
 
+    /// <summary>Escalation: the tier that originally matched but had no
+    /// configured approver. Null when no escalation occurred.</summary>
+    public int? MatchedButUnstaffedTier { get; set; }
+
+    /// <summary>Reason routing failed. Null when routing succeeded.</summary>
+    public string? NoAuthorityReason { get; set; }
+
     /// <summary>Document flag state. Null when no active flag.</summary>
     public DocumentFlagDto? DocumentFlag { get; set; }
 

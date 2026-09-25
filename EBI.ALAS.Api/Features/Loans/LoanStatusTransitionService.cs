@@ -73,9 +73,12 @@ public sealed class LoanStatusTransitionService(
 
             var decision = await routingService.RouteAsync(loan, ct);
             loan.DeviationSeverity = decision.Severity;
-            loan.RequiredApprovalTier = decision.Tier;
+            loan.RequiredApprovalTier = decision.Tier == 0 ? null : decision.Tier;
+            loan.NoAuthorityReason = decision.NoAuthorityReason;
             await loanRepo.UpdateAsync(loan);
-            await assignmentService.AssignAsync(loan, ct);
+
+            if (decision.Tier > 0)
+                await assignmentService.AssignAsync(loan, ct);
         }
 
         var actionName = (fromStatus, targetStatus, verdict) switch
