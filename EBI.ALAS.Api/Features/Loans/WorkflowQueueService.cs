@@ -1,5 +1,6 @@
 using EBI.ALAS.Api.Common.Constants;
 using EBI.ALAS.Api.Common.Time;
+using EBI.ALAS.Api.Features.ApprovalMatrix;
 using EBI.ALAS.Api.Features.Auth;
 using EBI.ALAS.Api.Features.Notifications;
 using EBI.ALAS.Api.Infrastructure.Data;
@@ -64,6 +65,11 @@ public class WorkflowQueueService : IWorkflowQueueService
     {
         var stage = StageForStatus(newStatus);
         if (stage == null) return;
+
+        if (stage == QueueStage.Approval && loan.RequiredApprovalTier is null)
+            throw new InvalidOperationException(
+                $"Cannot enqueue loan {loan.Id} for approval — RequiredApprovalTier is null. " +
+                "Route through the approval matrix first.");
 
         var partitionKey = PartitionKey(stage.Value, loan);
 
@@ -317,24 +323,56 @@ public class WorkflowQueueService : IWorkflowQueueService
     /// <summary>
     /// Maps a role + branch code to the set of partition keys the reviewer
     /// can claim from. Recommender → REC:{bch}, Evaluator → EVA:{bch},
-    /// Approver → all APP:{bch}:{tier} the approval matrix authorizes.
+    /// Admin → every active approval partition, Approver → partitions
+    /// derived from the user's delegated authority scope (not home branch).
     /// </summary>
-    private async Task<List<string>> DeskPartitionsAsync(string role, string branchCode, CancellationToken ct)
+    private async Task<List<string>> DeskPartitionsAsync(string role, string branchCode, int userId, CancellationToken ct)
     {
         return role switch
         {
             Roles.Recommender => [$"REC:{branchCode}"],
             Roles.Evaluator => [$"EVA:{branchCode}"],
-            Roles.Approver =>
-            [
-                ..(await _db.ApprovalAuthorities.AsNoTracking()
-                    .Select(a => a.Tier)
-                    .Distinct()
-                    .ToListAsync(ct))
-                    .Select(tier => $"APP:{branchCode}:{tier}")
-            ],
+            Roles.Admin => await _db.WorkflowQueueItems.AsNoTracking()
+                .Where(i => i.Stage == QueueStage.Approval)
+                .Select(i => i.PartitionKey).Distinct().ToListAsync(ct),
+            Roles.Approver => (await ApproverPartitionsAsync(userId, ct)).Keys,
             _ => [],
         };
+    }
+
+    /// <summary>
+    /// An approver's desk is defined by their delegated authority, not their
+    /// home branch: Global sees every branch at their tier, Area sees the
+    /// covered branches, Branch sees only home. This is what a Credit Head
+    /// (Tier 3, Global) was missing — files from other branches never matched.
+    /// </summary>
+    private async Task<(List<string> Keys, string Scope)> ApproverPartitionsAsync(int userId, CancellationToken ct)
+    {
+        var user = await _db.Users.AsNoTracking()
+            .Include(u => u.BranchCoverages)
+            .FirstOrDefaultAsync(u => u.Id == userId, ct);
+        if (user?.ApprovalAuthorityKey is null) return ([], "No authority assigned");
+
+        var authority = await _db.ApprovalAuthorities.AsNoTracking()
+            .FirstOrDefaultAsync(a => a.Key == user.ApprovalAuthorityKey, ct);
+        if (authority is null) return ([], "No authority assigned");
+
+        var branches = authority.ScopeType switch
+        {
+            AuthorityScope.Global => await _db.Branches.AsNoTracking()
+                .Select(b => b.Code).ToListAsync(ct),
+            AuthorityScope.Area => user.BranchCoverages.Select(c => c.BranchCode).ToList(),
+            _ => [user.BranchId],
+        };
+
+        var scope = authority.ScopeType switch
+        {
+            AuthorityScope.Global => $"Global authority — all {branches.Count} branches",
+            AuthorityScope.Area => $"Area authority — {branches.Count} branch{(branches.Count == 1 ? "" : "es")} ({string.Join(", ", branches.Order())})",
+            _ => $"Branch {user.BranchId}",
+        };
+
+        return (branches.Select(b => $"APP:{b}:{authority.Tier}").ToList(), scope);
     }
 
     /// <summary>
@@ -351,7 +389,7 @@ public class WorkflowQueueService : IWorkflowQueueService
     public async Task<ClaimResponse?> ClaimHeadAsync(
         int userId, string role, string branchCode, CancellationToken ct)
     {
-        var prefixes = await DeskPartitionsAsync(role, branchCode, ct);
+        var prefixes = await DeskPartitionsAsync(role, branchCode, userId, ct);
         if (prefixes.Count == 0) return null;
 
         var now = _time.UtcNow;
@@ -418,9 +456,21 @@ public class WorkflowQueueService : IWorkflowQueueService
     public async Task<DeskQueueResponse> GetDeskAsync(
         int userId, string role, string branchCode, CancellationToken ct)
     {
-        var prefixes = await DeskPartitionsAsync(role, branchCode, ct);
+        List<string> prefixes;
+        string scope;
+
+        if (role == Roles.Approver)
+        {
+            (prefixes, scope) = await ApproverPartitionsAsync(userId, ct);
+        }
+        else
+        {
+            prefixes = await DeskPartitionsAsync(role, branchCode, userId, ct);
+            scope = role == Roles.Admin ? "All approval partitions" : $"{branchCode} — {DeskLabelFor(role)}";
+        }
+
         if (prefixes.Count == 0)
-            return new DeskQueueResponse(DeskLabelFor(role), [], null);
+            return new DeskQueueResponse(DeskLabelFor(role), [], null, scope);
 
         var items = await _db.WorkflowQueueItems.AsNoTracking()
             .Include(i => i.OwnerUser)
@@ -461,7 +511,7 @@ public class WorkflowQueueService : IWorkflowQueueService
                 currentClaim = dto;
         }
 
-        return new DeskQueueResponse(DeskLabelFor(role), dtos, currentClaim);
+        return new DeskQueueResponse(DeskLabelFor(role), dtos, currentClaim, scope);
     }
 
     public async Task<bool> ReleaseClaimAsync(int userId, CancellationToken ct)
@@ -489,7 +539,7 @@ public class WorkflowQueueService : IWorkflowQueueService
     public async Task<ClaimByIdResult> ClaimByIdAsync(
         int id, int userId, string role, string branchCode, CancellationToken ct)
     {
-        var prefixes = await DeskPartitionsAsync(role, branchCode, ct);
+        var prefixes = await DeskPartitionsAsync(role, branchCode, userId, ct);
         if (prefixes.Count == 0)
             return new ClaimByIdResult.NotFound();
 
