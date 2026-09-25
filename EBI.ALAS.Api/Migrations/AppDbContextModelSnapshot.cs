@@ -335,6 +335,9 @@ namespace EBI.ALAS.Api.Migrations
                         .HasMaxLength(50)
                         .HasColumnType("nvarchar(50)");
 
+                    b.Property<DateTime?>("TempPasswordExpiresAt")
+                        .HasColumnType("datetime2");
+
                     b.Property<string>("Username")
                         .IsRequired()
                         .HasMaxLength(50)
@@ -789,8 +792,18 @@ namespace EBI.ALAS.Api.Migrations
                     b.Property<decimal>("DocStamps")
                         .HasColumnType("decimal(18,2)");
 
+                    b.Property<string>("DocumentFlagReason")
+                        .HasMaxLength(2000)
+                        .HasColumnType("nvarchar(2000)");
+
                     b.Property<DateTime?>("DocumentsCompleteAt")
                         .HasColumnType("datetime2");
+
+                    b.Property<DateTime?>("DocumentsFlaggedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int?>("DocumentsFlaggedById")
+                        .HasColumnType("int");
 
                     b.Property<string>("EmployeeId")
                         .HasMaxLength(50)
@@ -815,10 +828,6 @@ namespace EBI.ALAS.Api.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("bit")
                         .HasDefaultValue(false);
-
-                    b.Property<string>("IncompleteReturnStatus")
-                        .HasMaxLength(50)
-                        .HasColumnType("nvarchar(50)");
 
                     b.Property<decimal>("Insurance")
                         .HasColumnType("decimal(18,2)");
@@ -1023,6 +1032,12 @@ namespace EBI.ALAS.Api.Migrations
                         .HasDatabaseName("IX_LoanApplications_ApplicationGroupNo");
 
                     b.HasIndex("AssignedApproverId");
+
+                    b.HasIndex("DocumentsFlaggedAt")
+                        .HasDatabaseName("IX_LoanApplications_DocumentsFlaggedAt")
+                        .HasFilter("[DocumentsFlaggedAt] IS NOT NULL");
+
+                    b.HasIndex("DocumentsFlaggedById");
 
                     b.HasIndex("LamId")
                         .IsUnique();
@@ -1622,9 +1637,16 @@ namespace EBI.ALAS.Api.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
+                    b.HasOne("EBI.ALAS.Api.Features.Auth.User", "DocumentsFlaggedBy")
+                        .WithMany()
+                        .HasForeignKey("DocumentsFlaggedById")
+                        .OnDelete(DeleteBehavior.SetNull);
+
                     b.Navigation("AssignedApprover");
 
                     b.Navigation("CreatedBy");
+
+                    b.Navigation("DocumentsFlaggedBy");
                 });
 
             modelBuilder.Entity("EBI.ALAS.Api.Features.Loans.LoanDeviation", b =>

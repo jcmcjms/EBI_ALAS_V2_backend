@@ -17,6 +17,11 @@ public class LoanWorkflowService : ILoanWorkflowService
     /// Note what is NOT conditional: every transition OUT of ForRecommendation
     /// stays registered so in-flight loans drain even while the step is
     /// skipped, and flip-back-on resumes seamlessly.
+    ///
+    /// ForIncompleteDocuments is NOT a workflow status — it is a data flag.
+    /// Document deficiency is recorded in flag columns + checklist state,
+    /// never in the status field. The approver routing path is identical
+    /// whether or not documents are missing.
     /// </summary>
     private Dictionary<(string From, string To), string> BuildTransitions()
     {
@@ -46,25 +51,7 @@ public class LoanWorkflowService : ILoanWorkflowService
             [("ForChecking", "ForApproval")] = Roles.Evaluator,
             [("ForChecking", "ForRevision")] = Roles.Evaluator,
 
-            // ── Document flag: reviewing role may flag at their desk (manual entry;
-            //    there is no automatic hold anymore).
-            [("ForRecommendation", "ForIncompleteDocuments")] = Roles.Recommender,
-            [("ForChecking", "ForIncompleteDocuments")] = Roles.Evaluator,
-            [("ForApproval", "ForIncompleteDocuments")] = Roles.Approver,
-
-            // ── Encoder resubmits or cancels from the incomplete-docs queue.
-            [("ForIncompleteDocuments", "ForChecking")] = Roles.Encoder,
-            [("ForIncompleteDocuments", "Cancelled")] = Roles.Encoder,
-
-            // ── Evaluator edges from the flagged desk: identical to ForChecking.
-            //    Recommend / Not Recommend → ForApproval with verdict,
-            //    Push back → ForRevision. Remarks remain mandatory on every edge,
-            //    so the written justification lives in the normal audit trail.
-            [("ForIncompleteDocuments", "ForApproval")] = Roles.Evaluator,
-            [("ForIncompleteDocuments", "ForRevision")] = Roles.Evaluator,
-
-            // ── Admin escape hatch (document server wrong/unavailable).
-            [("ForIncompleteDocuments", "ForRecommendation")] = Roles.Admin,
+            // ── Approval edges.
             [("ForApproval", "Approved")] = Roles.Approver,
             [("ForApproval", "Rejected")] = Roles.Approver,
             [("ForApproval", "ForRevision")] = Roles.Approver,
@@ -78,12 +65,6 @@ public class LoanWorkflowService : ILoanWorkflowService
 
     public bool IsValidTransition(string fromStatus, string toStatus, string userRole)
     {
-        // System actor: auto-return edges from ForIncompleteDocuments to any
-        // review desk. Least-privilege: cannot perform any other transition.
-        if (userRole == Roles.System)
-            return fromStatus == "ForIncompleteDocuments"
-                && toStatus is "ForChecking" or "ForRecommendation" or "ForApproval";
-
         if (!BuildTransitions().TryGetValue((fromStatus, toStatus), out var requiredRole))
             return false;
 

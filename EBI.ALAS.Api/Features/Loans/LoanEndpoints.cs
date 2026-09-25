@@ -24,6 +24,7 @@ public static class LoanEndpoints
         app.MapUpdateLoanStatusEndpoints();
         app.MapCancelLoanEndpoints();
         app.MapGetLoanTimelineEndpoints();
+        app.MapDocumentFlagEndpoints();
 
         // POST /api/loans/{id}/assignment/release — release an active lease
         var group = app.MapGroup("/api/loans")
@@ -133,11 +134,10 @@ public static class LoanEndpoints
             loan.DocumentsCompleteAt = result.Complete ? time.UtcNow : null;
             await db.SaveChangesAsync(ct);
 
-            // If the loan is held for incomplete docs and now complete, release it.
+            // If the loan has a document flag and is now complete, clear it.
             if (result.Complete)
             {
-                var userId = principal.GetUserId();
-                await gate.ReleaseIfCompleteAsync(loan, userId, ct);
+                await gate.SyncAsync(loan, ct);
             }
 
             return Results.Ok(ApiResponse<object>.SuccessResponse(new

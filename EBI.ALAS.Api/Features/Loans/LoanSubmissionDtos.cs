@@ -1,3 +1,5 @@
+using EBI.ALAS.Api.Features.Loans.DTOs;
+
 namespace EBI.ALAS.Api.Features.Loans;
 
 // POST /api/loans request envelope
@@ -297,6 +299,10 @@ public sealed record CreatedLoan
     /// <summary>True when this loan is the head of its desk queue.
     /// Populated by GET /api/loans.</summary>
     public bool IsQueueHead { get; init; }
+
+    /// <summary>Document flag state. Null when no active flag.
+    /// Populated by GET /api/loans.</summary>
+    public DocumentFlagDto? DocumentFlag { get; init; }
 }
 
 // GET /api/loans/{id}/history — timeline entries
