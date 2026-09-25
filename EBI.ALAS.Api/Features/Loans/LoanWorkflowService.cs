@@ -101,4 +101,17 @@ public class LoanWorkflowService : ILoanWorkflowService
         }
         return result;
     }
+
+    public ResolvedAction ResolveAction(WorkflowAction action, string fromStatus) =>
+        (action, fromStatus) switch
+        {
+            (WorkflowAction.Recommend, "ForRecommendation") => new ResolvedAction("ForChecking", null),
+            (WorkflowAction.Recommend, "ForChecking") => new ResolvedAction("ForApproval", "Recommended"),
+            (WorkflowAction.NotRecommend, "ForChecking") => new ResolvedAction("ForApproval", "NotRecommended"),
+            (WorkflowAction.PushBack, "ForRecommendation" or "ForChecking" or "ForApproval") => new ResolvedAction("ForRevision", null),
+            (WorkflowAction.Approve, "ForApproval") => new ResolvedAction("Approved", null),
+            (WorkflowAction.Reject, "ForApproval") => new ResolvedAction("Rejected", null),
+            (WorkflowAction.ReturnForRevision, "ForApproval") => new ResolvedAction("ForRevision", null),
+            _ => throw new InvalidOperationException($"{action} is not available at the {fromStatus} desk."),
+        };
 }
