@@ -868,6 +868,9 @@ namespace EBI.ALAS.Api.Migrations
                         .HasColumnType("nvarchar(20)")
                         .HasDefaultValue("New");
 
+                    b.Property<int?>("MatchedButUnstaffedTier")
+                        .HasColumnType("int");
+
                     b.Property<decimal>("MaximumLoanableAmount")
                         .HasColumnType("decimal(18,2)");
 
@@ -896,6 +899,9 @@ namespace EBI.ALAS.Api.Migrations
 
                     b.Property<decimal?>("NetTakeHomePay")
                         .HasColumnType("decimal(18,2)");
+
+                    b.Property<string>("NoAuthorityReason")
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<decimal>("NotarialFee")
                         .HasColumnType("decimal(18,2)");
