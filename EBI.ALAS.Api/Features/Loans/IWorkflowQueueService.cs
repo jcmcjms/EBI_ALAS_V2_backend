@@ -17,7 +17,8 @@ public record QueuePositionInfo(
 public record DeskQueueResponse(
     string DeskLabel,
     IReadOnlyList<QueuedLoanDto> Items,
-    QueuedLoanDto? CurrentClaim);
+    QueuedLoanDto? CurrentClaim,
+    string ScopeDescription);
 
 /// <summary>
 /// One row in the desk queue list.

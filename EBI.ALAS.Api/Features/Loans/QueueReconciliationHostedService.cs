@@ -70,6 +70,49 @@ public sealed class QueueReconciliationHostedService : BackgroundService
                 if (staleItems.Count > 0)
                     await db.SaveChangesAsync(ct);
 
+                // 1b. Rule A — ForApproval loan with tier but no active queue row → enqueue.
+                // Catches loans that were promoted to ForApproval before the routing fix
+                // deployed (or via a code path that bypassed the queue).
+                var missingQueue = await db.LoanApplications.AsNoTracking()
+                    .Where(l => l.Status == "ForApproval" && l.RequiredApprovalTier != null
+                             && !db.WorkflowQueueItems.Any(i =>
+                                 i.LoanApplicationId == l.Id
+                                 && (i.State == QueueItemState.Active || i.State == QueueItemState.Queued)))
+                    .ToListAsync(ct);
+
+                foreach (var loan in missingQueue)
+                {
+                    _logger.LogInformation(
+                        "Rule A: enqueueing ForApproval loan {LoanId} (LamId={LamId}, tier={Tier}) — no active queue row.",
+                        loan.Id, loan.LamId, loan.RequiredApprovalTier);
+                    await queueService.EnqueueAsync(loan, loan.Status, ct);
+                }
+
+                // 1c. Rule B — active/queued APP row whose partition disagrees with the
+                // loan's current branch/tier (pre-fix rows) → repartition in place.
+                var stalePartitions = await db.WorkflowQueueItems
+                    .Include(i => i.LoanApplication)
+                    .Where(i => (i.State == QueueItemState.Active || i.State == QueueItemState.Queued)
+                             && i.Stage == QueueStage.Approval)
+                    .ToListAsync(ct);
+
+                var mismatched = stalePartitions
+                    .Where(i => i.LoanApplication.RequiredApprovalTier != null
+                             && i.PartitionKey != $"APP:{i.LoanApplication.BranchCode}:{i.LoanApplication.RequiredApprovalTier}")
+                    .ToList();
+
+                foreach (var item in mismatched)
+                {
+                    var correctKey = $"APP:{item.LoanApplication.BranchCode}:{item.LoanApplication.RequiredApprovalTier}";
+                    _logger.LogInformation(
+                        "Rule B: repartitioning queue item {ItemId} for loan {LoanId} from {Old} to {New}.",
+                        item.Id, item.LoanApplicationId, item.PartitionKey, correctKey);
+                    item.PartitionKey = correctKey;
+                }
+
+                if (missingQueue.Count > 0 || mismatched.Count > 0)
+                    await db.SaveChangesAsync(ct);
+
                 // 3. Clear expired leases — abandoned desks recover automatically.
                 // A reviewer who crashes or walks away doesn't hold a desk hostage.
                 var stealBefore = DateTime.UtcNow.AddMinutes(-_queueOptions.CurrentValue.LeaseTtlMinutes);
@@ -108,11 +151,15 @@ public sealed class QueueReconciliationHostedService : BackgroundService
                     await queueService.PromoteHeadAsync(partitionKey, ct);
                 }
 
-                if (staleItems.Count > 0 || expiredLeases.Count > 0 || partitionsNeedingPromotion.Count > 0)
+                if (staleItems.Count > 0 || expiredLeases.Count > 0 || partitionsNeedingPromotion.Count > 0
+                    || missingQueue.Count > 0 || mismatched.Count > 0)
                 {
                     _logger.LogInformation(
-                        "Queue reconciliation: {StaleCount} stale items dequeued, {ExpiredCount} expired leases cleared, {PromotionCount} partitions awaiting promotion.",
-                        staleItems.Count, expiredLeases.Count, partitionsNeedingPromotion.Count);
+                        "Queue reconciliation: {StaleCount} stale dequeued, {ExpiredCount} expired leases cleared, " +
+                        "{PromotionCount} partitions awaiting promotion, {MissingCount} missing queue rows enqueued, " +
+                        "{MismatchCount} stale partitions repartitioned.",
+                        staleItems.Count, expiredLeases.Count, partitionsNeedingPromotion.Count,
+                        missingQueue.Count, mismatched.Count);
                 }
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)
