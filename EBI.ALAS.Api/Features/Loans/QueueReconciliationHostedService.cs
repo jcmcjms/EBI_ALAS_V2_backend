@@ -105,27 +105,7 @@ public sealed class QueueReconciliationHostedService : BackgroundService
 
                 foreach (var partitionKey in partitionsNeedingPromotion)
                 {
-                    var head = await db.WorkflowQueueItems
-                        .Include(i => i.LoanApplication)
-                        .Where(i => i.PartitionKey == partitionKey && i.State == QueueItemState.Queued)
-                        .OrderBy(i => i.EnqueuedAt).ThenBy(i => i.Id)
-                        .FirstOrDefaultAsync(ct);
-
-                    if (head?.LoanApplication == null) continue;
-
-                    // Use the queue service to promote (it handles owner resolution + notifications).
-                    await queueService.EnqueueAsync(head.LoanApplication, head.LoanApplication.Status, ct);
-                    // EnqueueAsync will detect the existing Queued item and promote it.
-                    // Actually, we need to call the promotion directly — EnqueueAsync would create a duplicate.
-                    // Instead, let's just mark the head as needing promotion and let the next cycle handle it.
-                    // Actually, the simplest approach: we already dequeued stale items above, so the
-                    // partitionsNeedingPromotion query is correct. We just need to trigger promotion.
-                    // The EnqueueAsync method already handles promotion after enqueue, but we don't want
-                    // to enqueue again. Let's just call the promotion logic directly.
-                    // For now, let's log and let the next status transition handle it.
-                    _logger.LogInformation(
-                        "Partition {PartitionKey} has no Active item. Head loan {LoanId} will be promoted on next status transition.",
-                        partitionKey, head.LoanApplicationId);
+                    await queueService.PromoteHeadAsync(partitionKey, ct);
                 }
 
                 if (staleItems.Count > 0 || expiredLeases.Count > 0 || partitionsNeedingPromotion.Count > 0)

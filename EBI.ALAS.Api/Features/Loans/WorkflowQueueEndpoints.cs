@@ -66,5 +66,36 @@ public static class WorkflowQueueEndpoints
         .WithName("ReleaseDeskClaim")
         .Produces<ApiResponse>(200)
         .RequireAuthorization();
+
+        group.MapPost("/{id:int}/claim", async (
+            int id,
+            ClaimsPrincipal principal,
+            IWorkflowQueueService queue,
+            CancellationToken ct) =>
+        {
+            var userId = principal.GetUserId();
+            var role = principal.GetRole();
+            var branchCode = principal.GetBranchCode();
+
+            var result = await queue.ClaimByIdAsync(id, userId, role, branchCode, ct);
+            return result switch
+            {
+                ClaimByIdResult.Claimed claimed =>
+                    Results.Ok(ApiResponse<ClaimResponse>.SuccessResponse(claimed.Response, $"Serving {claimed.Response.LamId}.")),
+                ClaimByIdResult.NotHead =>
+                    Results.Conflict(ApiResponse<ClaimResponse>.ErrorResponse(
+                        "This file is queued behind another application. Serve from the Review Desk in order.")),
+                ClaimByIdResult.LeasedByOther leased =>
+                    Results.Conflict(ApiResponse<ClaimResponse>.ErrorResponse(
+                        $"Currently with {leased.OwnerName}.")),
+                _ =>
+                    Results.NotFound(ApiResponse<ClaimResponse>.ErrorResponse("Not in your desk queue.")),
+            };
+        })
+        .WithName("ClaimQueueItemById")
+        .Produces<ApiResponse<ClaimResponse>>(200)
+        .Produces<ApiResponse<ClaimResponse>>(404)
+        .Produces<ApiResponse<ClaimResponse>>(409)
+        .RequireAuthorization();
     }
 }

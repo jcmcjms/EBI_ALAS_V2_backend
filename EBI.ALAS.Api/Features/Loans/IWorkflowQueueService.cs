@@ -43,6 +43,14 @@ public record ClaimResponse(
     string Status,
     DateTime LeasedAt);
 
+public abstract record ClaimByIdResult
+{
+    public sealed record Claimed(ClaimResponse Response) : ClaimByIdResult;
+    public sealed record NotHead() : ClaimByIdResult;
+    public sealed record LeasedByOther(string OwnerName) : ClaimByIdResult;
+    public sealed record NotFound() : ClaimByIdResult;
+}
+
 /// <summary>
 /// Server-owned FIFO desk queue for loan review workflow.
 /// Manages the lifecycle of queue items as loans move through
@@ -91,4 +99,8 @@ public interface IWorkflowQueueService
     /// returns the item to the pool (next promote picks it up).
     /// </summary>
     Task<bool> ReleaseClaimAsync(int userId, CancellationToken ct);
+
+    Task<ClaimByIdResult> ClaimByIdAsync(int id, int userId, string role, string branchCode, CancellationToken ct);
+
+    Task PromoteHeadAsync(string partitionKey, CancellationToken ct);
 }
