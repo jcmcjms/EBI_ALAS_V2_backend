@@ -177,7 +177,13 @@ public static class GetLoanById
                 AssignedApproverName = assignedApproverName,
                 AssignedAt = loan.AssignedAt,
                 DocumentsCompleteAt = loan.DocumentsCompleteAt,
-                IncompleteReturnStatus = loan.IncompleteReturnStatus,
+                DocumentFlag = loan.DocumentsFlaggedAt != null
+                    ? new DocumentFlagDto(
+                        loan.DocumentsFlaggedAt.Value,
+                        loan.DocumentsFlaggedById,
+                        loan.DocumentFlagReason,
+                        loan.DocumentChecklists.Count(d => d.Status == "Missing" || d.Status == "Pending"))
+                    : null,
                 WebLoanCisNo = loan.WebLoanCisNo,
                 WebLoanBranchCode = loan.WebLoanBranchCode,
                 WebLoanAccountNumbers = loan.WebLoanAccountNumbers,

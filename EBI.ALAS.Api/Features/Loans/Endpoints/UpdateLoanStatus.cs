@@ -33,10 +33,8 @@ public static class UpdateLoanStatus
             INotificationDispatcher notificationDispatcher,
             IRealtimeNotificationService realtimeService,
             IDocumentCompletenessService completenessService,
-            IDocumentChecklistStore checklistStore,
             IApprovalRoutingService routingService,
             ILoanAssignmentService assignmentService,
-            IDocumentGateService documentGateService,
             ClaimsPrincipal user,
             ITimeProvider timeProvider,
             AppDbContext db,
@@ -91,13 +89,9 @@ public static class UpdateLoanStatus
                 loan.DocumentsCompleteAt = completeness.Complete ? timeProvider.UtcNow : null;
             }
 
-            if (request.Status == "ForApproval" && fromStatus is "ForChecking" or "ForIncompleteDocuments")
+            if (request.Status == "ForApproval" && fromStatus == "ForChecking")
             {
-                // Only stamp completeness when the file actually left the checking desk.
-                // From ForIncompleteDocuments the documents are still missing — that's
-                // the reviewer exercising discretion with justification.
-                if (fromStatus == "ForChecking")
-                    loan.DocumentsCompleteAt = timeProvider.UtcNow;
+                loan.DocumentsCompleteAt = timeProvider.UtcNow;
 
                 var decision = await routingService.RouteAsync(loan, ct);
                 loan.DeviationSeverity = decision.Severity;
@@ -125,7 +119,7 @@ public static class UpdateLoanStatus
             }
 
             var verdict = request.Verdict;
-            if (fromStatus is "ForChecking" or "ForIncompleteDocuments" && request.Status == "ForApproval"
+            if (fromStatus == "ForChecking" && request.Status == "ForApproval"
                 && userRole == Roles.Evaluator)
             {
                 if (verdict is not ("Recommended" or "NotRecommended"))
@@ -135,7 +129,7 @@ public static class UpdateLoanStatus
             else if (verdict is not null)
             {
                 return Results.BadRequest(ApiResponse.ErrorResponse(
-                    "A verdict is only accepted on the evaluator's ForChecking/ForIncompleteDocuments → ForApproval transition."));
+                    "A verdict is only accepted on the evaluator's ForChecking → ForApproval transition."));
             }
 
             // Apply the permission-based authorization that was registered but never used.
@@ -150,42 +144,14 @@ public static class UpdateLoanStatus
                     statusCode: StatusCodes.Status403Forbidden);
             }
 
-            // Reviewer flag: route through DocumentGateService (the ONLY entry
-            // path into ForIncompleteDocuments — no automatic holds).
-            if (request.Status == "ForIncompleteDocuments")
-            {
-                // Validator guarantees non-empty codes + comment; re-check here
-                // so the invariant holds even for non-FluentValidation callers.
-                if (request.MissingRequirementCodes is not { Count: > 0 } || string.IsNullOrWhiteSpace(comments))
-                    return Results.UnprocessableEntity(ApiResponse.ErrorResponse(
-                        "Flagging a file requires at least one missing requirement and a written reason."));
-
-                await documentGateService.FlagIncompleteAsync(loan, request.MissingRequirementCodes, comments, userId, ct);
-                await realtimeService.NotifyDashboardUpdateAsync(loan.BranchCode);
-                return Results.Ok(ApiResponse.SuccessResponse("File flagged as lacking documents."));
-            }
-
-            if (fromStatus == "ForIncompleteDocuments" && request.Status == "ForChecking")
-            {
-                if (request.SubmittedRequirementCodes is { Count: > 0 })
-                    await checklistStore.MarkSubmittedAsync(
-                        loan.Id, request.SubmittedRequirementCodes, userId, ct);
-
-                var unresolved = await checklistStore.GetUnresolvedAsync(loan.Id, ct);
-                if (unresolved.Count > 0)
-                {
-                    var names = string.Join(", ", unresolved.Select(u => u.Name));
-                    return Results.ValidationProblem(new Dictionary<string, string[]>
-                    {
-                        ["submittedRequirementCodes"] = [$"Documents still incomplete: {names}"],
-                    });
-                }
-            }
+            // Reviewer flag: document flagging is now handled by the dedicated
+            // POST /api/loans/{id}/document-flag endpoint. The status never changes
+            // for missing documents — flag columns + checklist state record the fact.
 
             var actionName = (fromStatus, request.Status, verdict) switch
             {
-                ("ForChecking" or "ForIncompleteDocuments", "ForApproval", "NotRecommended") => "EvaluatedNotRecommended",
-                ("ForChecking" or "ForIncompleteDocuments", "ForApproval", "Recommended")    => "EvaluatedRecommended",
+                ("ForChecking", "ForApproval", "NotRecommended") => "EvaluatedNotRecommended",
+                ("ForChecking", "ForApproval", "Recommended")    => "EvaluatedRecommended",
                 (_, "ForRevision", _)                            => "PushedBack",
                 _                                                => "StatusChanged",
             };
@@ -302,18 +268,6 @@ public class UpdateLoanStatusRequest
     /// Persisted as the audit action name so the approver sees the stance
     /// without a schema migration.</summary>
     public string? Verdict { get; init; }
-
-    /// <summary>
-    /// Required when Status == "ForIncompleteDocuments". The checklist
-    /// requirement codes the evaluator flags as missing.
-    /// </summary>
-    public IReadOnlyList<string>? MissingRequirementCodes { get; init; }
-
-    /// <summary>
-    /// Used when transitioning from ForIncompleteDocuments → ForChecking.
-    /// The checklist requirement codes the encoder marks as submitted.
-    /// </summary>
-    public IReadOnlyList<string>? SubmittedRequirementCodes { get; init; }
 }
 
 public class UpdateLoanStatusValidator : AbstractValidator<UpdateLoanStatusRequest>
@@ -322,8 +276,7 @@ public class UpdateLoanStatusValidator : AbstractValidator<UpdateLoanStatusReque
     {
         "Draft", "ForRecommendation", "ForChecking", "ForApproval",
         "Approved", "Rejected", "ForRevision", "ForDisbursement",
-        "Disbursed", "OnGoing", "ForIncompleteDocuments",
-        "Cancelled"
+        "Disbursed", "OnGoing", "Cancelled"
     };
 
     public UpdateLoanStatusValidator()
@@ -344,25 +297,6 @@ public class UpdateLoanStatusValidator : AbstractValidator<UpdateLoanStatusReque
             RuleFor(x => x.Comments)
                 .NotEmpty().MinimumLength(10)
                 .WithMessage("Comments (min 10 characters) are required for pushbacks, rejections, and a Not Recommended evaluation.");
-        });
-
-        // ForIncompleteDocuments requires at least one missing requirement code
-        // and a written reason (reviewer-initiated flag, not system-held).
-        When(x => x.Status == "ForIncompleteDocuments", () =>
-        {
-            RuleFor(x => x.MissingRequirementCodes)
-                .NotEmpty().WithMessage("At least one missing requirement code is required.")
-                .ForEach(c => c.NotEmpty().MaximumLength(64));
-
-            RuleFor(x => x.Comments)
-                .NotEmpty().WithMessage("A reason is required when flagging a file as lacking documents.")
-                .MinimumLength(5).WithMessage("Reason must be at least 5 characters.");
-        });
-
-        When(x => x.SubmittedRequirementCodes != null, () =>
-        {
-            RuleFor(x => x.SubmittedRequirementCodes!)
-                .ForEach(c => c.NotEmpty().MaximumLength(64));
         });
 
         RuleFor(x => x.Comments).MaximumLength(2000)

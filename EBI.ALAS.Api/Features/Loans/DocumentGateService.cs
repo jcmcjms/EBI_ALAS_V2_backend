@@ -10,7 +10,7 @@ namespace EBI.ALAS.Api.Features.Loans;
 
 /// <summary>
 /// Resolves the seeded "system" user so audit rows written by automated
-/// gate actions (sweep, auto-hold) attribute to a real principal instead
+/// flag actions (sync sweep) attribute to a real principal instead
 /// of borrowing a human's id.
 /// </summary>
 public interface ISystemPrincipal
@@ -40,52 +40,64 @@ public sealed class SystemPrincipal(AppDbContext db, IMemoryCache cache) : ISyst
 }
 
 /// <summary>
-/// Owns the ForIncompleteDocuments lifecycle:
-///   entry  — a reviewer explicitly flags a file with the requirements they found
-///            lacking plus a written reason (this is the ONLY entry path).
-///   exit   — completeness sweep auto-releases when every requirement verifies
-///            complete on the document server.
+/// Owns the document flag lifecycle — a deficiency is a FACT about paperwork,
+/// NOT a routing decision. Flag columns + checklist state record the deficiency
+/// without touching Status or workflow queues.
 ///
-/// Submission and desk promotions never hold automatically — files go straight
-/// to the review desk regardless of document completeness.
+///   FlagAsync  — a reviewer explicitly flags a file with the requirements they
+///                found lacking plus a written reason. The ONLY entry path.
+///   ClearAsync — manual withdraw (flagger/admin) or encoder-side clear.
+///   SyncAsync  — auto-clear when every requirement verifies complete on the
+///                document server (called by hosted service + verify endpoint).
+///
+/// The status never changes. The file never leaves its desk. The approver
+/// routing path is the same code whether or not documents are missing.
 /// </summary>
 public interface IDocumentGateService
 {
     /// <summary>
-    /// The ONLY entry path into ForIncompleteDocuments: a reviewer explicitly
-    /// flags the file with the requirements they found lacking plus a written
-    /// reason. Submission and desk promotions never hold automatically.
+    /// Records a document deficiency WITHOUT touching Status or queues.
+    /// Sets flag columns, marks checklist items, logs audit, sends notifications.
     /// </summary>
-    Task FlagIncompleteAsync(
+    Task FlagAsync(
         LoanApplication loan,
         IReadOnlyCollection<string> missingCodes,
-        string comment,
+        string reason,
         int actorUserId,
         CancellationToken ct);
 
     /// <summary>
-    /// Exit gate: when a held loan becomes document-complete, return it to
-    /// the desk it was flagged from and re-queue it. Returns true when released.
+    /// Manual withdraw: clears the flag columns and logs the clear action.
+    /// Available to the flagger, admin, or encoder after uploading.
+    /// Returns true when a flag was actually cleared.
     /// </summary>
-    Task<bool> ReleaseIfCompleteAsync(LoanApplication loan, int? actorUserId, CancellationToken ct);
+    Task<bool> ClearAsync(
+        LoanApplication loan,
+        int? actorUserId,
+        string cause,
+        CancellationToken ct);
+
+    /// <summary>
+    /// Sync hook: checks document completeness and clears the flag if everything
+    /// is now uploaded. Called by DocumentCompletenessSyncHostedService and the
+    /// POST /api/loans/{id}/documents/verify endpoint.
+    /// Returns true when a flag was cleared.
+    /// </summary>
+    Task<bool> SyncAsync(LoanApplication loan, CancellationToken ct);
 }
 
-public sealed class DocumentGateService(
+public sealed class DocumentFlagService(
     AppDbContext db,
     IDocumentCompletenessService completeness,
     IDocumentChecklistStore checklistStore,
-    IWorkflowQueueService queueService,
     IAuditLogger auditLogger,
     ITimeProvider timeProvider,
     INotificationService notifications,
     IRealtimeNotificationService realtime,
     ISystemPrincipal system) : IDocumentGateService
 {
-    private static readonly string[] ReviewStatuses =
-        ["ForRecommendation", "ForChecking", "ForApproval"];
-
-    public async Task FlagIncompleteAsync(
-        LoanApplication loan, IReadOnlyCollection<string> missingCodes, string comment,
+    public async Task FlagAsync(
+        LoanApplication loan, IReadOnlyCollection<string> missingCodes, string reason,
         int actorUserId, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(loan);
@@ -100,88 +112,77 @@ public sealed class DocumentGateService(
             .Select(i => $"{i.ChecklistDescription ?? i.IdCode} ({i.IdCode})")
             .ToList();
 
-        var from = loan.Status;
-
+        // Mark checklist items as missing
         await checklistStore.MarkMissingAsync(loan.Id, missingCodes.ToList(), actorUserId, ct);
 
-        loan.Status = "ForIncompleteDocuments";
-        loan.IncompleteReturnStatus = from;      // auto-release returns to the flagging desk
+        // Set flag columns — no status change, no queue mutation
+        loan.DocumentsFlaggedAt = timeProvider.UtcNow;
+        loan.DocumentsFlaggedById = actorUserId;
+        loan.DocumentFlagReason = reason;
         loan.DocumentsCompleteAt = null;
-        loan.LastActionDate = timeProvider.UtcNow;
         await db.SaveChangesAsync(ct);
 
-        if (WorkflowQueueService.StageForStatus(from) != null)
-            await queueService.DequeueAndPromoteAsync(loan, from, ct);
-        // ForIncompleteDocuments is a tracking state — no queue row.
-        // Document completion is parallel work; reviewers may route flagged
-        // files at any time without occupying a FIFO desk.
+        // Audit: dedicated verb (not a status transition)
+        await auditLogger.LogActionAsync(loan.Id, actorUserId, "DocumentsFlagged", null, null,
+            $"Missing: {string.Join(", ", missingLabels)}. Reason: {reason}");
 
-        await auditLogger.LogActionAsync(loan.Id, actorUserId, "StatusChanged", from,
-            "ForIncompleteDocuments",
-            $"Flagged as lacking documents — missing: {string.Join(", ", missingLabels)}. Reason: {comment}");
-
+        // Notify encoder: documents flagged — upload required
         var link = $"/loans/monitoring?id={loan.Id}";
-        var title = "Documents Incomplete — Action Required";
+        var title = "Documents Flagged — Upload Required";
         var body = $"A reviewer flagged {loan.LamId} as lacking documents. " +
-                   $"Missing: {string.Join(", ", missingLabels)}. Reason: {comment} " +
-                   $"It returns to {from} once every requirement verifies complete.";
+                   $"Missing: {string.Join(", ", missingLabels)}. Reason: {reason}. " +
+                   $"Upload the missing documents; the flag clears automatically when complete.";
         await notifications.CreateAsync(loan.CreatedById, title, body, link);
         await realtime.NotifyUserAsync(loan.CreatedById, title, body, link);
         await realtime.NotifyDashboardUpdateAsync(loan.BranchCode);
     }
 
-    public async Task<bool> ReleaseIfCompleteAsync(
-        LoanApplication loan, int? actorUserId, CancellationToken ct)
+    public async Task<bool> ClearAsync(
+        LoanApplication loan, int? actorUserId, string cause, CancellationToken ct)
     {
-        if (loan.Status != "ForIncompleteDocuments")
+        if (loan.DocumentsFlaggedAt is null)
+            return false;
+
+        var actor = actorUserId ?? await system.GetIdAsync(ct);
+
+        // Clear flag columns
+        loan.DocumentsFlaggedAt = null;
+        loan.DocumentsFlaggedById = null;
+        loan.DocumentFlagReason = null;
+        await db.SaveChangesAsync(ct);
+
+        // Audit: dedicated verb
+        await auditLogger.LogActionAsync(loan.Id, actor, "DocumentFlagCleared", null, null, cause);
+
+        // Notify encoder: flag cleared
+        var link = $"/loans/monitoring?id={loan.Id}";
+        var title = "Document Flag Cleared";
+        var body = $"The document flag on {loan.LamId} has been cleared. {cause}";
+        await notifications.CreateAsync(loan.CreatedById, title, body, link);
+        await realtime.NotifyUserAsync(loan.CreatedById, title, body, link);
+
+        // Notify the flagger (if different from actor and encoder)
+        if (loan.DocumentsFlaggedById.HasValue
+            && loan.DocumentsFlaggedById != actorUserId
+            && loan.DocumentsFlaggedById != loan.CreatedById)
+        {
+            await notifications.CreateAsync(loan.DocumentsFlaggedById.Value, title, body, link);
+            await realtime.NotifyUserAsync(loan.DocumentsFlaggedById.Value, title, body, link);
+        }
+
+        await realtime.NotifyDashboardUpdateAsync(loan.BranchCode);
+        return true;
+    }
+
+    public async Task<bool> SyncAsync(LoanApplication loan, CancellationToken ct)
+    {
+        if (loan.DocumentsFlaggedAt is null)
             return false;
 
         var result = await completeness.CheckByLoanNoAsync(loan.LoanNo, ct);
         if (!result.Complete)
             return false;
 
-        var target = ReviewStatuses.Contains(loan.IncompleteReturnStatus)
-            ? loan.IncompleteReturnStatus!
-            : "ForChecking"; // legacy rows predating the column
-
-        var actor = actorUserId ?? await system.GetIdAsync(ct);
-        var from = loan.Status;
-
-        loan.Status = target;
-        loan.IncompleteReturnStatus = null;
-        loan.DocumentsCompleteAt = timeProvider.UtcNow;
-        loan.LastActionDate = timeProvider.UtcNow;
-        await db.SaveChangesAsync(ct);
-
-        // from-status is ForIncompleteDocuments (tracking state, no queue row),
-        // so only the destination enqueue runs — FIFO resumes at the real desk.
-        await queueService.EnqueueAsync(loan, target, ct);
-
-        await auditLogger.LogActionAsync(loan.Id, actor, "StatusChanged", from, target,
-            "Auto-released: all document requirements uploaded.");
-
-        var link = $"/loans/monitoring?id={loan.Id}";
-        var title = "Documents Complete — Back in Queue";
-        var body = $"{loan.LamId} has all requirements uploaded and returned to {target}.";
-        await notifications.CreateAsync(loan.CreatedById, title, body, link);
-        await realtime.NotifyUserAsync(loan.CreatedById, title, body, link);
-
-        // Wake the destination desk (recommenders / evaluators / approvers).
-        var deskRole = target switch
-        {
-            "ForRecommendation" => Roles.Recommender,
-            "ForApproval" => Roles.Approver,
-            _ => Roles.Evaluator,
-        };
-        foreach (var reviewer in await db.Users.AsNoTracking()
-                     .Where(u => u.Role == deskRole && u.BranchId == loan.BranchCode && u.IsActive)
-                     .ToListAsync(ct))
-        {
-            await notifications.CreateAsync(reviewer.Id, title, body, link);
-            await realtime.NotifyUserAsync(reviewer.Id, title, body, link);
-        }
-
-        await realtime.NotifyDashboardUpdateAsync(loan.BranchCode);
-        return true;
+        return await ClearAsync(loan, null, "Auto-cleared: all flagged requirements uploaded.", ct);
     }
 }

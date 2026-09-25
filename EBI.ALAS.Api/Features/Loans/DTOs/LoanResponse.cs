@@ -1,6 +1,16 @@
 namespace EBI.ALAS.Api.Features.Loans.DTOs;
 
 /// <summary>
+/// Document flag state — a deficiency is a FACT about paperwork, not a routing decision.
+/// Null when no active flag exists.
+/// </summary>
+public sealed record DocumentFlagDto(
+    DateTime FlaggedAt,
+    int? FlaggedById,
+    string? Reason,
+    int MissingCount);
+
+/// <summary>
 /// Response DTO for loan application details.
 /// Contains all loan data including computed metrics and workflow state.
 /// </summary>
@@ -115,9 +125,8 @@ public class LoanResponse
     public DateTime? AssignedAt { get; set; }
     public DateTime? DocumentsCompleteAt { get; set; }
 
-    /// <summary>The review desk this loan returns to when documents verify
-    /// complete. Null when not held for incomplete documents.</summary>
-    public string? IncompleteReturnStatus { get; set; }
+    /// <summary>Document flag state. Null when no active flag.</summary>
+    public DocumentFlagDto? DocumentFlag { get; set; }
 
     public List<OutstandingLoanResponse> OutstandingLoans { get; set; } = new();
     public List<BuyOutResponse> BuyOuts { get; set; } = new();

@@ -108,12 +108,21 @@ public sealed class LoanApplication
     public DateTime? AssignedAt { get; set; }
     public DateTime? DocumentsCompleteAt { get; set; }
 
-    /// <summary>
-    /// Remembers which review desk the loan was held from so the automatic
-    /// release returns it to the correct queue. Set by DocumentGateService
-    /// on entry; cleared on release. Null for loans that were never held.
-    /// </summary>
-    public string? IncompleteReturnStatus { get; set; }
+    // ── Document flag columns ──────────────────────────────────────────
+    // A document deficiency is a FACT about paperwork, not a routing decision.
+    // These columns record the flag without touching Status or workflow queues.
+
+    /// <summary>UTC timestamp when the last reviewer flagged missing documents.
+    /// Null means no active flag. Cleared by DocumentFlagService.SyncAsync
+    /// when every requirement verifies complete.</summary>
+    public DateTime? DocumentsFlaggedAt { get; set; }
+
+    /// <summary>User who last flagged missing documents (FK → Users).</summary>
+    public int? DocumentsFlaggedById { get; set; }
+    public User? DocumentsFlaggedBy { get; set; }
+
+    /// <summary>Reviewer's written reason for flagging (free text, min 5 chars).</summary>
+    public string? DocumentFlagReason { get; set; }
 
     // Audit
     public int CreatedById { get; init; }

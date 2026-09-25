@@ -268,8 +268,22 @@ public class LoanApplicationConfiguration : IEntityTypeConfiguration<LoanApplica
 
         builder.Property(e => e.DocumentsCompleteAt);
 
-        builder.Property(e => e.IncompleteReturnStatus)
-            .HasMaxLength(50);
+        // Document flag columns (deficiency as data, not routing)
+        builder.Property(e => e.DocumentsFlaggedAt);
+        builder.Property(e => e.DocumentsFlaggedById);
+        builder.Property(e => e.DocumentFlagReason).HasMaxLength(2000);
+
+        // FK: DocumentsFlaggedBy → Users (NO ACTION to avoid cascade cycle;
+        // LoanApplications already has two FKs to Users)
+        builder.HasOne(e => e.DocumentsFlaggedBy)
+            .WithMany()
+            .HasForeignKey(e => e.DocumentsFlaggedById)
+            .OnDelete(DeleteBehavior.NoAction);
+
+        // Index: dashboard widget queries WHERE DocumentsFlaggedAt IS NOT NULL
+        builder.HasIndex(e => e.DocumentsFlaggedAt)
+            .HasDatabaseName("IX_LoanApplications_DocumentsFlaggedAt")
+            .HasFilter("[DocumentsFlaggedAt] IS NOT NULL");
 
         // Index for the assignment query pattern
         builder.HasIndex(e => new { e.Status, e.AssignedApproverId })

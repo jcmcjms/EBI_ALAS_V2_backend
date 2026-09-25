@@ -21,7 +21,7 @@ public sealed record LoanTransitionResult(string LamId, string? Error);
 /// queue ownership, completeness checks) so both callers enforce
 /// identical rules.
 /// </summary>
-public interface ILoanStatusTransitionService
+    public interface ILoanStatusTransitionService
 {
     Task<LoanTransitionResult> TryTransitionAsync(
         int loanId, string targetStatus, string? comments, string? verdict,
@@ -34,8 +34,6 @@ public sealed class LoanStatusTransitionService(
     ILoanWorkflowService workflow,
     IWorkflowQueueService queueService,
     IAuditLogger auditLogger,
-    IDocumentChecklistStore checklistStore,
-    IDocumentCompletenessService completenessService,
     IApprovalRoutingService routingService,
     ILoanAssignmentService assignmentService,
     INotificationService notificationService,
@@ -62,57 +60,16 @@ public sealed class LoanStatusTransitionService(
         // Queue ownership guard (Admin and System bypass)
         if (WorkflowQueueService.StageForStatus(fromStatus) != null
             && userRole != Roles.Admin
-            && userRole != Roles.System
             && !await queueService.IsHeadOwnerAsync(loanId, userId, fromStatus, ct))
         {
             return new LoanTransitionResult(loan.LamId,
                 "It is not your turn: this application is queued behind the file currently on the desk.");
         }
 
-        // Document flag: reviewer-initiated (not system-held).
-        // Trust client-supplied missingCodes — the endpoint validates they are non-empty.
-        if (targetStatus == "ForIncompleteDocuments")
+        // Approval routing
+        if (targetStatus == "ForApproval" && fromStatus == "ForChecking")
         {
-            if (missingCodes is not { Count: > 0 })
-                return new LoanTransitionResult(loan.LamId,
-                    "At least one missing requirement code is required to flag a file.");
-
-            // Human-readable labels: "Name (Code)" so auditors see both.
-            var items = await completenessService.GetItemsByLoanNoAsync(loan.LoanNo, ct);
-            var missingLabels = items
-                .Where(i => missingCodes.Contains(i.IdCode))
-                .Select(i => $"{i.ChecklistDescription ?? i.IdCode} ({i.IdCode})")
-                .ToList();
-
-            loan.IncompleteReturnStatus = fromStatus; // auto-release returns to the flagging desk
-            loan.DocumentsCompleteAt = null;
-
-            comments = $"Flagged as lacking documents — missing: {string.Join(", ", missingLabels)}. Reason: {comments}";
-
-            await checklistStore.MarkMissingAsync(loanId, missingCodes.ToList(), userId, ct);
-        }
-
-        if (fromStatus == "ForIncompleteDocuments" && targetStatus == "ForChecking")
-        {
-            if (submittedCodes is { Count: > 0 })
-                await checklistStore.MarkSubmittedAsync(loanId, submittedCodes, userId, ct);
-
-            var unresolved = await checklistStore.GetUnresolvedAsync(loanId, ct);
-            if (unresolved.Count > 0)
-            {
-                var names = string.Join(", ", unresolved.Select(u => u.Name));
-                return new LoanTransitionResult(loan.LamId, $"Documents still incomplete: {names}");
-            }
-        }
-
-        // Approval routing (same as UpdateLoanStatus endpoint).
-        if (targetStatus == "ForApproval" && fromStatus is "ForChecking" or "ForIncompleteDocuments")
-        {
-            // Only stamp completeness when the file actually left the checking desk.
-            // From ForIncompleteDocuments the documents are still missing — that's
-            // the reviewer exercising discretion with justification.
-            if (fromStatus == "ForChecking")
-                loan.DocumentsCompleteAt = timeProvider.UtcNow;
+            loan.DocumentsCompleteAt = timeProvider.UtcNow;
 
             var decision = await routingService.RouteAsync(loan, ct);
             loan.DeviationSeverity = decision.Severity;
@@ -123,8 +80,8 @@ public sealed class LoanStatusTransitionService(
 
         var actionName = (fromStatus, targetStatus, verdict) switch
         {
-            ("ForChecking" or "ForIncompleteDocuments", "ForApproval", "NotRecommended") => "EvaluatedNotRecommended",
-            ("ForChecking" or "ForIncompleteDocuments", "ForApproval", "Recommended")    => "EvaluatedRecommended",
+            ("ForChecking", "ForApproval", "NotRecommended") => "EvaluatedNotRecommended",
+            ("ForChecking", "ForApproval", "Recommended")    => "EvaluatedRecommended",
             (_, "ForRevision", _) => "PushedBack",
             _ => "StatusChanged",
         };
@@ -148,18 +105,6 @@ public sealed class LoanStatusTransitionService(
         var link = $"/loans/monitoring?id={loanId}";
         var actorName = $"{user.GetFirstName()} {user.GetLastName()}";
         var clientName = $"{loan.FirstName} {loan.LastName}";
-
-        if (targetStatus == "ForIncompleteDocuments")
-        {
-            await notificationService.CreateAsync(loan.CreatedById,
-                "Documents Incomplete — Action Required",
-                $"{actorName} flagged {clientName}'s application ({loan.LamId}) as having incomplete documents.",
-                link);
-            await realtimeService.NotifyUserAsync(loan.CreatedById,
-                "Documents Incomplete — Action Required",
-                $"{actorName} flagged {clientName}'s application ({loan.LamId}) as having incomplete documents.",
-                link);
-        }
 
         if (loan.CreatedById != userId)
         {

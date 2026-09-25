@@ -2,6 +2,7 @@ using System.Security.Claims;
 using EBI.ALAS.Api.Common.Constants;
 using EBI.ALAS.Api.Common.Extensions;
 using EBI.ALAS.Api.Common.Models;
+using EBI.ALAS.Api.Features.Loans.DTOs;
 using EBI.ALAS.Api.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 
@@ -36,7 +37,9 @@ public static class GetLoans
             IQueryable<LoanApplication> query = db.LoanApplications
                 .AsNoTracking()
                 .Include(l => l.CreatedBy)
-                .Include(l => l.AssignedApprover);
+                .Include(l => l.AssignedApprover)
+                .Include(l => l.DocumentsFlaggedBy)
+                .Include(l => l.DocumentChecklists);
 
             var userRole = ctx.User.GetRole();
             var userBranchCode = ctx.User.GetBranchCode();
@@ -141,6 +144,12 @@ public static class GetLoans
                     AssignedApproverName = l.AssignedApprover == null
                         ? null
                         : l.AssignedApprover.FirstName + " " + l.AssignedApprover.LastName,
+                    l.DocumentsFlaggedAt,
+                    l.DocumentFlagReason,
+                    DocumentsFlaggedByName = l.DocumentsFlaggedBy == null
+                        ? null
+                        : l.DocumentsFlaggedBy.FirstName + " " + l.DocumentsFlaggedBy.LastName,
+                    DocumentMissingCount = l.DocumentChecklists.Count(d => d.Status == "Missing" || d.Status == "Pending"),
                     LastActionInfo = l.Actions
                         .OrderByDescending(a => a.ActionDate)
                         .ThenByDescending(a => a.Id)
@@ -202,6 +211,13 @@ public static class GetLoans
                                 QueueLength = queueInfo?.QueueLength,
                                 QueueOwnerName = queueInfo?.OwnerName,
                                 IsQueueHead = queueInfo?.IsHead ?? false,
+                                DocumentFlag = r.DocumentsFlaggedAt != null
+                                    ? new DocumentFlagDto(
+                                        r.DocumentsFlaggedAt.Value,
+                                        null, // flaggedById not needed for list view
+                                        r.DocumentFlagReason,
+                                        r.DocumentMissingCount)
+                                    : null,
                             };
                         })
                         .ToList(),

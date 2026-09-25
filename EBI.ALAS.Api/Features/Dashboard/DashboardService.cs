@@ -89,15 +89,7 @@ public class DashboardService : IDashboardService
         var servingSinceUtc = _timeProvider.UtcNow.Add(-ServingWindow);
 
         // Statuses where a human action is still owed — this IS the "pending" queue.
-        // ForIncompleteDocuments is a tracking state (no queue row), but it IS
-        // pending work for encoders (upload missing docs) and evaluators (route
-        // the flagged file). Other roles never see it in their pending count.
-        var pendingStatuses = role switch
-        {
-            Roles.Encoder => PendingStatuses.Concat(["ForIncompleteDocuments"]).ToArray(),
-            Roles.Evaluator => PendingStatuses.Concat(["ForIncompleteDocuments"]).ToArray(),
-            _ => PendingStatuses,
-        };
+        var pendingStatuses = PendingStatuses;
 
         // 1 ── Pending queue (oldest first) + total.
         var pendingRows = await loans
@@ -276,12 +268,12 @@ public class DashboardService : IDashboardService
             .Select((a, i) => new NowServingItemDto(i + 1, a.Name, a.LamId, a.ActionDate >= servingSinceUtc))
             .ToList();
 
-        // 8 ── Document completion queue (incomplete documents waiting on encoder).
-        //     ForIncompleteDocuments is a tracking state — no queue row — so we
-        //     query LoanApplications directly by status instead of WorkflowQueueItems.
+        // 8 ── Document flag queue (flagged files waiting on encoder).
+        //     Document deficiency is a data flag, not a status. Flagged files
+        //     stay at their real desk — this widget surfaces them by flag columns.
         var docQueueRows = await loans
-            .Where(l => l.Status == "ForIncompleteDocuments")
-            .OrderBy(l => l.LastActionDate)
+            .Where(l => l.DocumentsFlaggedAt != null)
+            .OrderBy(l => l.DocumentsFlaggedAt)
             .Select(l => new
             {
                 l.Id,
@@ -290,23 +282,20 @@ public class DashboardService : IDashboardService
                 ClientName = l.FirstName + " " + l.LastName,
                 EncoderName = l.CreatedBy.FirstName + " " + l.CreatedBy.LastName,
                 l.LastActionDate,
+                l.Status,
                 MissingCount = l.DocumentChecklists.Count(d => d.Status == "Missing" || d.Status == "Pending"),
-                FlaggedByName = _context.LoanActions
-                    .Where(a => a.LoanApplicationId == l.Id && a.ToStatus == "ForIncompleteDocuments")
-                    .OrderByDescending(a => a.ActionDate)
-                    .Select(a => a.ActionByUser.FirstName + " " + a.ActionByUser.LastName)
-                    .FirstOrDefault(),
-                FlaggedAt = _context.LoanActions
-                    .Where(a => a.LoanApplicationId == l.Id && a.ToStatus == "ForIncompleteDocuments")
-                    .OrderByDescending(a => a.ActionDate)
-                    .Select(a => (DateTime?)a.ActionDate)
-                    .FirstOrDefault(),
+                l.DocumentsFlaggedAt,
+                FlaggedByName = l.DocumentsFlaggedBy != null
+                    ? l.DocumentsFlaggedBy.FirstName + " " + l.DocumentsFlaggedBy.LastName
+                    : null,
             })
             .Take(QueueSize)
             .ToListAsync(ct);
 
         var documentQueue = docQueueRows
-            .Select((d, i) => new DocumentQueueItemDto(d.Id, i + 1, d.LamId, d.BranchCode, d.LastActionDate, d.MissingCount, d.ClientName, d.EncoderName, d.FlaggedByName, d.FlaggedAt))
+            .Select((d, i) => new DocumentQueueItemDto(d.Id, i + 1, d.LamId, d.BranchCode,
+                d.DocumentsFlaggedAt ?? d.LastActionDate, d.MissingCount, d.ClientName,
+                d.EncoderName, d.FlaggedByName, d.DocumentsFlaggedAt))
             .ToList();
 
         return new DashboardOverviewResponse(

@@ -11,14 +11,13 @@ namespace EBI.ALAS.Api.Features.Loans;
 /// re-verifies in-flight loans and writes ONLY on state change, so a quiet
 /// queue costs zero UPDATEs.
 ///
-/// Also auto-returns parked loans (ForIncompleteDocuments) to their stored
-/// return desk once every requirement verifies complete on the document server.
-/// Uses IDocumentGateService so the transition is audited and queue-managed.
+/// Also syncs document flags: when a flagged loan becomes document-complete,
+/// the flag columns are cleared via IDocumentGateService.SyncAsync.
 /// </summary>
 public sealed class DocumentCompletenessSyncHostedService : BackgroundService
 {
     private static readonly string[] ActiveStatuses =
-        ["ForRecommendation", "ForChecking", "ForApproval", "ForRevision", "ForIncompleteDocuments"];
+        ["ForRecommendation", "ForChecking", "ForApproval", "ForRevision"];
 
     private readonly IServiceScopeFactory _scopes;
     private readonly IConfiguration _config;
@@ -48,15 +47,15 @@ public sealed class DocumentCompletenessSyncHostedService : BackgroundService
                 var time = scope.ServiceProvider.GetRequiredService<ITimeProvider>();
 
                 var loans = await db.LoanApplications.AsNoTracking()
-                    .Where(l => ActiveStatuses.Contains(l.Status))
+                    .Where(l => ActiveStatuses.Contains(l.Status) || l.DocumentsFlaggedAt != null)
                     .OrderBy(l => l.LastActionDate)
                     .Take(200)                                  // bounded work per tick
-                    .Select(l => new { l.Id, l.LoanNo, l.DocumentsCompleteAt, l.Status })
+                    .Select(l => new { l.Id, l.LoanNo, l.DocumentsCompleteAt, l.Status, l.DocumentsFlaggedAt })
                     .ToListAsync(ct);
 
                 using var gate = new SemaphoreSlim(4);        // document-server politeness
                 var changes = new List<(int Id, DateTime? Stamp)>();
-                var returns = new List<int>();                // ForIncompleteDocuments → ForChecking
+                var flagSyncs = new List<int>();               // flagged loans to sync
 
                 await Parallel.ForEachAsync(loans, ct, async (loan, token) =>
                 {
@@ -72,9 +71,9 @@ public sealed class DocumentCompletenessSyncHostedService : BackgroundService
                         if (stamp != loan.DocumentsCompleteAt)
                             lock (changes) changes.Add((loan.Id, stamp));
 
-                        // Auto-return: parked loans that flip complete
-                        if (result.Complete && loan.Status == "ForIncompleteDocuments")
-                            lock (returns) returns.Add(loan.Id);
+                        // Flag sync: flagged loans that flip complete
+                        if (result.Complete && loan.DocumentsFlaggedAt != null)
+                            lock (flagSyncs) flagSyncs.Add(loan.Id);
                     }
                     catch (Exception ex)
                     {
@@ -94,24 +93,24 @@ public sealed class DocumentCompletenessSyncHostedService : BackgroundService
                     _logger.LogInformation("Completeness sweep reconciled {Count} loan(s).", changes.Count);
                 }
 
-                // Auto-return parked loans to their stored return desk via the
-                // document gate (System actor, audited, queue lifecycle handled).
-                if (returns.Count > 0)
+                // Sync document flags: clear the flag when every requirement
+                // verifies complete on the document server.
+                if (flagSyncs.Count > 0)
                 {
-                    var documentGate = scope.ServiceProvider.GetRequiredService<IDocumentGateService>();
-                    foreach (var id in returns)
+                    var documentFlag = scope.ServiceProvider.GetRequiredService<IDocumentGateService>();
+                    foreach (var id in flagSyncs)
                     {
                         var row = await db.LoanApplications.FindAsync([id], ct);
                         if (row is null) continue;
 
-                        var released = await documentGate.ReleaseIfCompleteAsync(row, null, ct);
-                        if (released)
+                        var cleared = await documentFlag.SyncAsync(row, ct);
+                        if (cleared)
                             _logger.LogInformation(
-                                "Auto-returned loan {LamId} from ForIncompleteDocuments to {Target}.",
-                                row.LamId, row.Status);
+                                "Auto-cleared document flag on loan {LamId}: all requirements uploaded.",
+                                row.LamId);
                         else
                             _logger.LogWarning(
-                                "Auto-return skipped for loan {Id}: still incomplete or not held.", id);
+                                "Flag sync skipped for loan {Id}: still incomplete or not flagged.", id);
                     }
                 }
             }

@@ -31,8 +31,7 @@ public interface INotificationDispatcher
 public sealed class NotificationDispatcher(
     ILoanRepository loanRepository,
     INotificationService notificationService,
-    IRealtimeNotificationService realtimeService,
-    AppDbContext db) : INotificationDispatcher
+    IRealtimeNotificationService realtimeService) : INotificationDispatcher
 {
     public async Task DispatchTransitionNotificationsAsync(
         LoanApplication loan,
@@ -54,7 +53,7 @@ public sealed class NotificationDispatcher(
         var realtimeSends = new List<(int UserId, string Title, string Description, string? Link)>();
 
         // Transition-specific notifications
-        if (toStatus == "ForChecking" && fromStatus != "ForIncompleteDocuments")
+        if (toStatus == "ForChecking")
         {
             var evaluators = await loanRepository.GetUsersByRoleAndBranchAsync(
                 Roles.Evaluator, loan.BranchCode, ct);
@@ -101,28 +100,6 @@ public sealed class NotificationDispatcher(
             var desc = $"{pushbackRole} {actorName} returned {clientName}'s application ({loan.LamId}). Reason: {comments}";
             batch.Add(new NotificationDraft(loan.CreatedById, title, desc, link, NotificationTypes.Action));
             realtimeSends.Add((loan.CreatedById, title, desc, link));
-        }
-        else if (toStatus == "ForIncompleteDocuments")
-        {
-            var title = "Documents Incomplete — Action Required";
-            var desc = $"{actorName} flagged {clientName}'s application ({loan.LamId}) as having incomplete documents. Reason: {comments}";
-            batch.Add(new NotificationDraft(loan.CreatedById, title, desc, link, NotificationTypes.Action));
-            realtimeSends.Add((loan.CreatedById, title, desc, link));
-        }
-        else if (toStatus == "ForChecking" && fromStatus == "ForIncompleteDocuments")
-        {
-            var lastFlagAction = await db.LoanActions.AsNoTracking()
-                .Where(a => a.LoanApplicationId == loan.Id && a.ToStatus == "ForIncompleteDocuments")
-                .OrderByDescending(a => a.ActionDate)
-                .FirstOrDefaultAsync(ct);
-
-            if (lastFlagAction != null)
-            {
-                var title = "Documents Resubmitted — Ready for Review";
-                var desc = $"{actorName} resubmitted documents for {clientName}'s application ({loan.LamId}).";
-                batch.Add(new NotificationDraft(lastFlagAction.ActionByUserId, title, desc, link, NotificationTypes.Action));
-                realtimeSends.Add((lastFlagAction.ActionByUserId, title, desc, link));
-            }
         }
 
         // Always notify the creator (if different from actor)
