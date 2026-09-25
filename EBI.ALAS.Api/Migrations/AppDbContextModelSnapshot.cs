@@ -1640,7 +1640,7 @@ namespace EBI.ALAS.Api.Migrations
                     b.HasOne("EBI.ALAS.Api.Features.Auth.User", "DocumentsFlaggedBy")
                         .WithMany()
                         .HasForeignKey("DocumentsFlaggedById")
-                        .OnDelete(DeleteBehavior.SetNull);
+                        .OnDelete(DeleteBehavior.NoAction);
 
                     b.Navigation("AssignedApprover");
 
