@@ -64,10 +64,17 @@ public static class UpdateLoanStatus
             var userRole = user.GetRole();
             var userId = user.GetUserId();
 
-            if (!workflowService.IsValidTransition(loan.Status, request.Status, userRole))
+            var resolved = request.Action is { } action
+                ? workflowService.ResolveAction(action, loan.Status)
+                : new ResolvedAction(request.Status!, null);
+
+            var targetStatus = resolved.TargetStatus;
+            var verdict = resolved.Verdict;
+
+            if (!workflowService.IsValidTransition(loan.Status, targetStatus, userRole))
             {
                 return Results.BadRequest(ApiResponse.ErrorResponse(
-                    $"Invalid status transition from {loan.Status} to {request.Status} for role {userRole}"));
+                    $"Invalid status transition from {loan.Status} to {targetStatus} for role {userRole}"));
             }
 
             // Queue ownership guard (review desks only; Admin bypass)
@@ -83,13 +90,13 @@ public static class UpdateLoanStatus
             var fromStatus = loan.Status;
             var comments = request.Comments;
 
-            if (fromStatus == "Draft" && request.Status == "ForRecommendation")
+            if (fromStatus == "Draft" && targetStatus == "ForRecommendation")
             {
                 var completeness = await completenessService.CheckAsync(loan, ct);
                 loan.DocumentsCompleteAt = completeness.Complete ? timeProvider.UtcNow : null;
             }
 
-            if (request.Status == "ForApproval" && fromStatus == "ForChecking")
+            if (targetStatus == "ForApproval" && fromStatus == "ForChecking")
             {
                 loan.DocumentsCompleteAt = timeProvider.UtcNow;
 
@@ -118,25 +125,11 @@ public static class UpdateLoanStatus
                 loan.AssignedAt = null;
             }
 
-            var verdict = request.Verdict;
-            if (fromStatus == "ForChecking" && request.Status == "ForApproval"
-                && userRole == Roles.Evaluator)
-            {
-                if (verdict is not ("Recommended" or "NotRecommended"))
-                    return Results.BadRequest(ApiResponse.ErrorResponse(
-                        "An evaluation verdict ('Recommended' or 'NotRecommended') is required for this transition."));
-            }
-            else if (verdict is not null)
-            {
-                return Results.BadRequest(ApiResponse.ErrorResponse(
-                    "A verdict is only accepted on the evaluator's ForChecking → ForApproval transition."));
-            }
-
             // Apply the permission-based authorization that was registered but never used.
             // The four policies (CanRecommendLoan, CanEvaluateLoan, CanApproveLoan, CanRejectLoan)
             // were dead — zero endpoint references. Now we check the specific permission for the
             // target status. Admin bypasses (HasPermission returns true for Admin via wildcard).
-            var requiredPermission = GetRequiredPermission(request.Status, verdict);
+            var requiredPermission = GetRequiredPermission(targetStatus, verdict);
             if (!string.IsNullOrEmpty(requiredPermission) && !user.HasPermission(requiredPermission))
             {
                 return Results.Json(ApiResponse.ErrorResponse(
@@ -148,7 +141,7 @@ public static class UpdateLoanStatus
             // POST /api/loans/{id}/document-flag endpoint. The status never changes
             // for missing documents — flag columns + checklist state record the fact.
 
-            var actionName = (fromStatus, request.Status, verdict) switch
+            var actionName = (fromStatus, targetStatus, verdict) switch
             {
                 ("ForChecking", "ForApproval", "NotRecommended") => "EvaluatedNotRecommended",
                 ("ForChecking", "ForApproval", "Recommended")    => "EvaluatedRecommended",
@@ -168,22 +161,22 @@ public static class UpdateLoanStatus
             {
                 await using var tx = await db.Database.BeginTransactionAsync(ct);
 
-                loan.Status = request.Status;
+                loan.Status = targetStatus;
                 loan.LastActionDate = timeProvider.UtcNow;
 
                 await loanRepository.UpdateAsync(loan);
 
                 // Queue lifecycle: dequeue old desk, enqueue new desk
                 var oldStage = WorkflowQueueService.StageForStatus(fromStatus);
-                var newStage = WorkflowQueueService.StageForStatus(request.Status);
+                var newStage = WorkflowQueueService.StageForStatus(targetStatus);
 
                 if (oldStage != null)
                     await queueService.DequeueAndPromoteAsync(loan, fromStatus, ct);
                 if (newStage != null)
-                    await queueService.EnqueueAsync(loan, request.Status, ct);
+                    await queueService.EnqueueAsync(loan, targetStatus, ct);
 
                 await auditLogger.LogActionAsync(
-                    id, userId, actionName, fromStatus, request.Status, comments);
+                    id, userId, actionName, fromStatus, targetStatus, comments);
 
                 await tx.CommitAsync(ct);
             });
@@ -193,7 +186,7 @@ public static class UpdateLoanStatus
             // a single call. The dispatcher handles batching (1 SaveChanges) and
             // realtime sends (SignalR) for all transition types.
             await notificationDispatcher.DispatchTransitionNotificationsAsync(
-                loan, fromStatus, request.Status, verdict, comments, actionName, user, ct);
+                loan, fromStatus, targetStatus, verdict, comments, actionName, user, ct);
 
             await realtimeService.NotifyDashboardUpdateAsync(loan.BranchCode);
 
@@ -259,47 +252,46 @@ public static class UpdateLoanStatus
     };
 }
 
-public class UpdateLoanStatusRequest
+public sealed record UpdateLoanStatusRequest
 {
-    public string Status { get; init; } = string.Empty;
+    public WorkflowAction? Action { get; init; }
+    public string? Status { get; init; }
     public string? Comments { get; init; }
-
-    /// <summary>Evaluator-only verdict for ForChecking → ForApproval.
-    /// Persisted as the audit action name so the approver sees the stance
-    /// without a schema migration.</summary>
-    public string? Verdict { get; init; }
 }
 
-public class UpdateLoanStatusValidator : AbstractValidator<UpdateLoanStatusRequest>
+public sealed class UpdateLoanStatusValidator : AbstractValidator<UpdateLoanStatusRequest>
 {
-    private static readonly string[] ValidStatuses = new[]
-    {
+    private static readonly string[] KnownStatuses =
+    [
         "Draft", "ForRecommendation", "ForChecking", "ForApproval",
         "Approved", "Rejected", "ForRevision", "ForDisbursement",
-        "Disbursed", "OnGoing", "Cancelled"
-    };
+        "Disbursed", "OnGoing", "Cancelled",
+    ];
+
+    private static readonly WorkflowAction[] RemarkHeavy =
+    [
+        WorkflowAction.PushBack, WorkflowAction.NotRecommend,
+        WorkflowAction.Reject, WorkflowAction.ReturnForRevision,
+    ];
 
     public UpdateLoanStatusValidator()
     {
+        RuleFor(x => x)
+            .Must(x => x.Action is null ^ string.IsNullOrWhiteSpace(x.Status))
+            .WithMessage("Supply exactly one of: action (desk intent) or status (direct transition).");
+
         RuleFor(x => x.Status)
-            .NotEmpty().WithMessage("Status is required")
-            .Must(s => ValidStatuses.Contains(s))
-            .WithMessage($"Status must be one of: {string.Join(", ", ValidStatuses)}");
+            .Must(s => KnownStatuses.Contains(s))
+            .When(x => x.Action is null && !string.IsNullOrWhiteSpace(x.Status))
+            .WithMessage(x => $"'{x.Status}' is not a valid workflow status.");
 
-        RuleFor(x => x.Verdict)
-            .Must(v => v is null or "Recommended" or "NotRecommended")
-            .WithMessage("Verdict must be 'Recommended' or 'NotRecommended'.");
+        RuleFor(x => x.Comments)
+            .NotEmpty()
+            .WithMessage("Remarks are required for every workflow action.");
 
-        When(x => x.Verdict == "NotRecommended"
-                  || x.Status == "ForRevision"
-                  || x.Status == "Rejected", () =>
-        {
-            RuleFor(x => x.Comments)
-                .NotEmpty().MinimumLength(10)
-                .WithMessage("Comments (min 10 characters) are required for pushbacks, rejections, and a Not Recommended evaluation.");
-        });
-
-        RuleFor(x => x.Comments).MaximumLength(2000)
-            .WithMessage("Comments must not exceed 2000 characters");
+        RuleFor(x => x.Comments)
+            .MinimumLength(10)
+            .When(x => x.Action is not null && RemarkHeavy.Contains(x.Action.Value))
+            .WithMessage("Push-back, rejection and a Not Recommended evaluation require at least 10 characters of remarks.");
     }
 }
