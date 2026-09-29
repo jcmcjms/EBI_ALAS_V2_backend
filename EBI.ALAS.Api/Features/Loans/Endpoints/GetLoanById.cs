@@ -16,6 +16,7 @@ public static class GetLoanById
         group.MapGet("/{id:int}", async (
             int id,
             ILoanRepository loanRepository,
+            IDocumentChecklistStore checklistStore,
             AppDbContext db,
             IAuditLogger auditLogger,
             CancellationToken ct) =>
@@ -25,6 +26,14 @@ public static class GetLoanById
             {
                 return Results.NotFound(ApiResponse.ErrorResponse("Loan not found"));
             }
+
+            // TRAP: the compiled detail query does NOT Include DocumentChecklists, so
+            // loan.DocumentChecklists is an empty AsNoTracking navigation and an
+            // in-memory Count() silently yields 0 (the "0 doc(s) flagged" bug).
+            // Count in SQL with the same predicate the list projection uses.
+            var unresolvedCount = loan.DocumentsFlaggedAt is null
+                ? 0
+                : await checklistStore.CountUnresolvedAsync(id, ct);
 
             var lastAction = loan.Actions
                 .OrderByDescending(a => a.ActionDate).ThenByDescending(a => a.Id)
@@ -183,7 +192,7 @@ public static class GetLoanById
                         loan.DocumentsFlaggedAt.Value,
                         loan.DocumentsFlaggedById,
                         loan.DocumentFlagReason,
-                        loan.DocumentChecklists.Count(d => d.Status == "Missing" || d.Status == "Pending"))
+                        unresolvedCount)
                     : null,
                 WebLoanCisNo = loan.WebLoanCisNo,
                 WebLoanBranchCode = loan.WebLoanBranchCode,
