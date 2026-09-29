@@ -1,6 +1,6 @@
 <Project>
-  <!-- Q5 fix: Directory.Build.props — shared build settings for all projects -->
   <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
     <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
