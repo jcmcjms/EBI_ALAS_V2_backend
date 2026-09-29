@@ -149,7 +149,7 @@ public static class GetLoans
                     DocumentsFlaggedByName = l.DocumentsFlaggedBy == null
                         ? null
                         : l.DocumentsFlaggedBy.FirstName + " " + l.DocumentsFlaggedBy.LastName,
-                    DocumentMissingCount = l.DocumentChecklists.Count(d => d.Status == "Missing" || d.Status == "Pending"),
+                    DocumentMissingCount = l.DocumentChecklists.Count(d => DocumentChecklistStore.UnresolvedStatuses.Contains(d.Status)),
                     LastActionInfo = l.Actions
                         .OrderByDescending(a => a.ActionDate)
                         .ThenByDescending(a => a.Id)
