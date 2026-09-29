@@ -33,14 +33,16 @@ public static class MiddlewareExtensions
         // Development-only middleware — OpenAPI document + Scalar API reference UI
         if (app.Environment.IsDevelopment())
         {
-            app.UseSwagger();
+            // Native OpenAPI document endpoint (replaces Swagger)
+            app.MapOpenApi();
+
             app.MapScalarApiReference(options =>
             {
                 options
                     .WithTitle("EBI.ALAS.V2 API")
                     .WithTheme(ScalarTheme.Kepler)
                     .WithDefaultHttpClient(ScalarTarget.CSharp, ScalarClient.HttpClient)
-                    .AddDocument("v1", "EBI.ALAS.V2 API", "/swagger/v1/swagger.json");
+                    .AddDocument("v1", "EBI.ALAS.V2 API", "/openapi/v1.json");
             });
         }
 
@@ -67,7 +69,7 @@ public static class MiddlewareExtensions
         {
             ForwardedHeaders = Microsoft.AspNetCore.HttpOverrides.ForwardedHeaders.XForwardedFor
                              | Microsoft.AspNetCore.HttpOverrides.ForwardedHeaders.XForwardedProto,
-            KnownNetworks = { },
+            KnownIPNetworks = { },
             KnownProxies = { }
         });
 

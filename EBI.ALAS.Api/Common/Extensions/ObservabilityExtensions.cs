@@ -108,7 +108,15 @@ public static class ObservabilityExtensions
         if (!string.IsNullOrWhiteSpace(rabbitMqConnection))
         {
             healthChecksBuilder.AddRabbitMQ(
-                rabbitMqConnection,
+                sp =>
+                {
+                    var factory = new RabbitMQ.Client.ConnectionFactory
+                    {
+                        Uri = new Uri(rabbitMqConnection!),
+                        AutomaticRecoveryEnabled = true
+                    };
+                    return factory.CreateConnectionAsync().GetAwaiter().GetResult();
+                },
                 name: "rabbitmq",
                 tags: ["messaging"],
                 timeout: TimeSpan.FromSeconds(5));
