@@ -373,4 +373,56 @@ public class ApproverPartitionsTests : IDisposable
         Assert.Single(desk.Items);
         Assert.Equal(401, desk.Items[0].LoanId);
     }
+
+    // ── GetDeskAsync — Queued rows appear in the desk (not just Active) ──
+
+    [Fact]
+    public async Task GetDeskAsync_IncludesQueuedBacklog()
+    {
+        var t0 = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+
+        _db.WorkflowQueueItems.AddRange(
+            new WorkflowQueueItem
+            {
+                LoanApplicationId = 601, Stage = QueueStage.Evaluation,
+                PartitionKey = "EVA:006", State = QueueItemState.Active,
+                EnqueuedAt = t0,
+                LoanApplication = new LoanApplication
+                {
+                    Id = 601, BranchCode = "006", LamId = "LAM-601",
+                    Status = "ForChecking", FirstName = "Rejen", LastName = "Manliguis",
+                    ProductCode = "A16", Product = "AFOS-RPSU 1-7YR",
+                    ProposedAmount = 322_000, TermDays = 730,
+                    ApplicationDate = t0,
+                }
+            },
+            new WorkflowQueueItem
+            {
+                LoanApplicationId = 602, Stage = QueueStage.Evaluation,
+                PartitionKey = "EVA:006", State = QueueItemState.Queued,
+                EnqueuedAt = t0.AddMinutes(5),
+                LoanApplication = new LoanApplication
+                {
+                    Id = 602, BranchCode = "006", LamId = "LAM-602",
+                    Status = "ForChecking", FirstName = "Maria", LastName = "Cruz",
+                    ProductCode = "A16", Product = "AFOS-RPSU 1-7YR",
+                    ProposedAmount = 386_000, TermDays = 730,
+                    ApplicationDate = t0.AddMinutes(5),
+                }
+            });
+        await _db.SaveChangesAsync();
+
+        var desk = await _sut.GetDeskAsync(99, Roles.Evaluator, "006", CancellationToken.None);
+
+        Assert.Equal(2, desk.Items.Count);
+        Assert.Equal(601, desk.Items[0].LoanId);
+        Assert.True(desk.Items[0].IsHead);
+        Assert.Equal(1, desk.Items[0].Position);
+        Assert.Equal(602, desk.Items[1].LoanId);
+        Assert.False(desk.Items[1].IsHead);
+        Assert.Equal(2, desk.Items[1].Position);
+        // Rich fields populated
+        Assert.Equal("006", desk.Items[1].BranchCode);
+        Assert.Equal(386_000, desk.Items[1].ProposedAmount);
+    }
 }

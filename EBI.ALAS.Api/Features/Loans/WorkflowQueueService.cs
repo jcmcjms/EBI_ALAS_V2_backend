@@ -472,43 +472,65 @@ public class WorkflowQueueService : IWorkflowQueueService
         if (prefixes.Count == 0)
             return new DeskQueueResponse(DeskLabelFor(role), [], null, scope);
 
-        var items = await _db.WorkflowQueueItems.AsNoTracking()
-            .Include(i => i.OwnerUser)
-            .Include(i => i.LoanApplication)
+        // Live desk = Active head + Queued backlog. Filtering on Active alone
+        // hid every file behind the head — the desk showed "1 file waiting"
+        // while Monitoring reported "Queue #2 of 2".
+        var rows = await _db.WorkflowQueueItems.AsNoTracking()
             .Where(i => prefixes.Contains(i.PartitionKey)
-                        && i.State == QueueItemState.Active)
+                        && i.State != QueueItemState.Completed)
             .OrderBy(i => i.EnqueuedAt).ThenBy(i => i.Id)
+            .Select(i => new
+            {
+                i.LoanApplicationId,
+                i.OwnerUserId,
+                i.EnqueuedAt,
+                OwnerName = i.OwnerUser == null
+                    ? null
+                    : i.OwnerUser.FirstName + " " + i.OwnerUser.LastName,
+                LamId = i.LoanApplication.LamId,
+                ClientName = (i.LoanApplication.FirstName + " " + i.LoanApplication.LastName).Trim(),
+                i.LoanApplication.Status,
+                i.LoanApplication.BranchCode,
+                i.LoanApplication.ProductCode,
+                i.LoanApplication.Product,
+                LoanType = i.LoanApplication.CreationTypeLabel,
+                i.LoanApplication.Purpose,
+                i.LoanApplication.ProposedAmount,
+                i.LoanApplication.TermDays,
+                i.LoanApplication.ApplicationDate,
+                i.LoanApplication.HasDeviations,
+            })
             .ToListAsync(ct);
 
         var rank = 0;
-        var dtos = new List<QueuedLoanDto>(items.Count);
+        var dtos = new List<QueuedLoanDto>(rows.Count);
         QueuedLoanDto? currentClaim = null;
 
-        foreach (var item in items)
+        foreach (var row in rows)
         {
             rank++;
-            var ownerName = item.OwnerUser == null
-                ? null
-                : $"{item.OwnerUser.FirstName} {item.OwnerUser.LastName}";
-            var clientName = item.LoanApplication == null
-                ? "Unknown"
-                : $"{item.LoanApplication.FirstName} {item.LoanApplication.LastName}".Trim();
-
             var dto = new QueuedLoanDto(
-                item.LoanApplicationId,
-                item.LoanApplication?.LamId ?? "",
-                clientName,
+                row.LoanApplicationId,
+                row.LamId,
+                row.ClientName,
                 rank,
                 rank == 1,
-                item.OwnerUserId,
-                ownerName,
-                item.EnqueuedAt,
-                item.LoanApplication?.Status ?? "");
+                row.OwnerUserId,
+                row.OwnerName,
+                row.EnqueuedAt,
+                row.Status,
+                row.BranchCode,
+                row.ProductCode,
+                row.Product,
+                row.LoanType,
+                row.Purpose,
+                row.ProposedAmount,
+                row.TermDays,
+                row.ApplicationDate,
+                row.HasDeviations);
 
             dtos.Add(dto);
-
-            if (item.OwnerUserId == userId)
-                currentClaim = dto;
+            if (row.OwnerUserId == userId) currentClaim = dto;
         }
 
         return new DeskQueueResponse(DeskLabelFor(role), dtos, currentClaim, scope);
