@@ -2,7 +2,7 @@ using EBI.ALAS.Api.Common.Time;
 using EBI.ALAS.Api.Features.Loans;
 using EBI.ALAS.Api.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
-using Moq;
+using NSubstitute;
 
 namespace EBI.ALAS.Tests;
 
@@ -17,9 +17,9 @@ public class DocumentChecklistStoreTests : IDisposable
             .UseInMemoryDatabase(databaseName: Guid.NewGuid().ToString())
             .Options;
         _context = new AppDbContext(options);
-        var time = new Mock<ITimeProvider>();
-        time.Setup(t => t.UtcNow).Returns(new DateTime(2026, 9, 29, 12, 0, 0, DateTimeKind.Utc));
-        _store = new DocumentChecklistStore(_context, time.Object);
+        var time = Substitute.For<ITimeProvider>();
+        time.UtcNow.Returns(new DateTime(2026, 9, 29, 12, 0, 0, DateTimeKind.Utc));
+        _store = new DocumentChecklistStore(_context, time);
     }
 
     public void Dispose() => _context.Dispose();
