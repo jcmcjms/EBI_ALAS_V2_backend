@@ -596,4 +596,14 @@ public class WorkflowQueueService : IWorkflowQueueService
 
         await PromoteAsync(partitionKey, head.LoanApplication, ct);
     }
+
+    public async Task ExtendLeaseAsync(int loanId, int userId, CancellationToken ct)
+    {
+        var now = _time.UtcNow;
+        await _db.WorkflowQueueItems
+            .Where(i => i.LoanApplicationId == loanId
+                        && i.State == QueueItemState.Active
+                        && i.OwnerUserId == userId)
+            .ExecuteUpdateAsync(s => s.SetProperty(i => i.LeasedAt, now), ct);
+    }
 }

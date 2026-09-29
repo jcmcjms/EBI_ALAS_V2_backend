@@ -57,6 +57,9 @@ public sealed class LoanApplication
     public int? PolicyTermMonths { get; set; }
     public int? ApprovalTermDays { get; set; }
     public decimal? AnnualRatePercent { get; set; }
+
+    /// <summary>Frozen webloan loan_data.c_doc_stamp at submission. Null when webloan had no value.</summary>
+    public decimal? CDocStamp { get; set; }
     public DateOnly? NthpDate { get; set; }
 
     // Bank fees

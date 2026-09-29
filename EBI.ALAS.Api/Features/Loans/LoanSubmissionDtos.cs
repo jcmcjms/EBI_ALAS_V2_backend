@@ -63,6 +63,9 @@ public sealed record LoanSection
 
     /// <summary>Must equal the acting officer's JWT branchId (server-asserted).</summary>
     public string BranchCode { get; init; } = string.Empty;
+
+    /// <summary>webloan loan_data.c_doc_stamp captured at selection. Null when unavailable.</summary>
+    public decimal? CDocStamp { get; init; }
     public required LoanParametersSection Parameters { get; init; }
 
     // §5 obligations declared against THIS loan

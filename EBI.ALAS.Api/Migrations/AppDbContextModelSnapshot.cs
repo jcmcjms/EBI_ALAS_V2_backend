@@ -752,6 +752,9 @@ namespace EBI.ALAS.Api.Migrations
                         .HasMaxLength(20)
                         .HasColumnType("nvarchar(20)");
 
+                    b.Property<decimal?>("CDocStamp")
+                        .HasColumnType("decimal(18,2)");
+
                     b.Property<decimal>("CapacityDeductions")
                         .HasColumnType("decimal(18,2)");
 

@@ -80,6 +80,7 @@ public static class GetLoanById
                 PolicyTermMonths = loan.PolicyTermMonths,
                 ApprovalTermDays = loan.ApprovalTermDays,
                 AnnualRatePercent = loan.AnnualRatePercent,
+                CDocStamp = loan.CDocStamp,
                 NotarialFee = loan.NotarialFee,
                 DocStamps = loan.DocStamps,
                 Insurance = loan.Insurance,

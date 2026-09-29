@@ -114,4 +114,11 @@ public interface IWorkflowQueueService
     Task PromoteHeadAsync(string partitionKey, CancellationToken ct);
 
     Task<LoanQueueState?> GetQueueStateAsync(int loanId, int userId, string currentStatus, CancellationToken ct);
+
+    /// <summary>
+    /// Extends the lease TTL on an active queue item. Called when a reviewer
+    /// performs non-status-changing actions (flagging documents, viewing details)
+    /// to prevent lease expiry mid-review.
+    /// </summary>
+    Task ExtendLeaseAsync(int loanId, int userId, CancellationToken ct);
 }
