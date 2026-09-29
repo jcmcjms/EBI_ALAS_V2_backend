@@ -35,4 +35,13 @@
     <PackageReference Include="System.IdentityModel.Tokens.Jwt" Version="8.3.0" />
   </ItemGroup>
 
+  <!-- Transitive vulnerability overrides — these packages are pulled in by
+       SignalR, OpenApi, and OpenTelemetry but their resolved versions have
+       known CVEs. Pinning patched versions here suppresses NU1902/NU1903. -->
+  <ItemGroup>
+    <PackageReference Include="MessagePack" Version="2.5.301" />
+    <PackageReference Include="Microsoft.OpenApi" Version="2.12.2" />
+    <PackageReference Include="OpenTelemetry.Api" Version="1.19.0" />
+  </ItemGroup>
+
 </Project>
