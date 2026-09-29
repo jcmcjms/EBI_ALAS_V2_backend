@@ -8,7 +8,7 @@ using EBI.ALAS.Api.Features.Notifications;
 using EBI.ALAS.Api.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
-using Moq;
+using NSubstitute;
 using Xunit;
 
 namespace EBI.ALAS.Tests;
@@ -29,20 +29,20 @@ public class ApproverPartitionsTests : IDisposable
             .Options;
         _db = new AppDbContext(options);
 
-        var loanRepo = new Mock<ILoanRepository>();
-        loanRepo.Setup(r => r.GetUsersByRoleAndBranchAsync(
-                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new List<User>());
-        var notifications = new Mock<INotificationService>();
-        var realtime = new Mock<IRealtimeNotificationService>();
-        var time = new Mock<ITimeProvider>();
-        time.Setup(t => t.UtcNow).Returns(new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc));
-        var queueOptions = new Mock<IOptionsMonitor<QueueOptions>>();
-        queueOptions.Setup(q => q.CurrentValue).Returns(new QueueOptions { LeaseTtlMinutes = 30 });
+        var loanRepo = Substitute.For<ILoanRepository>();
+        loanRepo.GetUsersByRoleAndBranchAsync(
+                Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(new List<User>());
+        var notifications = Substitute.For<INotificationService>();
+        var realtime = Substitute.For<IRealtimeNotificationService>();
+        var time = Substitute.For<ITimeProvider>();
+        time.UtcNow.Returns(new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc));
+        var queueOptions = Substitute.For<IOptionsMonitor<QueueOptions>>();
+        queueOptions.CurrentValue.Returns(new QueueOptions { LeaseTtlMinutes = 30 });
 
         _sut = new WorkflowQueueService(
-            _db, loanRepo.Object, notifications.Object,
-            realtime.Object, time.Object, queueOptions.Object);
+            _db, loanRepo, notifications,
+            realtime, time, queueOptions);
     }
 
     public void Dispose() => _db.Dispose();
