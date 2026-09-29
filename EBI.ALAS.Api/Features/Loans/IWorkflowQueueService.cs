@@ -21,7 +21,9 @@ public record DeskQueueResponse(
     string ScopeDescription);
 
 /// <summary>
-/// One row in the desk queue list.
+/// One row in the desk queue list. Carries the summary fields the Review
+/// Desk renders (product, amount, branch, aging) so the UI never fans out
+/// per-row detail requests.
 /// </summary>
 public record QueuedLoanDto(
     int LoanId,
@@ -32,7 +34,16 @@ public record QueuedLoanDto(
     int? OwnerUserId,
     string? OwnerName,
     DateTime EnqueuedAt,
-    string Status);
+    string Status,
+    string BranchCode,
+    string ProductCode,
+    string Product,
+    string? LoanType,
+    string? Purpose,
+    decimal ProposedAmount,
+    int TermDays,
+    DateTime ApplicationDate,
+    bool HasDeviations);
 
 /// <summary>
 /// Result of a claim operation.
