@@ -190,7 +190,8 @@ public record PendingLoanDto(
     string ProductWithDescription,  // "<loan_product> - <description>"
     string? LoanPurpose,
     byte? CreationType,           // raw code from loan_data.creation_type
-    string CreationTypeLabel);    // "New Loan" / "Reloan" / "Restructured" / "Additional Loan" / "Unknown"
+    string CreationTypeLabel,     // "New Loan" / "Reloan" / "Restructured" / "Additional Loan" / "Unknown"
+    decimal? CDocStamp);          // webloan loan_data.c_doc_stamp — approval-form Doc. Stamp
 
 // GET /api/webloans/loan-products
 // Surfaces every row in dbo.loan_product where expiration IS NULL —

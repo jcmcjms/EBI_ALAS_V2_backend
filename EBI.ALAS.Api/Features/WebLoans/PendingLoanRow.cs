@@ -49,6 +49,7 @@ public class PendingLoanRow
     [Column("date_granted")] public DateTime? DateGranted { get; set; }
     [Column("date_maturity")] public DateTime? DateMaturity { get; set; }
     [Column("creation_type")] public byte? CreationType { get; set; }
+    [Column("c_doc_stamp")] public decimal? CDocStamp { get; set; }
 
     // Derived columns (CASE / DATEDIFF / CONCAT in SQL)
     // Bound to the SELECT-list alias `creation_type_label`. Mirrors the

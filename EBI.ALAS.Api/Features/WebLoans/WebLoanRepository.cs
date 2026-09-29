@@ -329,6 +329,7 @@ public class WebLoanRepository(IDbContextFactory<WebLoanDbContext> contextFactor
                 ld.date_granted,
                 ld.date_maturity,
                 ld.creation_type,
+                ld.c_doc_stamp,
                 CASE ld.creation_type
                     WHEN 0 THEN 'New Loan'
                     WHEN 1 THEN 'Reloan'
