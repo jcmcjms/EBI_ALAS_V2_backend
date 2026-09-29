@@ -308,7 +308,8 @@ public class WebLoanService(IWebLoanRepository repository) : IWebLoanService
                     CreationType: r.CreationType,
                     CreationTypeLabel: string.IsNullOrEmpty(r.CreationTypeLabel)
                         ? WebLoanRegions.CreationTypeLabel(r.CreationType)
-                        : r.CreationTypeLabel);
+                        : r.CreationTypeLabel,
+                    CDocStamp: r.CDocStamp);
             })
             .ToList();
 
