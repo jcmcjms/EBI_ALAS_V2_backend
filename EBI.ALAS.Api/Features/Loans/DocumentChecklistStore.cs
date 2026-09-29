@@ -8,6 +8,9 @@ public interface IDocumentChecklistStore
 {
     Task<IReadOnlyList<DocumentChecklist>> GetAsync(int loanId, CancellationToken ct);
     Task<IReadOnlyList<DocumentChecklist>> GetUnresolvedAsync(int loanId, CancellationToken ct);
+    /// <summary>Scalar SQL COUNT of unresolved items. Never count an
+    /// entity navigation in memory — see the GetLoanById comment.</summary>
+    Task<int> CountUnresolvedAsync(int loanId, CancellationToken ct);
     Task MarkMissingAsync(int loanId, IReadOnlyCollection<string> codes, int actorId, CancellationToken ct);
     Task MarkSubmittedAsync(int loanId, IReadOnlyCollection<string> codes, int actorId, CancellationToken ct);
     Task MarkVerifiedAsync(int loanId, IReadOnlyCollection<string> codes, int actorId, CancellationToken ct);
@@ -20,6 +23,11 @@ public interface IDocumentChecklistStore
 /// </summary>
 public sealed class DocumentChecklistStore(AppDbContext db, ITimeProvider time) : IDocumentChecklistStore
 {
+    /// <summary>Single source of truth for "unresolved", shared by the store,
+    /// the monitoring-list projection, and the detail flag count so the three
+    /// can never drift.</summary>
+    public static readonly string[] UnresolvedStatuses = ["Missing", "Pending"];
+
     public Task<IReadOnlyList<DocumentChecklist>> GetAsync(int loanId, CancellationToken ct) =>
         db.DocumentChecklists.AsNoTracking()
             .Where(i => i.LoanApplicationId == loanId)
@@ -29,9 +37,14 @@ public sealed class DocumentChecklistStore(AppDbContext db, ITimeProvider time) 
 
     public Task<IReadOnlyList<DocumentChecklist>> GetUnresolvedAsync(int loanId, CancellationToken ct) =>
         db.DocumentChecklists.AsNoTracking()
-            .Where(i => i.LoanApplicationId == loanId && (i.Status == "Missing" || i.Status == "Pending"))
+            .Where(i => i.LoanApplicationId == loanId && UnresolvedStatuses.Contains(i.Status))
             .ToListAsync(ct)
             .ContinueWith(t => (IReadOnlyList<DocumentChecklist>)t.Result, ct);
+
+    public Task<int> CountUnresolvedAsync(int loanId, CancellationToken ct) =>
+        db.DocumentChecklists.AsNoTracking()
+            .CountAsync(i => i.LoanApplicationId == loanId
+                             && UnresolvedStatuses.Contains(i.Status), ct);
 
     public async Task MarkMissingAsync(int loanId, IReadOnlyCollection<string> codes, int actorId, CancellationToken ct)
     {
@@ -75,7 +88,7 @@ public sealed class DocumentChecklistStore(AppDbContext db, ITimeProvider time) 
         // encoder "resubmitting" an item the evaluator already verified.
         await db.DocumentChecklists
             .Where(i => i.LoanApplicationId == loanId && codes.Contains(i.Code)
-                        && (i.Status == "Missing" || i.Status == "Pending"))
+                        && UnresolvedStatuses.Contains(i.Status))
             .ExecuteUpdateAsync(s => s
                 .SetProperty(i => i.Status, "Submitted")
                 .SetProperty(i => i.UpdatedAtUtc, time.UtcNow)
