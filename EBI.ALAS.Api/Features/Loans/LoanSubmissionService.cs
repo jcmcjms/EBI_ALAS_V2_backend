@@ -328,6 +328,7 @@ public class LoanSubmissionService(
             PolicyTermMonths = p.PolicyTermMonths,
             ApprovalTermDays = ApprovalFormConventions.ResolveApprovalTermDays(p.Term, p.PolicyTermMonths),
             AnnualRatePercent = ApprovalFormConventions.ToAnnualRatePercent(p.InterestRate),
+            CDocStamp = loan.CDocStamp,
             NthpDate = ParseIsoDate(p.NthpDate),
             NotarialFee = p.NotarialFee,
             DocStamps = p.DocStamps,

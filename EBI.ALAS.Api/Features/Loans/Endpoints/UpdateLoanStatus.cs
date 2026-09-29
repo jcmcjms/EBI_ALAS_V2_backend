@@ -221,6 +221,7 @@ public static class UpdateLoanStatus
                 PolicyTermMonths = loan.PolicyTermMonths,
                 ApprovalTermDays = loan.ApprovalTermDays,
                 AnnualRatePercent = loan.AnnualRatePercent,
+                CDocStamp = loan.CDocStamp,
                 Status = loan.Status,
                 ApplicationDate = loan.ApplicationDate,
                 LastActionDate = loan.LastActionDate,

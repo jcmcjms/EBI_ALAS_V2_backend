@@ -148,6 +148,7 @@ public class LoanApplicationConfiguration : IEntityTypeConfiguration<LoanApplica
         builder.Property(e => e.ApprovalTermDays);
         builder.Property(e => e.AnnualRatePercent)
             .HasColumnType("decimal(9,4)");
+        builder.Property(e => e.CDocStamp).HasColumnType("decimal(18,2)");
 
         builder.Property(e => e.NthpDate);
 

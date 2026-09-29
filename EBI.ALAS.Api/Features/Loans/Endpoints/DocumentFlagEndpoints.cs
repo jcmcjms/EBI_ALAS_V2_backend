@@ -33,6 +33,7 @@ public static class DocumentFlagEndpoints
             IValidator<FlagDocumentsRequest> validator,
             AppDbContext db,
             IDocumentGateService flagService,
+            IWorkflowQueueService queueService,
             IRealtimeNotificationService realtime,
             ClaimsPrincipal user,
             CancellationToken ct) =>
@@ -77,6 +78,13 @@ public static class DocumentFlagEndpoints
             }
 
             await flagService.FlagAsync(loan, request.MissingRequirementCodes, request.Reason, userId, ct);
+
+            // Extend the reviewer's lease so they don't lose ownership while
+            // flagging — the evaluator can continue with Recommend/Not Recommend/Push Back
+            // without the lease expiring mid-review.
+            if (userRole != Roles.Admin)
+                await queueService.ExtendLeaseAsync(loan.Id, userId, ct);
+
             await realtime.NotifyDashboardUpdateAsync(loan.BranchCode);
 
             return Results.Ok(ApiResponse.SuccessResponse("Documents flagged. The encoder has been notified."));

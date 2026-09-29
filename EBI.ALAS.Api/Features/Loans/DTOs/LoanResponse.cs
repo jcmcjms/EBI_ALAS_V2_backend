@@ -64,6 +64,9 @@ public class LoanResponse
     /// <summary>Frozen annual rate in percent (e.g. 21.57) normalized at submission time.</summary>
     public decimal? AnnualRatePercent { get; set; }
 
+    /// <summary>Frozen webloan c_doc_stamp used as the approval form Doc. Stamp.</summary>
+    public decimal? CDocStamp { get; set; }
+
     public decimal NotarialFee { get; set; }
     public decimal DocStamps { get; set; }
     public decimal Insurance { get; set; }
