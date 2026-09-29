@@ -99,11 +99,32 @@ public class DocumentFlagCountTests : IDisposable
     public async Task List_and_detail_agree_on_unresolved_count()
     {
         var id = await SeedFlaggedLoanAsync("A2020", "A2021", "A2035", "PIC02");
+        // List projection GetLoans currently hardcodes this pair; after GetLoans
+        // switches to UnresolvedStatuses both sides share one source.
         var listStyle = await _context.DocumentChecklists
             .CountAsync(d => d.LoanApplicationId == id
-                             && DocumentChecklistStore.UnresolvedStatuses.Contains(d.Status));
+                             && (d.Status == "Missing" || d.Status == "Pending"));
         var detailStyle = await _store.CountUnresolvedAsync(id, CancellationToken.None);
         Assert.Equal(listStyle, detailStyle);
         Assert.Equal(4, detailStyle);
+    }
+
+    [Fact]
+    public async Task InMemory_navigation_count_is_zero_while_SQL_count_is_four()
+    {
+        // Pins the silent-zero trap: GetLoanById used loan.DocumentChecklists.Count(...)
+        // on an unloaded AsNoTracking navigation. That path yields 0. The SQL COUNT
+        // used after the fix yields 4. If this test fails, either the navigation is
+        // being loaded (perf regression) or CountUnresolvedAsync broke.
+        var id = await SeedFlaggedLoanAsync("A2020", "A2021", "A2035", "PIC02");
+
+        var loan = await _loans.GetByIdAsync(id, includeRelated: true);
+        Assert.NotNull(loan);
+
+        var inMemory = loan!.DocumentChecklists.Count(d => d.Status == "Missing" || d.Status == "Pending");
+        var sqlCount = await _store.CountUnresolvedAsync(id, CancellationToken.None);
+
+        Assert.Equal(0, inMemory);
+        Assert.Equal(4, sqlCount);
     }
 }
