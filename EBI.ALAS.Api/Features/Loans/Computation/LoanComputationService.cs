@@ -146,17 +146,39 @@ public interface ILoanComputationService
 
 /// <summary>
 /// Authoritative loan computation engine. Mirrors the LAM Excel workbook
-/// formulas exactly (lam_A16.xlsx).
+/// formulas exactly (lam_A16.xlsx, lam_C23.xlsx, lam_C35.xlsx).
 ///
 /// Key design decisions:
 ///   • Excel ROUND parity (half-away-from-zero) on all rounding.
 ///   • Integer-exponent decimal power (exponentiation by squaring) for
 ///     the annuity factor — no double conversion, no precision loss.
 ///   • Closed-form max-loanable: netDisposable / factor (O(1)).
+///   • ATM product hard caps on MLA (mirrors the nested IF chain in the
+///     legacy LAM template's "Maximum Loanable Amount" cell).
 ///   • Stateless — safe as singleton.
 /// </summary>
 public sealed class LoanComputationService : ILoanComputationService
 {
+    /// <summary>
+    /// Hard-coded MLA caps for specific ATM products, mirroring the
+    /// nested IF chain in the legacy LAM template:
+    ///   C34 → 200,000
+    ///   C21 → 135,000
+    ///   C27 → 120,000
+    ///   C29 → 100,000
+    ///   C25 → 200,000
+    /// These bypass the PV(capacity) calculation entirely, even if the
+    /// borrower's capacity is negative.
+    /// </summary>
+    private static readonly IReadOnlyDictionary<string, decimal> AtmHardCaps =
+        new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["C34"] = 200_000m,
+            ["C21"] = 135_000m,
+            ["C27"] = 120_000m,
+            ["C29"] = 100_000m,
+            ["C25"] = 200_000m,
+        };
     public LoanFees ComputeExpectedFees(LoanProductComputationConfig product, decimal proposedAmount)
     {
         var docStamp = Round(proposedAmount * product.Fees.DocStampRate);
@@ -234,10 +256,20 @@ public sealed class LoanComputationService : ILoanComputationService
         var capacityDeductions = Round(input.MinimumNthp + Sum(input.IncomingDeductions));
         var netDisposableIncome = Round(grossDisposableIncome - capacityDeductions);
 
-        // Row 15: Maximum Loanable Amount (closed-form)
-        var maximumLoanableAmount = factor > 0
-            ? FloorToStep(netDisposableIncome / factor, product.MaxLoanableStep)
-            : 0m;
+        // Row 15: Maximum Loanable Amount
+        // ATM products have hard caps that bypass the PV calculation.
+        // All other products use PV(netDisposableIncome) floored to step.
+        decimal maximumLoanableAmount;
+        if (AtmHardCaps.TryGetValue(product.ProductCode, out var hardCap))
+        {
+            maximumLoanableAmount = hardCap;
+        }
+        else
+        {
+            maximumLoanableAmount = factor > 0
+                ? FloorToStep(netDisposableIncome / factor, product.MaxLoanableStep)
+                : 0m;
+        }
 
         // Row 16: Gates
         var amortizationExceedsDisposable = monthlyAmortization > netDisposableIncome;
@@ -267,10 +299,18 @@ public sealed class LoanComputationService : ILoanComputationService
     /// <summary>
     /// Standard annuity factor: i(1+i)^n / ((1+i)^n - 1).
     /// Uses <see cref="DecimalPow"/> for exact decimal exponentiation.
+    ///
+    /// The monthly rate is rounded to 6 decimal places to match the
+    /// legacy Excel template's ROUND(rate/12, 6). Without this, the
+    /// unrounded repeating decimal compounds over 84 months and produces
+    /// a Maximum Loanable Amount that diverges by ~₱300 from the
+    /// printed form.
     /// </summary>
     public static decimal AnnuityFactor(decimal monthlyRate, decimal termMonths)
     {
         if (termMonths <= 0) return 0m;
+        // Excel parity: ROUND(rate/12, 6) before exponentiation.
+        monthlyRate = Math.Round(monthlyRate, 6, MidpointRounding.AwayFromZero);
         if (monthlyRate == 0m) return 1m / termMonths;
 
         var pow = DecimalPow(1m + monthlyRate, (int)termMonths);
