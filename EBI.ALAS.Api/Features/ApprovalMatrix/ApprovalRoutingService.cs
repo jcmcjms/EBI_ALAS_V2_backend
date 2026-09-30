@@ -50,7 +50,9 @@ public sealed class ApprovalRoutingService : IApprovalRoutingService
 
         var exposure = loan.TotalExposure;
         var loanType = loan.LoanType;
-        var cycle = loanType == "Renewal" ? LoanCycle.Renewal : LoanCycle.New;
+        var cycle = loanType is "Renewal" or "Reloan" || loan.CreationTypeCode == 1
+            ? LoanCycle.Renewal
+            : LoanCycle.New;
 
         var inputs = new RoutingInputs(cycle, severity, exposure);
         var match = ApprovalCycleResolver.Match(authorities, inputs);
