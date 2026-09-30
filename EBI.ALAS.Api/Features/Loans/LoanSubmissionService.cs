@@ -297,6 +297,7 @@ public class LoanSubmissionService(
 
             CreationTypeCode = loan.CreationTypeCode,
             CreationTypeLabel = loan.CreationTypeLabel,
+            LoanType = loan.CreationTypeCode == 1 ? "Renewal" : "New",
             RequestingOfficer = request.BranchType.RequestingOfficer,
             Lai = request.BranchType.Lai,
 
