@@ -287,6 +287,7 @@ public class LoanSubmissionService(
     {
         var client = request.Client;
         var p = loan.Parameters;
+        var deviationRemarks = NormalizeJustificationSnapshot(loan.Deviations);
 
         return new LoanApplication
         {
@@ -341,8 +342,8 @@ public class LoanSubmissionService(
 
             VerificationFindings = loan.Verification.Findings,
             HasDeviations = loan.Deviations.HasDeviations,
-            DeviationDetails = loan.Deviations.DeviationDetails.ToList(),
-            DeviationJustifications = new Dictionary<string, string>(loan.Deviations.DeviationJustifications),
+            DeviationDetails = loan.Deviations.DeviationDetails.Distinct(StringComparer.Ordinal).ToList(),
+            DeviationJustifications = deviationRemarks,
             Remarks = loan.Deviations.Remarks,
             AoRecommendation = loan.Deviations.AoRecommendation,
             OtherRemarks = loan.Deviations.OtherRemarks,
@@ -394,7 +395,7 @@ public class LoanSubmissionService(
                 Remarks = i.Remarks,
             }).ToList(),
 
-            Deviations = BuildDeviationRows(loan.Deviations),
+            Deviations = BuildDeviationRows(loan.Deviations, deviationRemarks),
         };
     }
 
@@ -404,13 +405,16 @@ public class LoanSubmissionService(
     /// SaveChanges as the application — a loan can never exist without its
     /// deviation threads.
     /// </summary>
-    private static List<LoanDeviation> BuildDeviationRows(DeviationsSection deviations)
+    private static List<LoanDeviation> BuildDeviationRows(
+        DeviationsSection deviations,
+        IReadOnlyDictionary<string, string> justificationSnapshot)
     {
         var rows = deviations.DeviationDetails
+            .Distinct(StringComparer.Ordinal)
             .Select((reason, i) => new LoanDeviation
             {
                 ReasonText = reason,
-                EncoderJustification = deviations.DeviationJustifications.TryGetValue(reason, out var just)
+                EncoderJustification = justificationSnapshot.TryGetValue(reason, out var just)
                     ? just
                     : string.Empty,
                 SortOrder = i,
@@ -422,13 +426,33 @@ public class LoanSubmissionService(
             rows.Add(new LoanDeviation
             {
                 ReasonText = LoanDeviation.FeeOverrideReason,
-                EncoderJustification = deviations.FeeDeviationJustification,
+                EncoderJustification = deviations.FeeDeviationJustification.Trim(),
                 SortOrder = 999,
                 IsFeeOverride = true,
             });
         }
 
         return rows;
+    }
+
+    /// <summary>
+    /// Prunes the encoder's per-reason remark map to the declared reasons
+    /// (trimmed, first occurrence wins) so the immutable print/audit snapshot
+    /// carries exactly one remark per deviation row. A tampered or stale
+    /// payload can no longer persist orphaned keys that the printed form and
+    /// the remark threads would never surface.
+    /// </summary>
+    private static Dictionary<string, string> NormalizeJustificationSnapshot(DeviationsSection deviations)
+    {
+        var snapshot = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var reason in deviations.DeviationDetails)
+        {
+            if (snapshot.ContainsKey(reason)) continue;
+            snapshot[reason] = deviations.DeviationJustifications.TryGetValue(reason, out var remark)
+                ? remark.Trim()
+                : string.Empty;
+        }
+        return snapshot;
     }
 
     private static DateOnly? ParseIsoDate(string? value) =>
