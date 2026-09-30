@@ -510,4 +510,14 @@ public class WebLoanRepository(IDbContextFactory<WebLoanDbContext> contextFactor
                         && CheckListData.CocreeItems.Contains(c.CheckListItem))
             .ToListAsync(ct);
     }
+
+    public async Task<PreLoanData?> GetPreLoanDataByLoanNoAsync(
+        string loanNo,
+        CancellationToken ct = default)
+    {
+        await using var context = await contextFactory.CreateDbContextAsync(ct);
+        return await context.PreLoanDatas
+            .AsNoTracking()
+            .FirstOrDefaultAsync(p => p.LoanNo == loanNo, ct);
+    }
 }

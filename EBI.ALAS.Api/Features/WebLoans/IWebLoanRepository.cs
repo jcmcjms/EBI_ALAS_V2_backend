@@ -167,4 +167,13 @@ public interface IWebLoanRepository
     Task<IReadOnlyList<CheckListData>> GetCocreeItemsAsync(
         string cisNo,
         CancellationToken ct = default);
+
+    // Disbursement status sync
+    // Returns the pre_loan_data row for a given loan_no (PN).
+    // Used to check approved_date/approved_by and released_date/released_by
+    // for syncing ALAS status with the webloan disbursement state.
+    // Returns null when no matching row exists.
+    Task<PreLoanData?> GetPreLoanDataByLoanNoAsync(
+        string loanNo,
+        CancellationToken ct = default);
 }

@@ -15,7 +15,9 @@ public class PreLoanData
     // meaning the loan is in flight (prepared, not yet approved/released).
     [Column("prepared_date")] public DateTime? PreparedDate { get; set; }
     [Column("approved_date")] public DateTime? ApprovedDate { get; set; }
+    [Column("approved_by")] public string? ApprovedBy { get; set; }
     [Column("released_date")] public DateTime? ReleasedDate { get; set; }
+    [Column("released_by")] public string? ReleasedBy { get; set; }
     [Column("void_date")] public DateTime? VoidDate { get; set; }
 
 // NOTE: underwriter-facing fields (principal, granted_rate,
