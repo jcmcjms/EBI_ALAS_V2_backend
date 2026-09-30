@@ -208,6 +208,11 @@ public static class ServiceCollectionExtensions
         // items whose loan status no longer matches their stage.
         services.AddHostedService<QueueReconciliationHostedService>();
 
+        // Background job that auto-syncs disbursement status from webloan
+        // every 2 minutes. Transitions Approved → ForDisbursement and
+        // ForDisbursement → Disbursed when webloan data confirms it.
+        services.AddHostedService<DisbursementSyncHostedService>();
+
         // Authorization
         services.AddScoped<IAuthorizationHandler, PermissionAuthorizationHandler>();
 

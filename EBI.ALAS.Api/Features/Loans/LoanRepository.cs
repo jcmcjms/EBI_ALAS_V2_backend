@@ -38,6 +38,11 @@ public class LoanRepository(AppDbContext context) : ILoanRepository
             db.LoanApplications
                 .FirstOrDefault(l => l.LamId == lamId));
 
+    private static readonly Func<AppDbContext, string, Task<LoanApplication?>> GetLoanByLoanNoCompiled =
+        EF.CompileAsyncQuery((AppDbContext db, string loanNo) =>
+            db.LoanApplications
+                .FirstOrDefault(l => l.LoanNo == loanNo));
+
     private static readonly Func<AppDbContext, int, Task<bool>> LoanExistsCompiled =
         EF.CompileAsyncQuery((AppDbContext db, int id) =>
             db.LoanApplications.Any(l => l.Id == id));
@@ -63,6 +68,11 @@ public class LoanRepository(AppDbContext context) : ILoanRepository
     public async Task<LoanApplication?> GetByLamIdAsync(string lamId, CancellationToken ct = default)
     {
         return await GetLoanByLamIdCompiled(context, lamId);
+    }
+
+    public async Task<LoanApplication?> GetByLoanNoAsync(string loanNo, CancellationToken ct = default)
+    {
+        return await GetLoanByLoanNoCompiled(context, loanNo);
     }
 
     public async Task<PagedResult<LoanApplication>> GetAllAsync(
