@@ -30,6 +30,7 @@ public class LoanRepository(AppDbContext context) : ILoanRepository
     private static readonly Func<AppDbContext, int, Task<LoanApplication?>> GetLoanByIdTrackedCompiled =
         EF.CompileAsyncQuery((AppDbContext db, int id) =>
             db.LoanApplications
+                .Include(l => l.Deviations)
                 .FirstOrDefault(l => l.Id == id));
 
     private static readonly Func<AppDbContext, string, Task<LoanApplication?>> GetLoanByLamIdCompiled =
