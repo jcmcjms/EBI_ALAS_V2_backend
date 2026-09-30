@@ -152,6 +152,19 @@ public class LoanSectionValidator : AbstractValidator<LoanSection>
         RuleFor(x => x.Deviations.AoRecommendation).MaximumLength(1000);
         RuleFor(x => x.Deviations.FeeDeviationJustification).MaximumLength(1000);
 
+        // Remarks are printed verbatim on the approval form and persisted in
+        // the immutable audit snapshot — cap them like every other free-text
+        // field (payload-bloat + print-layout defense), and reject duplicate
+        // reasons so the snapshot and the LoanDeviation rows stay 1:1.
+        RuleFor(x => x.Deviations.DeviationDetails)
+            .Must(d => d.Distinct(StringComparer.Ordinal).Count() == d.Count)
+            .WithMessage("Duplicate deviation reasons in submission.");
+        RuleFor(x => x.Deviations.DeviationJustifications)
+            .Must(j => j.Count <= 50)
+            .WithMessage("A loan cannot carry more than 50 deviation remarks.")
+            .Must(j => j.Values.All(v => (v ?? string.Empty).Trim().Length <= 1000))
+            .WithMessage("Each deviation remark must be 1000 characters or fewer.");
+
         // Fee-override rule scoped to THIS loan's fees vs THIS loan's snapshot.
         RuleFor(x => x)
             .Must((loan, _) => !HasFeeOverride(loan) ||
