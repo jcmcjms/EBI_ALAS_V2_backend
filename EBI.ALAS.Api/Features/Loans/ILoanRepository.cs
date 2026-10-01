@@ -23,6 +23,8 @@ public interface ILoanRepository
     Task<string?> GetOfficerDisplayNameAsync(int userId, CancellationToken ct = default);
     Task<LoanSubmissionIdempotency?> GetIdempotencyRecordAsync(Guid key, int userId, CancellationToken ct = default);
     Task CreateSubmissionAsync(IReadOnlyList<LoanApplication> applications, LoanSubmissionIdempotency idempotency, CancellationToken ct = default);
+    void TrackSubmission(IReadOnlyList<LoanApplication> applications, LoanSubmissionIdempotency idempotency);
+    Task SaveChangesAsync(CancellationToken ct = default);
     Task UpdateIdempotencyResponseAsync(LoanSubmissionIdempotency idempotency, CancellationToken ct = default);
     Task<List<User>> GetUsersByRoleAndBranchAsync(string role, string branchId, CancellationToken ct = default);
 }
