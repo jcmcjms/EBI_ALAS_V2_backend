@@ -100,7 +100,9 @@ public class LoanRepository(AppDbContext context) : ILoanRepository
         }
         else
         {
-            query = query.Include(l => l.CreatedBy);
+            query = query
+                .AsNoTracking()
+                .Include(l => l.CreatedBy);
         }
         var totalCount = await query.CountAsync(ct);
         var items = await query
@@ -161,6 +163,7 @@ public class LoanRepository(AppDbContext context) : ILoanRepository
         Guid key, int userId, CancellationToken ct = default)
     {
         return await context.LoanSubmissionIdempotencies
+            .AsNoTracking()
             .FirstOrDefaultAsync(r => r.IdempotencyKey == key && r.UserId == userId, ct);
     }
     public async Task CreateSubmissionAsync(

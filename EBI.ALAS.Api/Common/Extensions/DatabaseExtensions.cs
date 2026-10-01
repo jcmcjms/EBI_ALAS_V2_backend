@@ -35,7 +35,7 @@ public static class DatabaseExtensions
                         maxRetryCount: 3,
                         maxRetryDelay: TimeSpan.FromSeconds(10),
                         errorNumbersToAdd: [4060, 40197, 40501, 40613, 49918, 49919, 49920]);
-                    sqlOptions.UseQuerySplittingBehavior(QuerySplittingBehavior.SplitQuery);
+
                 });
             options.AddInterceptors(sp.GetRequiredService<AuditSaveChangesInterceptor>());
         });
