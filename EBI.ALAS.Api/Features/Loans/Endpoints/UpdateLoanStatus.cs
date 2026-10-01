@@ -8,6 +8,8 @@ using EBI.ALAS.Api.Features.Loans.DTOs;
 using EBI.ALAS.Api.Features.Notifications;
 using EBI.ALAS.Api.Features.Presence;
 using EBI.ALAS.Api.Infrastructure.Data;
+using EBI.ALAS.Api.Infrastructure.Messaging;
+using EBI.ALAS.Api.Infrastructure.Messaging.Events;
 using FluentValidation;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -27,7 +29,7 @@ public static class UpdateLoanStatus
             ILoanWorkflowService workflowService,
             IWorkflowQueueService queueService,
             IAuditLogger auditLogger,
-            INotificationDispatcher notificationDispatcher,
+            IEventPublisher eventPublisher,
             IRealtimeNotificationService realtimeService,
             IDocumentCompletenessService completenessService,
             IApprovalRoutingService routingService,
@@ -145,8 +147,21 @@ public static class UpdateLoanStatus
                 await db.SaveChangesAsync(ct);
                 await tx.CommitAsync(ct);
             });
-            await notificationDispatcher.DispatchTransitionNotificationsAsync(
-                loan, fromStatus, targetStatus, verdict, comments, actionName, user, ct);
+            await eventPublisher.PublishAsync(new LoanStatusChangedEvent(
+                LoanId: loan.Id,
+                LamId: loan.LamId,
+                ClientName: $"{loan.FirstName} {loan.LastName}",
+                BranchCode: loan.BranchCode,
+                FromStatus: fromStatus,
+                ToStatus: targetStatus,
+                ActorUserId: userId,
+                ActorName: $"{user.GetFirstName()} {user.GetLastName()}",
+                UserRole: userRole,
+                LoanCreatedById: loan.CreatedById,
+                Comments: comments,
+                Verdict: verdict,
+                ActionName: actionName,
+                OccurredAt: timeProvider.UtcNow), ct);
             await realtimeService.NotifyDashboardUpdateAsync(loan.BranchCode);
             var response = new LoanResponse
             {
