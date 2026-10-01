@@ -27,4 +27,5 @@ public interface ILoanRepository
     Task SaveChangesAsync(CancellationToken ct = default);
     Task UpdateIdempotencyResponseAsync(LoanSubmissionIdempotency idempotency, CancellationToken ct = default);
     Task<List<User>> GetUsersByRoleAndBranchAsync(string role, string branchId, CancellationToken ct = default);
+    Task<User?> GetUserByIdAsync(int userId, CancellationToken ct = default);
 }

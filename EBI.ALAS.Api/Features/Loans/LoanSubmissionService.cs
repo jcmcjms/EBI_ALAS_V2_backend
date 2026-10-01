@@ -38,10 +38,17 @@ public class LoanSubmissionService(
             return (replayed, true);
         }
         var branchCode = user.GetBranchId();
-        if (request.Loans.Any(l => !string.Equals(l.BranchCode, branchCode, StringComparison.Ordinal))
-            || (request.PreLoan is not null && !string.Equals(request.PreLoan.Bch, branchCode, StringComparison.Ordinal)))
+        var mismatchedLoan = request.Loans
+            .FirstOrDefault(l => !string.Equals(l.BranchCode, branchCode, StringComparison.Ordinal));
+        if (mismatchedLoan is not null)
         {
-            throw new ForbiddenAccessException("Loan branch does not match the acting officer's branch.");
+            throw new ForbiddenAccessException(
+                $"Loan branch ({mismatchedLoan.BranchCode}) does not match the acting officer's branch ({branchCode}).");
+        }
+        if (request.PreLoan is not null && !string.Equals(request.PreLoan.Bch, branchCode, StringComparison.Ordinal))
+        {
+            throw new ForbiddenAccessException(
+                $"Pre-loan branch ({request.PreLoan.Bch}) does not match the acting officer's branch ({branchCode}).");
         }
         var role = user.GetRole();
         var initialStatus = workflowService.InitialStatus;
@@ -77,19 +84,12 @@ public class LoanSubmissionService(
         var lamIds = await lamIdGenerator.GenerateLamIdsAsync(request.Loans.Count, ct);
         var now = timeProvider.UtcNow;
 
-        // Batch product lookup: 1 query instead of N
-        var productCodes = request.Loans
-            .Select(x => x.ProductCode)
-            .Distinct(StringComparer.Ordinal)
-            .ToArray();
-        var products = await productRepository.GetByCodesAsync(productCodes, ct);
-        var productByCode = products.ToDictionary(x => x.Code, StringComparer.Ordinal);
-
         var applications = new List<LoanApplication>();
         foreach (var (loan, i) in request.Loans.Select((l, i) => (l, i)))
         {
             var application = MapApplication(request, loan, groupNo, lamIds[i], branchCode, userId, now);
-            if (productByCode.TryGetValue(loan.ProductCode, out var product))
+            var product = await productRepository.GetByCodeAsync(loan.ProductCode, ct);
+            if (product is not null)
             {
                 var productConfig = LoanProductComputationConfig.FromEntity(
                     product, loan.Parameters.InterestRate, loan.Parameters.Term);
@@ -136,7 +136,6 @@ public class LoanSubmissionService(
             CreatedAt = now,
         };
 
-        // Build response before IDs are assigned (IDs come from SaveChanges)
         var response = new LoanSubmissionResponse
         {
             ApplicationGroupNo = groupNo,
@@ -153,25 +152,15 @@ public class LoanSubmissionService(
                 .ToList(),
         };
 
-        // Track all entities — single SaveChanges writes everything
-        loanRepository.TrackSubmission(applications, idempotency);
+        // Save #1: applications + idempotency → applications get real IDs
+        await loanRepository.CreateSubmissionAsync(applications, idempotency, ct);
 
         foreach (var application in applications)
         {
-            queueService.TrackEnqueue(application, workflowService.InitialStatus);
-            auditLogger.TrackAction(application.Id, userId, "Created", null, "Draft",
-                $"Loan application created (group {groupNo})");
-            auditLogger.TrackAction(application.Id, userId, "StatusChanged", "Draft",
-                workflowService.InitialStatus,
-                workflowService.InitialStatus == "ForRecommendation"
-                    ? "Submitted for recommendation"
-                    : "Submitted for evaluation");
+            // Save #2: queue items (uses real application.Id)
+            await queueService.EnqueueAsync(application, workflowService.InitialStatus, ct);
         }
 
-        // Single flush: applications + idempotency + queue items + audit actions
-        await loanRepository.SaveChangesAsync(ct);
-
-        // Update response with generated IDs
         response = response with
         {
             Loans = applications
@@ -189,21 +178,17 @@ public class LoanSubmissionService(
         idempotency.ResponseJson = JsonSerializer.Serialize(response);
         await loanRepository.UpdateIdempotencyResponseAsync(idempotency, ct);
 
-        // Promote affected queue partitions (reads committed state)
-        var initialStage = WorkflowQueueService.StageForStatus(workflowService.InitialStatus);
-        if (initialStage is not null)
+        foreach (var application in applications)
         {
-            var affectedPartitions = applications
-                .Select(a => queueService.GetPartitionKey(a, initialStage.Value))
-                .Distinct(StringComparer.Ordinal);
-
-            foreach (var partitionKey in affectedPartitions)
-            {
-                await queueService.PromoteHeadAsync(partitionKey, ct);
-            }
+            // Save #3/#4: audit log entries (uses real application.Id)
+            await auditLogger.LogActionAsync(application.Id, userId, "Created", null, "Draft",
+                $"Loan application created (group {groupNo})");
+            await auditLogger.LogActionAsync(application.Id, userId, "StatusChanged", "Draft", workflowService.InitialStatus,
+                workflowService.InitialStatus == "ForRecommendation"
+                    ? "Submitted for recommendation"
+                    : "Submitted for evaluation");
         }
 
-        // Notifications + SignalR after commit
         await NotifySubmissionRecipientsAsync(
             branchCode, groupNo, applications, workflowService.RequireRecommendation, ct);
         await realtimeService.NotifyDashboardUpdateAsync(branchCode);
