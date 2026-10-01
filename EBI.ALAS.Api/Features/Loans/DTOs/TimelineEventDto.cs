@@ -1,8 +1,10 @@
-﻿namespace EBI.ALAS.Api.Features.Loans.DTOs;
+﻿using System.Text.Json.Serialization;
+
+namespace EBI.ALAS.Api.Features.Loans.DTOs;
 public sealed record TimelineEventDto
 {
-    public required string Id { get; init; }
-    public required string Type { get; init; }
+    public string Id { get; init; } = string.Empty;
+    public string Type { get; init; } = string.Empty;
     public DateTime OccurredAtUtc { get; init; }
     public string? ActorName { get; init; }
     public string? ActorRole { get; init; }
@@ -12,4 +14,5 @@ public sealed record TimelineEventDto
     public string? Comment { get; init; }
     public string? Subject { get; init; }
     public string? SubjectCode { get; init; }
+    [JsonIgnore] public int TotalCount { get; init; }
 }
