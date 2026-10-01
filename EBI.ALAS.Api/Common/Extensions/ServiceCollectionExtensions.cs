@@ -1,4 +1,4 @@
-﻿using EBI.ALAS.Api.Common.Authorization;
+using EBI.ALAS.Api.Common.Authorization;
 using EBI.ALAS.Api.Common.Time;
 using EBI.ALAS.Api.Features.Account;
 using EBI.ALAS.Api.Features.ApprovalMatrix;
@@ -68,7 +68,6 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IDocumentGateService, DocumentFlagService>();
         services.AddScoped<ISystemPrincipal, SystemPrincipal>();
         services.AddScoped<ILoanStatusTransitionService, LoanStatusTransitionService>();
-        services.AddScoped<INotificationDispatcher, NotificationDispatcher>();
         services.AddScoped<IChecklistDocumentRepository, ChecklistDocumentRepository>();
         services.AddScoped<IDocumentChecklistStore, DocumentChecklistStore>();
         services.AddScoped<ILoanProductRepository, LoanProductRepository>();
