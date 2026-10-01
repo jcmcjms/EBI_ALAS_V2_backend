@@ -1,4 +1,4 @@
-﻿using System.Security.Claims;
+using System.Security.Claims;
 using EBI.ALAS.Api.Common.Extensions;
 using EBI.ALAS.Api.Common.Models;
 namespace EBI.ALAS.Api.Features.Loans;
@@ -12,12 +12,14 @@ public static class WorkflowQueueEndpoints
         group.MapGet("/my", async (
             ClaimsPrincipal principal,
             IWorkflowQueueService queue,
-            CancellationToken ct) =>
+            int page = 1,
+            int pageSize = 20,
+            CancellationToken ct = default) =>
         {
             var userId = principal.GetUserId();
             var role = principal.GetRole();
             var branchCode = principal.GetBranchCode();
-            var desk = await queue.GetDeskAsync(userId, role, branchCode, ct);
+            var desk = await queue.GetDeskAsync(userId, role, branchCode, page, pageSize, ct);
             return Results.Ok(ApiResponse<DeskQueueResponse>.SuccessResponse(desk));
         })
         .WithName("GetMyDeskQueue")
