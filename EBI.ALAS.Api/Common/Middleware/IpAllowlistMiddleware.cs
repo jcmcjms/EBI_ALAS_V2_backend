@@ -1,12 +1,6 @@
-using System.Net;
+﻿using System.Net;
 using EBI.ALAS.Api.Common.Models;
-
 namespace EBI.ALAS.Api.Common.Middleware;
-
-/// <summary>
-/// IP allowlisting middleware for admin endpoints.
-/// Restricts access to sensitive routes to configured IP addresses or CIDR ranges.
-/// </summary>
 public sealed class IpAllowlistMiddleware
 {
     private readonly RequestDelegate _next;
@@ -20,7 +14,6 @@ public sealed class IpAllowlistMiddleware
         "/api/workflow",
         "/api/audit-logs"
     };
-
     public IpAllowlistMiddleware(
         RequestDelegate next,
         IConfiguration configuration,
@@ -28,9 +21,7 @@ public sealed class IpAllowlistMiddleware
     {
         _next = next;
         _logger = logger;
-
         var allowedIps = configuration.GetSection("IpAllowlist:AdminEndpoints").Get<string[]>() ?? [];
-
         foreach (var entry in allowedIps)
         {
             if (entry.Contains('/'))
@@ -45,21 +36,17 @@ public sealed class IpAllowlistMiddleware
             }
         }
     }
-
     public async Task InvokeAsync(HttpContext context)
     {
         var path = context.Request.Path.Value ?? string.Empty;
-
         if (IsProtectedPath(path))
         {
             var clientIp = GetClientIpAddress(context);
-
             if (!IsAllowed(clientIp))
             {
                 _logger.LogWarning(
                     "IP allowlist blocked request from {IpAddress} to {Path}",
                     clientIp, path);
-
                 context.Response.StatusCode = StatusCodes.Status403Forbidden;
                 context.Response.ContentType = "application/json; charset=utf-8";
                 await context.Response.WriteAsJsonAsync(
@@ -67,21 +54,16 @@ public sealed class IpAllowlistMiddleware
                 return;
             }
         }
-
         await _next(context);
     }
-
     private bool IsProtectedPath(string path)
         => _protectedPaths.Any(p => path.StartsWith(p, StringComparison.OrdinalIgnoreCase));
-
     private bool IsAllowed(string? ipAddress)
     {
         if (string.IsNullOrEmpty(ipAddress))
             return false;
-
         if (_allowedIps.Contains(ipAddress))
             return true;
-
         if (IPAddress.TryParse(ipAddress, out var clientAddr))
         {
             foreach (var (network, prefixLength) in _allowedCidrs)
@@ -90,44 +72,29 @@ public sealed class IpAllowlistMiddleware
                     return true;
             }
         }
-
         return false;
     }
-
     private static bool IsInCidrRange(IPAddress clientAddr, IPAddress network, int prefixLength)
     {
         var clientBytes = clientAddr.GetAddressBytes();
         var networkBytes = network.GetAddressBytes();
-
         if (clientBytes.Length != networkBytes.Length)
             return false;
-
         var fullBytes = prefixLength / 8;
         var remainingBits = prefixLength % 8;
-
         for (var i = 0; i < fullBytes; i++)
         {
             if (clientBytes[i] != networkBytes[i])
                 return false;
         }
-
         if (remainingBits > 0 && fullBytes < clientBytes.Length)
         {
             var mask = (byte)(0xFF << (8 - remainingBits));
             if ((clientBytes[fullBytes] & mask) != (networkBytes[fullBytes] & mask))
                 return false;
         }
-
         return true;
     }
-
-    /// <summary>
-    /// Returns the client IP address from the trusted connection info.
-    /// Removed raw X-Forwarded-For header reading — any client can spoof it.
-    /// Instead, use UseForwardedHeaders() middleware (configured in Program.cs with
-    /// KnownProxies/KnownNetworks) which validates and strips untrusted proxy headers
-    /// before populating RemoteIpAddress. This middleware simply reads the already-trusted value.
-    /// </summary>
     private static string? GetClientIpAddress(HttpContext context)
     {
         return context.Connection.RemoteIpAddress?.ToString();

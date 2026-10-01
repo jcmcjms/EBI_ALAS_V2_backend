@@ -1,7 +1,5 @@
-namespace EBI.ALAS.Api.Features.Account;
-
+﻿namespace EBI.ALAS.Api.Features.Account;
 public enum SessionRevokeResult { NotFound, CurrentSession, Revoked }
-
 public interface IAccountService
 {
     Task<AccountProfileResponse?> GetProfileAsync(int userId);

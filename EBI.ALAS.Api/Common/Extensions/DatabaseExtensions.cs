@@ -1,25 +1,14 @@
-using EBI.ALAS.Api.Infrastructure.Data;
+﻿using EBI.ALAS.Api.Infrastructure.Data;
 using EBI.ALAS.Api.Infrastructure.Interceptors;
 using Microsoft.EntityFrameworkCore;
-
 namespace EBI.ALAS.Api.Common.Extensions;
-
-/// <summary>
-/// Database context configuration (AppDbContext + WebLoanDbContext).
-/// Extracted from Program.cs to follow Single Responsibility Principle.
-/// </summary>
 public static class DatabaseExtensions
 {
-    /// <summary>
-    /// Primary read-write database context with audit interceptors.
-    /// Uses SQL Server 2019 with split queries and retry logic.
-    /// </summary>
     public static IServiceCollection AddAppDatabase(
         this IServiceCollection services,
         IConfiguration configuration)
     {
         services.AddScoped<AuditSaveChangesInterceptor>();
-
         services.AddDbContext<AppDbContext>((sp, options) =>
         {
             options.UseSqlServer(
@@ -35,14 +24,8 @@ public static class DatabaseExtensions
                 });
             options.AddInterceptors(sp.GetRequiredService<AuditSaveChangesInterceptor>());
         });
-
         return services;
     }
-
-    /// <summary>
-    /// Read-only legacy database context (WebLoan).
-    /// Uses IDbContextFactory for thread-safe parallel queries.
-    /// </summary>
     public static IServiceCollection AddWebLoanDatabase(
         this IServiceCollection services,
         IConfiguration configuration)
@@ -62,7 +45,6 @@ public static class DatabaseExtensions
             options.UseQueryTrackingBehavior(QueryTrackingBehavior.NoTracking);
             options.AddInterceptors(new WebLoanReadOnlyInterceptor());
         });
-
         return services;
     }
 }

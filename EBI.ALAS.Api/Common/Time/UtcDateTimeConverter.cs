@@ -1,26 +1,21 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using System.Text.Json.Serialization;
-
 namespace EBI.ALAS.Api.Common.Time;
 public sealed class UtcDateTimeConverter : JsonConverter<DateTime>
 {
     public override DateTime Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
     {
         var dateTime = reader.GetDateTime();
-        
         if (dateTime.Kind == DateTimeKind.Unspecified)
         {
             return DateTime.SpecifyKind(dateTime, DateTimeKind.Utc);
         }
-        
         if (dateTime.Kind == DateTimeKind.Local)
         {
             return dateTime.ToUniversalTime();
         }
-        
         return dateTime;
     }
-
     public override void Write(Utf8JsonWriter writer, DateTime value, JsonSerializerOptions options)
     {
         var utc = value.Kind switch
@@ -30,7 +25,6 @@ public sealed class UtcDateTimeConverter : JsonConverter<DateTime>
             DateTimeKind.Unspecified => DateTime.SpecifyKind(value, DateTimeKind.Utc),
             _ => value
         };
-        
         writer.WriteStringValue(utc.ToString("yyyy-MM-ddTHH:mm:ss.fffZ"));
     }
 }
@@ -42,22 +36,17 @@ public sealed class UtcNullableDateTimeConverter : JsonConverter<DateTime?>
         {
             return null;
         }
-        
         var dateTime = reader.GetDateTime();
-        
         if (dateTime.Kind == DateTimeKind.Unspecified)
         {
             return DateTime.SpecifyKind(dateTime, DateTimeKind.Utc);
         }
-        
         if (dateTime.Kind == DateTimeKind.Local)
         {
             return dateTime.ToUniversalTime();
         }
-        
         return dateTime;
     }
-
     public override void Write(Utf8JsonWriter writer, DateTime? value, JsonSerializerOptions options)
     {
         if (value == null)
@@ -65,7 +54,6 @@ public sealed class UtcNullableDateTimeConverter : JsonConverter<DateTime?>
             writer.WriteNullValue();
             return;
         }
-        
         var utc = value.Value.Kind switch
         {
             DateTimeKind.Utc => value.Value,
@@ -73,7 +61,6 @@ public sealed class UtcNullableDateTimeConverter : JsonConverter<DateTime?>
             DateTimeKind.Unspecified => DateTime.SpecifyKind(value.Value, DateTimeKind.Utc),
             _ => value.Value
         };
-        
         writer.WriteStringValue(utc.ToString("yyyy-MM-ddTHH:mm:ss.fffZ"));
     }
 }
@@ -83,7 +70,6 @@ public sealed class DateTimeOffsetConverter : JsonConverter<DateTimeOffset>
     {
         return reader.GetDateTimeOffset();
     }
-
     public override void Write(Utf8JsonWriter writer, DateTimeOffset value, JsonSerializerOptions options)
     {
         writer.WriteStringValue(value.ToString("yyyy-MM-ddTHH:mm:ss.fffzzz"));

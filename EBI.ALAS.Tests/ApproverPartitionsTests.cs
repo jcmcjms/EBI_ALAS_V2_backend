@@ -1,4 +1,4 @@
-using EBI.ALAS.Api.Common.Constants;
+﻿using EBI.ALAS.Api.Common.Constants;
 using EBI.ALAS.Api.Common.Time;
 using EBI.ALAS.Api.Features.ApprovalMatrix;
 using EBI.ALAS.Api.Features.Auth;
@@ -10,25 +10,17 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using NSubstitute;
 using Xunit;
-
 namespace EBI.ALAS.Tests;
-
-/// <summary>
-/// Tests for the scope-aware approval partition logic and the enqueue guard.
-/// Uses EF Core InMemory to exercise the real query path.
-/// </summary>
 public class ApproverPartitionsTests : IDisposable
 {
     private readonly AppDbContext _db;
     private readonly WorkflowQueueService _sut;
-
     public ApproverPartitionsTests()
     {
         var options = new DbContextOptionsBuilder<AppDbContext>()
             .UseInMemoryDatabase(databaseName: Guid.NewGuid().ToString())
             .Options;
         _db = new AppDbContext(options);
-
         var loanRepo = Substitute.For<ILoanRepository>();
         loanRepo.GetUsersByRoleAndBranchAsync(
                 Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
@@ -39,16 +31,11 @@ public class ApproverPartitionsTests : IDisposable
         time.UtcNow.Returns(new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc));
         var queueOptions = Substitute.For<IOptionsMonitor<QueueOptions>>();
         queueOptions.CurrentValue.Returns(new QueueOptions { LeaseTtlMinutes = 30 });
-
         _sut = new WorkflowQueueService(
             _db, loanRepo, notifications,
             realtime, time, queueOptions);
     }
-
     public void Dispose() => _db.Dispose();
-
-    // ── EnqueueAsync guard ─────────────────────────────────────────────────
-
     [Fact]
     public async Task EnqueueAsync_Approval_WithNullTier_Throws()
     {
@@ -57,11 +44,9 @@ public class ApproverPartitionsTests : IDisposable
             Id = 1, BranchCode = "007", RequiredApprovalTier = null,
             FirstName = "Test", LastName = "User"
         };
-
         await Assert.ThrowsAsync<InvalidOperationException>(
             () => _sut.EnqueueAsync(loan, "ForApproval", CancellationToken.None));
     }
-
     [Fact]
     public async Task EnqueueAsync_Approval_WithTier_Succeeds()
     {
@@ -70,27 +55,19 @@ public class ApproverPartitionsTests : IDisposable
             Id = 2, BranchCode = "007", RequiredApprovalTier = 3,
             FirstName = "Test", LastName = "User"
         };
-
         await _sut.EnqueueAsync(loan, "ForApproval", CancellationToken.None);
-
         var item = await _db.WorkflowQueueItems.SingleAsync();
         Assert.Equal("APP:007:3", item.PartitionKey);
         Assert.Equal(QueueStage.Approval, item.Stage);
     }
-
-    // ── GetDeskAsync — Global authority sees all branches ──────────────────
-
     [Fact]
     public async Task GetDeskAsync_GlobalApprover_SeesAllBranches()
     {
-        // Seed branches
         _db.Branches.AddRange(
             new Branch { Code = "001", Name = "Branch 1" },
             new Branch { Code = "002", Name = "Branch 2" },
             new Branch { Code = "003", Name = "Branch 3" });
         await _db.SaveChangesAsync();
-
-        // Seed authority (Tier 3, Global)
         _db.ApprovalAuthorities.Add(new ApprovalAuthority
         {
             Key = "CreditHead",
@@ -103,8 +80,6 @@ public class ApproverPartitionsTests : IDisposable
             MaxTotalExposure = 1_500_000m,
             ScopeType = AuthorityScope.Global,
         });
-
-        // Seed user (home branch 001, but Global scope)
         _db.Users.Add(new User
         {
             Id = 10,
@@ -114,8 +89,6 @@ public class ApproverPartitionsTests : IDisposable
             ApprovalAuthorityKey = "CreditHead",
         });
         await _db.SaveChangesAsync();
-
-        // Seed queue items in different branches
         _db.WorkflowQueueItems.AddRange(
             new WorkflowQueueItem
             {
@@ -154,16 +127,11 @@ public class ApproverPartitionsTests : IDisposable
                 }
             });
         await _db.SaveChangesAsync();
-
         var desk = await _sut.GetDeskAsync(10, Roles.Approver, "001", CancellationToken.None);
-
         Assert.Equal(3, desk.Items.Count);
         Assert.Contains("Global", desk.ScopeDescription);
         Assert.Contains("3 branches", desk.ScopeDescription);
     }
-
-    // ── GetDeskAsync — Branch authority sees only home branch ─────────────
-
     [Fact]
     public async Task GetDeskAsync_BranchApprover_SeesOnlyHomeBranch()
     {
@@ -171,7 +139,6 @@ public class ApproverPartitionsTests : IDisposable
             new Branch { Code = "001", Name = "Branch 1" },
             new Branch { Code = "002", Name = "Branch 2" });
         await _db.SaveChangesAsync();
-
         _db.ApprovalAuthorities.Add(new ApprovalAuthority
         {
             Key = "BranchHead",
@@ -184,7 +151,6 @@ public class ApproverPartitionsTests : IDisposable
             MaxTotalExposure = 500_000m,
             ScopeType = AuthorityScope.Branch,
         });
-
         _db.Users.Add(new User
         {
             Id = 20,
@@ -194,7 +160,6 @@ public class ApproverPartitionsTests : IDisposable
             ApprovalAuthorityKey = "BranchHead",
         });
         await _db.SaveChangesAsync();
-
         _db.WorkflowQueueItems.AddRange(
             new WorkflowQueueItem
             {
@@ -221,16 +186,11 @@ public class ApproverPartitionsTests : IDisposable
                 }
             });
         await _db.SaveChangesAsync();
-
         var desk = await _sut.GetDeskAsync(20, Roles.Approver, "001", CancellationToken.None);
-
         Assert.Single(desk.Items);
         Assert.Equal(201, desk.Items[0].LoanId);
         Assert.Contains("Branch 001", desk.ScopeDescription);
     }
-
-    // ── GetDeskAsync — Area authority sees covered branches ────────────────
-
     [Fact]
     public async Task GetDeskAsync_AreaApprover_SeesCoveredBranches()
     {
@@ -239,7 +199,6 @@ public class ApproverPartitionsTests : IDisposable
             new Branch { Code = "002", Name = "Branch 2" },
             new Branch { Code = "003", Name = "Branch 3" });
         await _db.SaveChangesAsync();
-
         _db.ApprovalAuthorities.Add(new ApprovalAuthority
         {
             Key = "AreaHead",
@@ -252,7 +211,6 @@ public class ApproverPartitionsTests : IDisposable
             MaxTotalExposure = 800_000m,
             ScopeType = AuthorityScope.Area,
         });
-
         _db.Users.Add(new User
         {
             Id = 30,
@@ -262,13 +220,10 @@ public class ApproverPartitionsTests : IDisposable
             ApprovalAuthorityKey = "AreaHead",
         });
         await _db.SaveChangesAsync();
-
-        // Coverage: branches 001 and 002 (not 003)
         _db.UserBranchCoverages.AddRange(
             new UserBranchCoverage { UserId = 30, BranchCode = "001" },
             new UserBranchCoverage { UserId = 30, BranchCode = "002" });
         await _db.SaveChangesAsync();
-
         _db.WorkflowQueueItems.AddRange(
             new WorkflowQueueItem
             {
@@ -307,16 +262,11 @@ public class ApproverPartitionsTests : IDisposable
                 }
             });
         await _db.SaveChangesAsync();
-
         var desk = await _sut.GetDeskAsync(30, Roles.Approver, "001", CancellationToken.None);
-
         Assert.Equal(2, desk.Items.Count);
         Assert.Contains("001", desk.ScopeDescription);
         Assert.Contains("002", desk.ScopeDescription);
     }
-
-    // ── GetDeskAsync — user with no authority gets empty desk ──────────────
-
     [Fact]
     public async Task GetDeskAsync_NoAuthority_ReturnsEmptyWithMessage()
     {
@@ -329,15 +279,10 @@ public class ApproverPartitionsTests : IDisposable
             ApprovalAuthorityKey = null,
         });
         await _db.SaveChangesAsync();
-
         var desk = await _sut.GetDeskAsync(40, Roles.Approver, "001", CancellationToken.None);
-
         Assert.Empty(desk.Items);
         Assert.Contains("No authority", desk.ScopeDescription);
     }
-
-    // ── GetDeskAsync — Recommender uses branch correctly ──────────────────
-
     [Fact]
     public async Task GetDeskAsync_Recommender_SeesOwnBranchOnly()
     {
@@ -367,20 +312,14 @@ public class ApproverPartitionsTests : IDisposable
                 }
             });
         await _db.SaveChangesAsync();
-
         var desk = await _sut.GetDeskAsync(50, Roles.Recommender, "001", CancellationToken.None);
-
         Assert.Single(desk.Items);
         Assert.Equal(401, desk.Items[0].LoanId);
     }
-
-    // ── GetDeskAsync — Queued rows appear in the desk (not just Active) ──
-
     [Fact]
     public async Task GetDeskAsync_IncludesQueuedBacklog()
     {
         var t0 = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
-
         _db.WorkflowQueueItems.AddRange(
             new WorkflowQueueItem
             {
@@ -411,9 +350,7 @@ public class ApproverPartitionsTests : IDisposable
                 }
             });
         await _db.SaveChangesAsync();
-
         var desk = await _sut.GetDeskAsync(99, Roles.Evaluator, "006", CancellationToken.None);
-
         Assert.Equal(2, desk.Items.Count);
         Assert.Equal(601, desk.Items[0].LoanId);
         Assert.True(desk.Items[0].IsHead);
@@ -421,7 +358,6 @@ public class ApproverPartitionsTests : IDisposable
         Assert.Equal(602, desk.Items[1].LoanId);
         Assert.False(desk.Items[1].IsHead);
         Assert.Equal(2, desk.Items[1].Position);
-        // Rich fields populated
         Assert.Equal("006", desk.Items[1].BranchCode);
         Assert.Equal(386_000, desk.Items[1].ProposedAmount);
     }

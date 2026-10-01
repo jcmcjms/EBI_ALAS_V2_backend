@@ -1,9 +1,4 @@
-namespace EBI.ALAS.Api.Infrastructure.Messaging.Events;
-
-/// <summary>
-/// Event published when a loan status changes. Consumed by notification
-/// and audit log consumers for async processing — unblocks the HTTP response.
-/// </summary>
+﻿namespace EBI.ALAS.Api.Infrastructure.Messaging.Events;
 public sealed record LoanStatusChangedEvent(
     int LoanId,
     string LamId,
@@ -16,11 +11,6 @@ public sealed record LoanStatusChangedEvent(
     string? Comments,
     string? Verdict,
     DateTime OccurredAt);
-
-/// <summary>
-/// Event published when a notification needs to be sent.
-/// Decouples notification creation from the loan workflow.
-/// </summary>
 public sealed record NotificationCreatedEvent(
     int UserId,
     string Title,
@@ -28,11 +18,6 @@ public sealed record NotificationCreatedEvent(
     string? Link,
     DateTime OccurredAt,
     string? Type = null);
-
-/// <summary>
-/// Event published when an audit log entry needs to be recorded.
-/// Ensures audit logging doesn't block the response path.
-/// </summary>
 public sealed record AuditLogRecordedEvent(
     int? UserId,
     string UserName,
@@ -45,11 +30,6 @@ public sealed record AuditLogRecordedEvent(
     string? IpAddress,
     string? UserAgent,
     DateTime OccurredAt);
-
-/// <summary>
-/// Event published when a dashboard needs real-time refresh.
-/// Pushed to SignalR via the consumer.
-/// </summary>
 public sealed record DashboardRefreshEvent(
     string BranchCode,
     DateTime OccurredAt);

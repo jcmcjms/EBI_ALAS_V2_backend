@@ -1,32 +1,15 @@
-using EBI.ALAS.Api.Features.Auth;
-
+﻿using EBI.ALAS.Api.Features.Auth;
 namespace EBI.ALAS.Api.Features.Loans;
-
-/// <summary>
-/// One loan within a submitted application group. A single wizard submission
-/// with N selected preloan PNs produces N rows sharing ApplicationGroupNo;
-/// each row owns its own LAM LamId, workflow state and audit trail.
-/// </summary>
 public sealed class LoanApplication
 {
     public int Id { get; init; }
-
-    /// <summary>LAM identifier, e.g. LAM-20260908-000042. Unique.</summary>
     public string LamId { get; set; } = string.Empty;
-
-    /// <summary>Groups the N loans created by one submission, e.g. APP-20260908-000017.</summary>
     public string ApplicationGroupNo { get; set; } = string.Empty;
-
-    /// <summary>Acting officer's branch (JWT-derived, never client-supplied).</summary>
     public string BranchCode { get; set; } = string.Empty;
-
-    // Branch & type (wizard §1.2)
     public int? CreationTypeCode { get; set; }
     public string? CreationTypeLabel { get; set; }
     public string? RequestingOfficer { get; set; }
     public string? Lai { get; set; }
-
-    // Client snapshot (§1.1 / §2, CIS-sourced)
     public string? CisId { get; set; }
     public string FirstName { get; set; } = string.Empty;
     public string? MiddleName { get; set; }
@@ -45,8 +28,6 @@ public sealed class LoanApplication
     public string? MisAgency { get; set; }
     public string? School { get; set; }
     public string? Referrer { get; set; }
-
-    // Per-loan parameters (§3)
     public string LoanNo { get; set; } = string.Empty;
     public string ProductCode { get; set; } = string.Empty;
     public string Product { get; set; } = string.Empty;
@@ -57,12 +38,8 @@ public sealed class LoanApplication
     public int? PolicyTermMonths { get; set; }
     public int? ApprovalTermDays { get; set; }
     public decimal? AnnualRatePercent { get; set; }
-
-    /// <summary>Frozen webloan loan_data.c_doc_stamp at submission. Null when webloan had no value.</summary>
     public decimal? CDocStamp { get; set; }
     public DateOnly? NthpDate { get; set; }
-
-    // Bank fees
     public decimal NotarialFee { get; set; }
     public decimal DocStamps { get; set; }
     public decimal Insurance { get; set; }
@@ -71,8 +48,6 @@ public sealed class LoanApplication
     public decimal StandardInsurance { get; set; }
     public decimal StandardApplicationCharge { get; set; }
     public decimal StandardAdvanceInterest { get; set; }
-
-    // Computed snapshot (server-authoritative, never client-supplied)
     public decimal TotalDeductions { get; set; }
     public decimal DeductionRate { get; set; }
     public decimal GrossProceeds { get; set; }
@@ -87,8 +62,6 @@ public sealed class LoanApplication
     public decimal MaximumLoanableAmount { get; set; }
     public bool AmortizationExceedsDisposable { get; set; }
     public bool NthpBelowMinimum { get; set; }
-
-    // Verification & deviations (§6 / §7)
     public string? VerificationFindings { get; set; }
     public bool HasDeviations { get; set; }
     public List<string> DeviationDetails { get; set; } = [];
@@ -97,12 +70,9 @@ public sealed class LoanApplication
     public string? AoRecommendation { get; set; }
     public string? OtherRemarks { get; set; }
     public string? FeeDeviationJustification { get; set; }
-
-    // Status & dates
     public string Status { get; set; } = "Draft";
     public DateTime ApplicationDate { get; init; } = DateTime.UtcNow;
     public DateTime LastActionDate { get; set; } = DateTime.UtcNow;
-
     public string LoanType { get; set; } = "New";
     public EBI.ALAS.Api.Features.ApprovalMatrix.DeviationSeverity DeviationSeverity { get; set; }
     public int? RequiredApprovalTier { get; set; }
@@ -110,38 +80,14 @@ public sealed class LoanApplication
     public User? AssignedApprover { get; set; }
     public DateTime? AssignedAt { get; set; }
     public DateTime? DocumentsCompleteAt { get; set; }
-
-    /// <summary>When routing matched a rule but found no approver at that
-    /// tier, records which tier was matched before escalation. Null when
-    /// no escalation occurred.</summary>
     public int? MatchedButUnstaffedTier { get; set; }
-
-    /// <summary>When no authority rule could route the file (exposure
-    /// exceeds all tiers or cycle/severity has no covering rule), stores
-    /// the reason. Null when routing succeeded.</summary>
     public string? NoAuthorityReason { get; set; }
-
-    // ── Document flag columns ──────────────────────────────────────────
-    // A document deficiency is a FACT about paperwork, not a routing decision.
-    // These columns record the flag without touching Status or workflow queues.
-
-    /// <summary>UTC timestamp when the last reviewer flagged missing documents.
-    /// Null means no active flag. Cleared by DocumentFlagService.SyncAsync
-    /// when every requirement verifies complete.</summary>
     public DateTime? DocumentsFlaggedAt { get; set; }
-
-    /// <summary>User who last flagged missing documents (FK → Users).</summary>
     public int? DocumentsFlaggedById { get; set; }
     public User? DocumentsFlaggedBy { get; set; }
-
-    /// <summary>Reviewer's written reason for flagging (free text, min 5 chars).</summary>
     public string? DocumentFlagReason { get; set; }
-
-    // Audit
     public int CreatedById { get; init; }
     public User CreatedBy { get; set; } = null!;
-
-    // WebLoan traceability (read-only legacy references)
     public string? WebLoanCisNo { get; set; }
     public string? WebLoanBranchCode { get; set; }
     public List<string> WebLoanAccountNumbers { get; set; } = [];
@@ -149,8 +95,6 @@ public sealed class LoanApplication
     public DateTime? WebLoanLastSyncedAt { get; set; }
     public int? PreLoanId { get; set; }
     public string? PreLoanFormNumber { get; set; }
-
-    // Navigation properties
     public ICollection<LoanAction> Actions { get; set; } = [];
     public ICollection<OutstandingLoan> OutstandingLoans { get; set; } = [];
     public ICollection<BuyOut> BuyOuts { get; set; } = [];

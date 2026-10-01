@@ -1,16 +1,14 @@
-using EBI.ALAS.Api.Features.ApprovalMatrix;
+﻿using EBI.ALAS.Api.Features.ApprovalMatrix;
 using EBI.ALAS.Api.Features.Auth;
 using EBI.ALAS.Api.Features.AuditLogs;
 using EBI.ALAS.Api.Features.Branches;
 using EBI.ALAS.Api.Features.Loans;
 using EBI.ALAS.Api.Features.Notifications;
 using EBI.ALAS.Api.Features.SystemSettings;
-
 namespace EBI.ALAS.Api.Infrastructure.Data;
 public class AppDbContext : DbContext
 {
     public AppDbContext(DbContextOptions<AppDbContext> options) : base(options) { }
-
     public DbSet<User> Users => Set<User>();
     public DbSet<Branch> Branches => Set<Branch>();
     public DbSet<LoanApplication> LoanApplications => Set<LoanApplication>();
@@ -35,7 +33,6 @@ public class AppDbContext : DbContext
     public DbSet<UserBranchCoverage> UserBranchCoverages => Set<UserBranchCoverage>();
     public DbSet<WorkflowQueueItem> WorkflowQueueItems => Set<WorkflowQueueItem>();
     public DbSet<DocumentChecklist> DocumentChecklists => Set<DocumentChecklist>();
-
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);

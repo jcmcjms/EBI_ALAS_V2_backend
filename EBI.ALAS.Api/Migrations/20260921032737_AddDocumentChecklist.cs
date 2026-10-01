@@ -1,14 +1,10 @@
 ﻿using System;
 using Microsoft.EntityFrameworkCore.Migrations;
-
 #nullable disable
-
 namespace EBI.ALAS.Api.Migrations
 {
-    /// <inheritdoc />
     public partial class AddDocumentChecklist : Migration
     {
-        /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
             migrationBuilder.CreateTable(
@@ -41,25 +37,20 @@ namespace EBI.ALAS.Api.Migrations
                         principalColumn: "Id",
                         onDelete: ReferentialAction.SetNull);
                 });
-
             migrationBuilder.CreateIndex(
                 name: "IX_DocumentChecklists_Loan_Code",
                 table: "DocumentChecklists",
                 columns: new[] { "LoanApplicationId", "Code" },
                 unique: true);
-
             migrationBuilder.CreateIndex(
                 name: "IX_DocumentChecklists_Loan_Status",
                 table: "DocumentChecklists",
                 columns: new[] { "LoanApplicationId", "Status" });
-
             migrationBuilder.CreateIndex(
                 name: "IX_DocumentChecklists_UpdatedById",
                 table: "DocumentChecklists",
                 column: "UpdatedById");
         }
-
-        /// <inheritdoc />
         protected override void Down(MigrationBuilder migrationBuilder)
         {
             migrationBuilder.DropTable(

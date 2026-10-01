@@ -1,9 +1,7 @@
-using System.Security.Claims;
+﻿using System.Security.Claims;
 using EBI.ALAS.Api.Common.Extensions;
 using EBI.ALAS.Api.Common.Models;
-
 namespace EBI.ALAS.Api.Features.Loans;
-
 public static class WorkflowQueueEndpoints
 {
     public static void MapWorkflowQueueEndpoints(this WebApplication app)
@@ -11,9 +9,6 @@ public static class WorkflowQueueEndpoints
         var group = app.MapGroup("/api/loans/queue")
             .WithTags("Workflow Queue")
             .RequireAuthorization();
-
-        // GET /api/loans/queue/my — the reviewer's desk view:
-        // queue positions, head flag, owners, and the caller's current claim.
         group.MapGet("/my", async (
             ClaimsPrincipal principal,
             IWorkflowQueueService queue,
@@ -22,16 +17,12 @@ public static class WorkflowQueueEndpoints
             var userId = principal.GetUserId();
             var role = principal.GetRole();
             var branchCode = principal.GetBranchCode();
-
             var desk = await queue.GetDeskAsync(userId, role, branchCode, ct);
             return Results.Ok(ApiResponse<DeskQueueResponse>.SuccessResponse(desk));
         })
         .WithName("GetMyDeskQueue")
         .Produces<ApiResponse<DeskQueueResponse>>(200)
         .RequireAuthorization();
-
-        // POST /api/loans/queue/claim — atomic head-lease.
-        // Returns the claimed item, or null data when the desk is empty.
         group.MapPost("/claim", async (
             ClaimsPrincipal principal,
             IWorkflowQueueService queue,
@@ -40,7 +31,6 @@ public static class WorkflowQueueEndpoints
             var userId = principal.GetUserId();
             var role = principal.GetRole();
             var branchCode = principal.GetBranchCode();
-
             var result = await queue.ClaimHeadAsync(userId, role, branchCode, ct);
             return result is null
                 ? Results.Ok(ApiResponse<ClaimResponse?>.SuccessResponse(null, "Queue is clear — nothing to serve."))
@@ -49,9 +39,6 @@ public static class WorkflowQueueEndpoints
         .WithName("ClaimNextFromDesk")
         .Produces<ApiResponse<ClaimResponse?>>(200)
         .RequireAuthorization();
-
-        // POST /api/loans/queue/release — release the current claim.
-        // Clears OwnerUserId + LeasedAt, returns the item to the pool.
         group.MapPost("/release", async (
             ClaimsPrincipal principal,
             IWorkflowQueueService queue,
@@ -66,7 +53,6 @@ public static class WorkflowQueueEndpoints
         .WithName("ReleaseDeskClaim")
         .Produces<ApiResponse>(200)
         .RequireAuthorization();
-
         group.MapPost("/{id:int}/claim", async (
             int id,
             ClaimsPrincipal principal,
@@ -76,7 +62,6 @@ public static class WorkflowQueueEndpoints
             var userId = principal.GetUserId();
             var role = principal.GetRole();
             var branchCode = principal.GetBranchCode();
-
             var result = await queue.ClaimByIdAsync(id, userId, role, branchCode, ct);
             return result switch
             {

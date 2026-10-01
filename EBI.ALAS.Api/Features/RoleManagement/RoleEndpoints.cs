@@ -1,14 +1,11 @@
-using EBI.ALAS.Api.Common.Constants;
+﻿using EBI.ALAS.Api.Common.Constants;
 using EBI.ALAS.Api.Common.Models;
-
 namespace EBI.ALAS.Api.Features.RoleManagement;
-
 public static class RoleEndpoints
 {
     public static void MapRoleEndpoints(this WebApplication app)
     {
         var group = app.MapGroup("/api/roles").WithTags("Roles").RequireAuthorization("CanViewRoles");
-
         group.MapGet("/", () =>
         {
             var roles = new List<object>
@@ -21,7 +18,6 @@ public static class RoleEndpoints
             };
             return Results.Ok(ApiResponse<object>.SuccessResponse(roles));
         }).WithName("GetRoles");
-
         group.MapGet("/matrix", () =>
         {
             var matrix = new List<object>

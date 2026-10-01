@@ -1,9 +1,7 @@
-using System.Security.Claims;
+﻿using System.Security.Claims;
 using EBI.ALAS.Api.Common.Extensions;
 using EBI.ALAS.Api.Common.Models;
-
 namespace EBI.ALAS.Api.Features.Dashboard;
-
 public static class DashboardEndpoints
 {
     public static void MapDashboardEndpoints(this WebApplication app)
@@ -11,9 +9,6 @@ public static class DashboardEndpoints
         var group = app.MapGroup("/api/dashboard")
             .WithTags("Dashboard")
             .RequireAuthorization();
-
-        // CanViewLoan: the payload is loan aggregates, branch-scoped in-service
-        // (non-admins only ever see their own branch; Admin sees all).
         group.MapGet("/overview", async (
             IDashboardService dashboardService,
             ClaimsPrincipal user,

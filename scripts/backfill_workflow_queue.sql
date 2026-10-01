@@ -1,9 +1,4 @@
--- ── WorkflowQueueItems backfill ──────────────────────────────────────────────
--- Run AFTER the EF migration creates the WorkflowQueueItems table.
--- This seeds existing in-flight loans into their correct queue partitions
--- so day-one queues are correct. Heads get promoted (and owners materialized)
--- by the QueueReconciliationHostedService on its first tick.
-
+﻿
 INSERT INTO WorkflowQueueItems (LoanApplicationId, Stage, PartitionKey, EnqueuedAt, [State])
 SELECT
     l.Id,

@@ -1,14 +1,10 @@
 ﻿using System;
 using Microsoft.EntityFrameworkCore.Migrations;
-
 #nullable disable
-
 namespace EBI.ALAS.Api.Migrations
 {
-    /// <inheritdoc />
     public partial class AddWorkflowQueue : Migration
     {
-        /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
             migrationBuilder.CreateTable(
@@ -42,26 +38,21 @@ namespace EBI.ALAS.Api.Migrations
                         principalColumn: "Id",
                         onDelete: ReferentialAction.SetNull);
                 });
-
             migrationBuilder.CreateIndex(
                 name: "IX_WorkflowQueueItems_Loan_Stage_Live",
                 table: "WorkflowQueueItems",
                 columns: new[] { "LoanApplicationId", "Stage" },
                 unique: true,
                 filter: "[State] IN ('Queued','Active')");
-
             migrationBuilder.CreateIndex(
                 name: "IX_WorkflowQueueItems_OwnerUserId",
                 table: "WorkflowQueueItems",
                 column: "OwnerUserId");
-
             migrationBuilder.CreateIndex(
                 name: "IX_WorkflowQueueItems_Partition_Head",
                 table: "WorkflowQueueItems",
                 columns: new[] { "PartitionKey", "State", "EnqueuedAt", "Id" });
         }
-
-        /// <inheritdoc />
         protected override void Down(MigrationBuilder migrationBuilder)
         {
             migrationBuilder.DropTable(

@@ -1,12 +1,10 @@
-using System.Security.Claims;
+﻿using System.Security.Claims;
 using EBI.ALAS.Api.Common.Constants;
 using EBI.ALAS.Api.Common.Extensions;
 using EBI.ALAS.Api.Common.Models;
 using EBI.ALAS.Api.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
-
 namespace EBI.ALAS.Api.Features.Loans.Endpoints;
-
 public static class GetLoanHistory
 {
     public static void MapGetLoanHistoryEndpoints(this WebApplication app)
@@ -14,7 +12,6 @@ public static class GetLoanHistory
         var group = app.MapGroup("/api/loans")
             .WithTags("Loans")
             .RequireAuthorization();
-
         group.MapGet("/{id:int}/history", async (
             int id,
             ClaimsPrincipal principal,
@@ -22,23 +19,19 @@ public static class GetLoanHistory
             CancellationToken ct) =>
         {
             var userId = principal.GetUserId();
-
             var loan = await db.LoanApplications
                 .AsNoTracking()
                 .Where(l => l.Id == id)
                 .Select(l => new { l.Id, l.CreatedById })
                 .FirstOrDefaultAsync(ct);
-
             if (loan is null)
                 return Results.NotFound(ApiResponse.ErrorResponse("Loan not found"));
-
             var hasViewPerm = principal.HasPermission(Permissions.LoansView);
             var isCreator = loan.CreatedById == userId;
             if (!hasViewPerm && !isCreator)
                 return Results.Json(
                     ApiResponse.ErrorResponse("You do not have permission to view this loan's history."),
                     statusCode: StatusCodes.Status403Forbidden);
-
             var history = await db.LoanActions
                 .AsNoTracking()
                 .Where(a => a.LoanApplicationId == id)
@@ -55,7 +48,6 @@ public static class GetLoanHistory
                     a.ActionDate,
                     a.ActionByUser.Role))
                 .ToListAsync(ct);
-
             return Results.Ok(ApiResponse<List<LoanHistoryEntryResponse>>.SuccessResponse(history));
         })
         .WithName("GetLoanHistory")

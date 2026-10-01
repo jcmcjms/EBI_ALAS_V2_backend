@@ -1,21 +1,16 @@
-using EBI.ALAS.Api.Common.Models;
+﻿using EBI.ALAS.Api.Common.Models;
 using EBI.ALAS.Api.Features.ApprovalMatrix;
 using EBI.ALAS.Api.Features.Auth;
 using EBI.ALAS.Api.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
-
 namespace EBI.ALAS.Api.Features.Users;
-
 public class UserRepository : IUserRepository
 {
     private readonly AppDbContext _context;
-
     public UserRepository(AppDbContext context) => _context = context;
-
     public async Task<PagedResult<UserResponse>> GetUsersAsync(UserQueryParameters parameters)
     {
         var query = _context.Users.AsQueryable();
-
         if (!string.IsNullOrWhiteSpace(parameters.Search))
         {
             var search = parameters.Search.ToLower();
@@ -24,18 +19,13 @@ public class UserRepository : IUserRepository
                 u.FirstName.ToLower().Contains(search) ||
                 u.LastName.ToLower().Contains(search));
         }
-
         if (!string.IsNullOrWhiteSpace(parameters.Role))
             query = query.Where(u => u.Role == parameters.Role);
-
         if (!string.IsNullOrWhiteSpace(parameters.BranchId))
             query = query.Where(u => u.BranchId == parameters.BranchId);
-
         if (parameters.IsActive.HasValue)
             query = query.Where(u => u.IsActive == parameters.IsActive.Value);
-
         var totalCount = await query.CountAsync();
-
         var items = await query
             .OrderByDescending(u => u.CreatedAt)
             .ThenBy(u => u.Id)
@@ -56,24 +46,19 @@ public class UserRepository : IUserRepository
                     ? u.BranchCoverages.Select(bc => bc.BranchCode).ToList()
                     : null))
             .ToListAsync();
-
         return new PagedResult<UserResponse>(items, totalCount, parameters.PageNumber, parameters.PageSize);
     }
-
     public async Task<User?> GetUserByIdAsync(int id) => await _context.Users.FindAsync(id);
-
     public async Task<bool> UsernameExistsAsync(string username, int? excludeId = null)
     {
         var query = _context.Users.Where(u => u.Username == username);
         if (excludeId.HasValue) query = query.Where(u => u.Id != excludeId.Value);
         return await query.AnyAsync();
     }
-
     public async Task AddUserAsync(User user)
     {
         _context.Users.Add(user);
         await _context.SaveChangesAsync();
     }
-
     public async Task UpdateUserAsync() => await _context.SaveChangesAsync();
 }

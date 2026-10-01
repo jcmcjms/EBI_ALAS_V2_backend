@@ -1,8 +1,6 @@
-using System;
+﻿using System;
 using Microsoft.EntityFrameworkCore.Migrations;
-
 #nullable disable
-
 namespace EBI.ALAS.Api.Migrations
 {
     public partial class AddAuditLogsTable : Migration
@@ -37,23 +35,19 @@ namespace EBI.ALAS.Api.Migrations
                         principalColumn: "Id",
                         onDelete: ReferentialAction.SetNull);
                 });
-
             migrationBuilder.CreateIndex(
                 name: "IX_AuditLogs_Action",
                 table: "AuditLogs",
                 column: "Action");
-
             migrationBuilder.CreateIndex(
                 name: "IX_AuditLogs_EntityType",
                 table: "AuditLogs",
                 column: "EntityType");
-
             migrationBuilder.CreateIndex(
                 name: "IX_AuditLogs_Timestamp",
                 table: "AuditLogs",
                 column: "Timestamp",
                 descending: new bool[0]);
-
             migrationBuilder.CreateIndex(
                 name: "IX_AuditLogs_UserId",
                 table: "AuditLogs",

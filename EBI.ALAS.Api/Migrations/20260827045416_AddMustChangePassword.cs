@@ -1,7 +1,5 @@
-using Microsoft.EntityFrameworkCore.Migrations;
-
+﻿using Microsoft.EntityFrameworkCore.Migrations;
 #nullable disable
-
 namespace EBI.ALAS.Api.Migrations
 {
     public partial class AddMustChangePassword : Migration

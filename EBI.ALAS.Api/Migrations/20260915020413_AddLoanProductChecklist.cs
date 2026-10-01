@@ -1,13 +1,9 @@
 ﻿using Microsoft.EntityFrameworkCore.Migrations;
-
 #nullable disable
-
 namespace EBI.ALAS.Api.Migrations
 {
-    /// <inheritdoc />
     public partial class AddLoanProductChecklist : Migration
     {
-        /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
             migrationBuilder.CreateTable(
@@ -28,8 +24,6 @@ namespace EBI.ALAS.Api.Migrations
                         onDelete: ReferentialAction.Cascade);
                 });
         }
-
-        /// <inheritdoc />
         protected override void Down(MigrationBuilder migrationBuilder)
         {
             migrationBuilder.DropTable(

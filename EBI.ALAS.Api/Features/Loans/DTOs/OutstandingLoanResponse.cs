@@ -1,8 +1,4 @@
-namespace EBI.ALAS.Api.Features.Loans.DTOs;
-
-/// <summary>
-/// Response DTO for outstanding loan details.
-/// </summary>
+﻿namespace EBI.ALAS.Api.Features.Loans.DTOs;
 public class OutstandingLoanResponse
 {
     public int Id { get; set; }

@@ -1,8 +1,4 @@
-namespace EBI.ALAS.Api.Features.Loans.DTOs;
-
-/// <summary>
-/// Response DTO for EBI reloan details.
-/// </summary>
+﻿namespace EBI.ALAS.Api.Features.Loans.DTOs;
 public class EbiReloanResponse
 {
     public int Id { get; set; }

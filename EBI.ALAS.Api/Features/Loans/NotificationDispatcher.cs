@@ -1,4 +1,4 @@
-using EBI.ALAS.Api.Common.Constants;
+﻿using EBI.ALAS.Api.Common.Constants;
 using EBI.ALAS.Api.Common.Extensions;
 using EBI.ALAS.Api.Features.Loans;
 using EBI.ALAS.Api.Features.Notifications;
@@ -6,15 +6,7 @@ using EBI.ALAS.Api.Features.Presence;
 using EBI.ALAS.Api.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 using System.Security.Claims;
-
 namespace EBI.ALAS.Api.Features.Loans;
-
-/// <summary>
-/// Extracted notification fan-out from UpdateLoanStatus endpoint.
-/// The original endpoint had ~250 lines of near-duplicated notification code
-/// (6 branches × 2 calls each = 12+ call sites). This dispatcher centralizes
-/// the routing logic and uses batched writes (single SaveChanges per call).
-/// </summary>
 public interface INotificationDispatcher
 {
     Task DispatchTransitionNotificationsAsync(
@@ -27,7 +19,6 @@ public interface INotificationDispatcher
         ClaimsPrincipal user,
         CancellationToken ct);
 }
-
 public sealed class NotificationDispatcher(
     ILoanRepository loanRepository,
     INotificationService notificationService,
@@ -48,11 +39,8 @@ public sealed class NotificationDispatcher(
         var clientName = $"{loan.FirstName} {loan.LastName}";
         var userId = user.GetUserId();
         var userRole = user.GetRole();
-
         var batch = new List<NotificationDraft>();
         var realtimeSends = new List<(int UserId, string Title, string Description, string? Link)>();
-
-        // Transition-specific notifications
         if (toStatus == "ForChecking")
         {
             var evaluators = await loanRepository.GetUsersByRoleAndBranchAsync(
@@ -101,8 +89,6 @@ public sealed class NotificationDispatcher(
             batch.Add(new NotificationDraft(loan.CreatedById, title, desc, link, NotificationTypes.Action));
             realtimeSends.Add((loan.CreatedById, title, desc, link));
         }
-
-        // Always notify the creator (if different from actor)
         if (loan.CreatedById != userId)
         {
             var title = $"Status Update: {toStatus}";
@@ -110,12 +96,8 @@ public sealed class NotificationDispatcher(
             batch.Add(new NotificationDraft(loan.CreatedById, title, desc, link, NotificationTypes.Message));
             realtimeSends.Add((loan.CreatedById, title, desc, link));
         }
-
-        // Single batched DB write for all notifications
         if (batch.Count > 0)
             await notificationService.CreateBatchAsync(batch);
-
-        // Realtime sends (SignalR) — fire-and-forget, outside transaction
         foreach (var send in realtimeSends)
             await realtimeService.NotifyUserAsync(send.UserId, send.Title, send.Description, send.Link);
     }

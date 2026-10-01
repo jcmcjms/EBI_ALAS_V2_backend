@@ -1,5 +1,4 @@
-namespace EBI.ALAS.Api.Features.Account;
-
+﻿namespace EBI.ALAS.Api.Features.Account;
 public interface IAccountRepository
 {
     Task<AccountProfileResponse?> GetProfileAsync(int userId);

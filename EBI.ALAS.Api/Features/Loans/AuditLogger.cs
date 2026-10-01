@@ -1,19 +1,16 @@
-using EBI.ALAS.Api.Common.Time;
+﻿using EBI.ALAS.Api.Common.Time;
 using EBI.ALAS.Api.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
-
 namespace EBI.ALAS.Api.Features.Loans;
 public class AuditLogger : IAuditLogger
 {
     private readonly AppDbContext _context;
     private readonly ITimeProvider _timeProvider;
-
     public AuditLogger(AppDbContext context, ITimeProvider timeProvider)
     {
         _context = context;
         _timeProvider = timeProvider;
     }
-
     public async Task LogActionAsync(
         int loanApplicationId,
         int actionByUserId,
@@ -32,14 +29,9 @@ public class AuditLogger : IAuditLogger
             Comments = comments,
             ActionDate = _timeProvider.UtcNow
         };
-
-        // APPEND-ONLY — do not mutate. LoanAction is the source of truth for
-        // the loan audit trail (spec §2.3). Corrections are a NEW row with
-        // Action = "Comment Updated". Only Add(...) is permitted here.
         _context.LoanActions.Add(loanAction);
         await _context.SaveChangesAsync();
     }
-
     public async Task<List<LoanAction>> GetLoanActionsAsync(int loanApplicationId)
     {
         return await _context.LoanActions

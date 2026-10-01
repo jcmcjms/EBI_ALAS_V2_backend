@@ -1,7 +1,5 @@
-using EBI.ALAS.Api.Common.Models;
-
+﻿using EBI.ALAS.Api.Common.Models;
 namespace EBI.ALAS.Api.Features.Users;
-
 public interface IUserService
 {
     Task<PagedResult<UserResponse>> GetUsersAsync(UserQueryParameters parameters);

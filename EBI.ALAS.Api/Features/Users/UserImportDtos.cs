@@ -1,8 +1,4 @@
-namespace EBI.ALAS.Api.Features.Users;
-
-/// <summary>
-/// Represents a single row from the import Excel file.
-/// </summary>
+﻿namespace EBI.ALAS.Api.Features.Users;
 public record UserImportRow(
     int RowNumber,
     string? Username,
@@ -12,23 +8,15 @@ public record UserImportRow(
     string? BranchCode,
     string? Role,
     string? JobTitle,
-    string? CoveredBranches, // comma-separated for approvers
+    string? CoveredBranches,
     string? Email,
     string? Phone
 );
-
-/// <summary>
-/// Validation error for a specific row and field during import.
-/// </summary>
 public record UserImportValidationError(
     int RowNumber,
     string Field,
     string Error
 );
-
-/// <summary>
-/// Result of a batch import operation.
-/// </summary>
 public record UserImportResult(
     int TotalRows,
     int SuccessfulImports,
@@ -36,10 +24,6 @@ public record UserImportResult(
     List<UserImportValidationError> Errors,
     List<string> CreatedUsernames
 );
-
-/// <summary>
-/// Parameters for exporting users to Excel.
-/// </summary>
 public record ExportUsersParameters(
     string? Search,
     string? Role,

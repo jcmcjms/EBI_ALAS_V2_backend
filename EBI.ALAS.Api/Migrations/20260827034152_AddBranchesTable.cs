@@ -1,8 +1,6 @@
-using System;
+﻿using System;
 using Microsoft.EntityFrameworkCore.Migrations;
-
 #nullable disable
-
 namespace EBI.ALAS.Api.Migrations
 {
     public partial class AddBranchesTable : Migration
@@ -24,14 +22,11 @@ namespace EBI.ALAS.Api.Migrations
                 {
                     table.PrimaryKey("PK_Branches", x => x.Id);
                 });
-
             migrationBuilder.CreateIndex(
                 name: "IX_Branches_Code",
                 table: "Branches",
                 column: "Code",
                 unique: true);
-
-            // Seed branch data
             var baseDate = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
             migrationBuilder.InsertData(
                 table: "Branches",

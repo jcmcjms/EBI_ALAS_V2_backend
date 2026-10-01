@@ -237,4 +237,3 @@ GO
 
 COMMIT;
 GO
-

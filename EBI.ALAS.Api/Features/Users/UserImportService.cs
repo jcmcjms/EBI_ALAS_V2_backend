@@ -1,20 +1,17 @@
-using OfficeOpenXml;
+﻿using OfficeOpenXml;
 using EBI.ALAS.Api.Features.Auth;
 using EBI.ALAS.Api.Features.ApprovalMatrix;
 using EBI.ALAS.Api.Infrastructure.Data;
 using EBI.ALAS.Api.Common.Time;
 using EBI.ALAS.Api.Features.AuditLogs;
 using Microsoft.EntityFrameworkCore;
-
 namespace EBI.ALAS.Api.Features.Users;
-
 public interface IUserImportService
 {
     Task<byte[]> ExportUsersAsync(ExportUsersParameters parameters, CancellationToken ct);
     Task<byte[]> GenerateTemplateAsync(CancellationToken ct);
     Task<UserImportResult> ImportUsersAsync(Stream file, int operatorId, string operatorName, CancellationToken ct);
 }
-
 public class UserImportService : IUserImportService
 {
     private readonly IUserRepository _userRepository;
@@ -23,7 +20,6 @@ public class UserImportService : IUserImportService
     private readonly ITimeProvider _timeProvider;
     private readonly AppDbContext _context;
     private readonly IAuditLogService _auditLogService;
-
     public UserImportService(
         IUserRepository userRepository,
         IPasswordHasher passwordHasher,
@@ -39,16 +35,10 @@ public class UserImportService : IUserImportService
         _context = context;
         _auditLogService = auditLogService;
     }
-
     public async Task<byte[]> ExportUsersAsync(ExportUsersParameters parameters, CancellationToken ct)
     {
-        // Cap export at 50,000 rows to prevent OOM on large datasets.
-        // Without this, an unbounded ToListAsync materializes every User row
-        // (including 2MB ESignature columns) into memory at once.
         const int maxExportRows = 50_000;
-
         var query = _context.Users.AsNoTracking();
-
         if (!string.IsNullOrWhiteSpace(parameters.Search))
         {
             var search = parameters.Search.ToLower();
@@ -57,35 +47,26 @@ public class UserImportService : IUserImportService
                 u.FirstName.ToLower().Contains(search) ||
                 u.LastName.ToLower().Contains(search));
         }
-
         if (!string.IsNullOrWhiteSpace(parameters.Role))
             query = query.Where(u => u.Role == parameters.Role);
-
         if (parameters.IsActive.HasValue)
             query = query.Where(u => u.IsActive == parameters.IsActive.Value);
-
         if (!string.IsNullOrWhiteSpace(parameters.BranchCode))
             query = query.Where(u => u.BranchId == parameters.BranchCode);
-
         var users = await query
             .OrderByDescending(u => u.CreatedAt)
             .Take(maxExportRows)
             .Select(u => new { u.Id, u.Username, u.FirstName, u.MiddleName, u.LastName,
                                u.BranchId, u.Role, u.JobTitle, u.IsActive, u.CreatedAt })
             .ToListAsync(ct);
-
-        // Load all branch coverage in ONE grouped query instead of N per-row queries.
         var userIds = users.Select(u => u.Id).ToList();
         var branchCoverage = await _context.UserBranchCoverages
             .Where(ubc => userIds.Contains(ubc.UserId))
             .GroupBy(ubc => ubc.UserId)
             .Select(g => new { UserId = g.Key, Branches = g.Select(x => x.BranchCode).ToList() })
             .ToDictionaryAsync(x => x.UserId, x => x.Branches, ct);
-
         using var package = new ExcelPackage();
         var worksheet = package.Workbook.Worksheets.Add("Users");
-
-        // Headers
         var headers = new[] {
             "Username", "First Name", "Middle Name", "Last Name",
             "Branch Code", "Role", "Job Title", "Covered Branches",
@@ -96,13 +77,10 @@ public class UserImportService : IUserImportService
             worksheet.Cells[1, i + 1].Value = headers[i];
             worksheet.Cells[1, i + 1].Style.Font.Bold = true;
         }
-
-        // Data rows
         for (int row = 0; row < users.Count; row++)
         {
             var user = users[row];
             var excelRow = row + 2;
-
             worksheet.Cells[excelRow, 1].Value = user.Username;
             worksheet.Cells[excelRow, 2].Value = user.FirstName;
             worksheet.Cells[excelRow, 3].Value = user.MiddleName ?? "";
@@ -110,25 +88,18 @@ public class UserImportService : IUserImportService
             worksheet.Cells[excelRow, 5].Value = user.BranchId;
             worksheet.Cells[excelRow, 6].Value = user.Role;
             worksheet.Cells[excelRow, 7].Value = user.JobTitle ?? "";
-
-            // Branch coverage from the preloaded dictionary (0 extra queries)
             var coveredBranches = branchCoverage.GetValueOrDefault(user.Id) ?? [];
             worksheet.Cells[excelRow, 8].Value = string.Join(", ", coveredBranches);
-
             worksheet.Cells[excelRow, 9].Value = user.IsActive ? "Active" : "Suspended";
             worksheet.Cells[excelRow, 10].Value = user.CreatedAt.ToString("yyyy-MM-dd HH:mm:ss");
         }
-
         worksheet.Cells[worksheet.Dimension.Address].AutoFitColumns();
         return await package.GetAsByteArrayAsync(ct);
     }
-
     public async Task<byte[]> GenerateTemplateAsync(CancellationToken ct)
     {
         using var package = new ExcelPackage();
         var worksheet = package.Workbook.Worksheets.Add("Template");
-
-        // Headers with instructions
         var headers = new[] {
             "Username *", "First Name *", "Middle Name", "Last Name *",
             "Branch Code *", "Role *", "Job Title", "Covered Branches",
@@ -139,8 +110,6 @@ public class UserImportService : IUserImportService
             worksheet.Cells[1, i + 1].Value = headers[i];
             worksheet.Cells[1, i + 1].Style.Font.Bold = true;
         }
-
-        // Example row
         worksheet.Cells[2, 1].Value = "jdoe";
         worksheet.Cells[2, 2].Value = "Juan";
         worksheet.Cells[2, 3].Value = "Dela";
@@ -151,13 +120,10 @@ public class UserImportService : IUserImportService
         worksheet.Cells[2, 8].Value = "";
         worksheet.Cells[2, 9].Value = "jdoe@enterprisebank.ph";
         worksheet.Cells[2, 10].Value = "+639123456789";
-
-        // Instructions sheet
         var instructions = package.Workbook.Worksheets.Add("Instructions");
         instructions.Cells[1, 1].Value = "User Import Instructions";
         instructions.Cells[1, 1].Style.Font.Size = 14;
         instructions.Cells[1, 1].Style.Font.Bold = true;
-
         var instructionText = new[]
         {
             "Required fields are marked with *",
@@ -174,24 +140,19 @@ public class UserImportService : IUserImportService
             "Row numbers in validation errors are the Excel row numbers (header = row 1).",
             "Completely empty rows are ignored — clear a row's contents to exclude it."
         };
-
         for (int i = 0; i < instructionText.Length; i++)
         {
             instructions.Cells[i + 2, 1].Value = instructionText[i];
         }
-
         worksheet.Cells[worksheet.Dimension.Address].AutoFitColumns();
         instructions.Cells[instructions.Dimension.Address].AutoFitColumns();
-
         return await package.GetAsByteArrayAsync(ct);
     }
-
     public async Task<UserImportResult> ImportUsersAsync(Stream file, int operatorId, string operatorName, CancellationToken ct)
     {
         var errors = new List<UserImportValidationError>();
         var createdUsernames = new List<string>();
         var totalRows = 0;
-
         using var package = new ExcelPackage(file);
         var worksheet = package.Workbook.Worksheets.FirstOrDefault();
         if (worksheet == null || worksheet.Dimension == null)
@@ -199,39 +160,24 @@ public class UserImportService : IUserImportService
             errors.Add(new UserImportValidationError(0, "File", "Excel file is empty or corrupted"));
             return new UserImportResult(0, 0, 0, errors, createdUsernames);
         }
-
-        // Skip header row (row 1)
         totalRows = 0;
-
-        // Cap import rows to prevent unbounded processing.
-        // 10 MB of compressed XLSX can contain 500K+ rows. Each row costs
-        // ~1.5s of BCrypt + 4 DB round trips. 5,000 rows ≈ 2 hours.
         const int maxImportRows = 5_000;
         var processedRows = 0;
-
         var validBranchCodes = (await _context.Branches.Select(b => b.Code).ToListAsync(ct)).ToHashSet();
         var validRoles = new[] { "Encoder", "Recommender", "Evaluator", "Approver", "Admin" };
         var approvalAuthorities = await _context.ApprovalAuthorities.ToListAsync(ct);
-
         for (int excelRow = 2; excelRow <= worksheet.Dimension.Rows; excelRow++)
         {
-            // Skip rows that EPPlus considers "used" but carry no data
-            // (formatted or cleared but never deleted — same false-positive
-            // source as the loan product import).
             if (IsBlankRow(worksheet, excelRow)) continue;
-
             totalRows++;
             processedRows++;
-            var rowNumber = excelRow;   // report the real Excel row, not a data index
-
-            // Enforce row cap
+            var rowNumber = excelRow;
             if (processedRows > maxImportRows)
             {
                 errors.Add(new UserImportValidationError(rowNumber, "Row",
                     $"Import capped at {maxImportRows} rows. Split the file and import in batches."));
                 break;
             }
-
             var username = GetCellString(worksheet, excelRow, 1);
             var firstName = GetCellString(worksheet, excelRow, 2);
             var middleName = GetCellString(worksheet, excelRow, 3);
@@ -242,31 +188,24 @@ public class UserImportService : IUserImportService
             var coveredBranchesStr = GetCellString(worksheet, excelRow, 8);
             var email = GetCellString(worksheet, excelRow, 9);
             var phone = GetCellString(worksheet, excelRow, 10);
-
-            // Validation
             if (string.IsNullOrWhiteSpace(username))
                 errors.Add(new UserImportValidationError(rowNumber, "Username", "Username is required"));
             else if (username.Length < 3 || username.Length > 50)
                 errors.Add(new UserImportValidationError(rowNumber, "Username", "Username must be 3-50 characters"));
             else if (await _userRepository.UsernameExistsAsync(username))
                 errors.Add(new UserImportValidationError(rowNumber, "Username", "Username already exists"));
-
             if (string.IsNullOrWhiteSpace(firstName))
                 errors.Add(new UserImportValidationError(rowNumber, "First Name", "First name is required"));
             if (string.IsNullOrWhiteSpace(lastName))
                 errors.Add(new UserImportValidationError(rowNumber, "Last Name", "Last name is required"));
-
             if (string.IsNullOrWhiteSpace(branchCode))
                 errors.Add(new UserImportValidationError(rowNumber, "Branch Code", "Branch code is required"));
             else if (!validBranchCodes.Contains(branchCode))
                 errors.Add(new UserImportValidationError(rowNumber, "Branch Code", $"Invalid branch code: {branchCode}"));
-
             if (string.IsNullOrWhiteSpace(role))
                 errors.Add(new UserImportValidationError(rowNumber, "Role", "Role is required"));
             else if (!validRoles.Contains(role))
                 errors.Add(new UserImportValidationError(rowNumber, "Role", $"Invalid role: {role}"));
-
-            // Approver-specific validation
             ApprovalAuthority? authority = null;
             if (role == "Approver")
             {
@@ -279,11 +218,8 @@ public class UserImportService : IUserImportService
                         errors.Add(new UserImportValidationError(rowNumber, "Job Title", $"Invalid approval authority: {jobTitle}"));
                 }
             }
-
-            // Skip this row if there are validation errors
             if (errors.Any(e => e.RowNumber == rowNumber))
                 continue;
-
             var tempPassword = _tempPasswordGenerator.Generate();
             var user = new User
             {
@@ -300,7 +236,6 @@ public class UserImportService : IUserImportService
                 Email = string.IsNullOrWhiteSpace(email) ? null : email,
                 Phone = string.IsNullOrWhiteSpace(phone) ? null : phone,
             };
-
             if (authority != null)
             {
                 user.ApprovalAuthorityKey = authority.Key;
@@ -310,10 +245,7 @@ public class UserImportService : IUserImportService
             {
                 user.JobTitle = string.IsNullOrWhiteSpace(jobTitle) ? null : jobTitle;
             }
-
             await _userRepository.AddUserAsync(user);
-
-            // Multi-branch coverage for approvers
             if (authority?.ScopeType == AuthorityScope.Branch && !string.IsNullOrWhiteSpace(coveredBranchesStr))
             {
                 var coveredBranchCodes = coveredBranchesStr.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
@@ -330,10 +262,7 @@ public class UserImportService : IUserImportService
                 }
                 await _context.SaveChangesAsync(ct);
             }
-
             createdUsernames.Add(username!);
-
-            // Audit log
             await _auditLogService.LogAsync(
                 operatorId,
                 operatorName,
@@ -344,7 +273,6 @@ public class UserImportService : IUserImportService
                 $"User imported via batch upload"
             );
         }
-
         return new UserImportResult(
             totalRows,
             createdUsernames.Count,
@@ -353,8 +281,6 @@ public class UserImportService : IUserImportService
             createdUsernames
         );
     }
-
-    /** True when every cell in the row's used range is null/whitespace. */
     private static bool IsBlankRow(ExcelWorksheet worksheet, int row)
     {
         var endCol = worksheet.Dimension?.End.Column ?? 1;
@@ -366,7 +292,6 @@ public class UserImportService : IUserImportService
         }
         return true;
     }
-
     private static string? GetCellString(ExcelWorksheet worksheet, int row, int col)
     {
         var value = worksheet.Cells[row, col].Value?.ToString();

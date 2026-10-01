@@ -1,7 +1,5 @@
-using System.Security.Claims;
-
+﻿using System.Security.Claims;
 namespace EBI.ALAS.Api.Features.Auth;
-
 public interface IAuthService
 {
     Task<AuthResult> LoginAsync(LoginRequest request, HttpContext http, CancellationToken ct = default);
@@ -9,7 +7,6 @@ public interface IAuthService
     Task LogoutAsync(ClaimsPrincipal principal, HttpContext http, CancellationToken ct = default);
     Task ChangePasswordAsync(ClaimsPrincipal principal, ChangePasswordRequest request, HttpContext http, CancellationToken ct = default);
 }
-
 public class AuthResult
 {
     public bool Success { get; set; }
@@ -19,7 +16,6 @@ public class AuthResult
     public DateTime? RefreshTokenExpiry { get; set; }
     public string? XsrfToken { get; set; }
     public DateTime? AccessTokenExpiry { get; set; }
-
     public static AuthResult SuccessResult(LoginResponse response, string refreshToken, DateTime refreshTokenExpiry, string xsrfToken, DateTime accessTokenExpiry) =>
         new()
         {
@@ -30,7 +26,6 @@ public class AuthResult
             XsrfToken = xsrfToken,
             AccessTokenExpiry = accessTokenExpiry
         };
-
     public static AuthResult FailureResult(string errorMessage) =>
         new()
         {

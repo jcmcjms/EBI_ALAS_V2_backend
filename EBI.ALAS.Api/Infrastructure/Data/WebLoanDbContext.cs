@@ -1,138 +1,81 @@
-using EBI.ALAS.Api.Features.WebLoans;
+﻿using EBI.ALAS.Api.Features.WebLoans;
 using Microsoft.EntityFrameworkCore;
-
 namespace EBI.ALAS.Api.Infrastructure.Data;
 public class WebLoanDbContext : DbContext
 {
     public WebLoanDbContext(DbContextOptions<WebLoanDbContext> options) : base(options) { }
-
     public DbSet<CisInfo> CisInfos => Set<CisInfo>();
     public DbSet<CisInfoMiscData> CisInfoMiscDatas => Set<CisInfoMiscData>();
     public DbSet<LoanAcctInfo> LoanAcctInfos => Set<LoanAcctInfo>();
     public DbSet<LoanData> LoanDatas => Set<LoanData>();
     public DbSet<PreLoanData> PreLoanDatas => Set<PreLoanData>();
-    // amort_data — per-loan amortization schedule rows. Joined from
-    // loan_data on (bk, bch, acct_no, loan_no) with `amort_no = 1` to
-    // surface the first scheduled installment amount. The
-    // outstanding-loans endpoint is the only consumer for now.
     public DbSet<AmortData> AmortDatas => Set<AmortData>();
-    // OutstandingLoanRow — keyless projection entity carrying loan_data
-    // columns + the CASE-computed `computed_amort_amount`. Materialized
-    // by GetOutstandingLoansAsync. See OutstandingLoanRow.cs for the
-    // rationale (EF rejects derived columns on real-table entities).
     public DbSet<OutstandingLoanRow> OutstandingLoanRows => Set<OutstandingLoanRow>();
-    // PendingLoanRow — keyless projection entity carrying every column
-    // the consolidated pending-loan SQL projects. The query LEFT JOINs
-    // pre_loan_data → loan_data → loan_product / loan_purpose /
-    // loan_acct_info → check_list_data, so the entity surfaces columns
-    // from six tables plus three derived expressions (CASE creation_type,
-    // DATEDIFF day count, product+description concat). See
-    // PendingLoanRow.cs for the full column-by-column rationale.
     public DbSet<PendingLoanRow> PendingLoanRows => Set<PendingLoanRow>();
     public DbSet<LoanStatusLookup> LoanStatuses => Set<LoanStatusLookup>();
-    // loan_product — the existing LoanProductLookup entity, mapped to
-    // dbo.loan_product. Reused for the pending-loan join so no separate
-    // entity is needed (one entity per table is the EF rule).
     public DbSet<LoanProductLookup> LoanProducts => Set<LoanProductLookup>();
     public DbSet<LoanPurpose> LoanPurposes => Set<LoanPurpose>();
     public DbSet<CheckListData> CheckListDatas => Set<CheckListData>();
     public DbSet<MisGroup> MisGroups => Set<MisGroup>();
-
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
-
         modelBuilder.Entity<CisInfo>(entity =>
         {
             entity.HasKey(e => e.CisNo);
             entity.Property(e => e.CisNo).HasColumnName("cis_no").HasMaxLength(10);
         });
-
-        // Composite key (cis_no, id_code) — one row per attribute per client.
         modelBuilder.Entity<CisInfoMiscData>(entity =>
         {
             entity.HasKey(e => new { e.CisNo, e.IdCode });
             entity.HasIndex(e => e.CisNo);
             entity.Property(e => e.CisNo).HasColumnName("cis_no").HasMaxLength(10);
         });
-
         modelBuilder.Entity<LoanAcctInfo>(entity =>
         {
             entity.HasKey(e => new { e.BankCode, e.BranchCode, e.AccountNo });
             entity.HasIndex(e => e.CisNo);
         });
-
-        // Keyless: loan_no is nullable in webloan (ledger rows carry no PN)
-        // and this context is read-only — no tracking required.
         modelBuilder.Entity<LoanData>(entity =>
         {
             entity.HasNoKey();
             entity.HasIndex(e => e.AccountNo);
         });
-
-        // Keyless: webloan PK is (bk, bch, acct_no, loan_no, amort_no) — we
-        // never fetch by it directly. The outstanding-loans query joins to
-        // it from loan_data on (bk, bch, acct_no, loan_no) and filters
-        // amort_no = 1, so we index the JOIN+filter columns.
         modelBuilder.Entity<AmortData>(entity =>
         {
             entity.HasNoKey();
             entity.HasIndex(e => new { e.BranchCode, e.AccountNo, e.LoanNo });
         });
-
-        // Keyless projection shape for the outstanding-loans raw SQL.
-        // Never maps to a real table — the SELECT-list alias columns are
-        // bound via [Column] attributes on the entity properties. EF's
-        // materializer populates them positionally from the raw query.
         modelBuilder.Entity<OutstandingLoanRow>(entity =>
         {
             entity.HasNoKey();
         });
-
-        // Keyless projection shape for the consolidated pending-loan
-        // raw SQL (pre_loan_data LEFT JOIN × 5 lookup tables + 3 derived
-        // expressions). Same pattern as OutstandingLoanRow above.
         modelBuilder.Entity<PendingLoanRow>(entity =>
         {
             entity.HasNoKey();
         });
-
         modelBuilder.Entity<LoanStatusLookup>(entity =>
         {
             entity.HasKey(e => e.IdCode);
         });
-
         modelBuilder.Entity<LoanProductLookup>(entity =>
         {
             entity.HasKey(e => e.IdCode);
         });
-
-        // Keyless: same reasoning as loan_data — transactional table keyed
-        // by (bch, acct_no, loan_no), not a single-column PK in webloan.
         modelBuilder.Entity<PreLoanData>(entity =>
         {
             entity.HasNoKey();
             entity.HasIndex(e => new { e.BranchCode, AccountNo = e.AccountNo });
         });
-
-        // Joined on path in the pending-loan query.
         modelBuilder.Entity<LoanPurpose>(entity =>
         {
             entity.HasKey(e => e.Path);
         });
-
-        // EAV-style attribute store. Composite key (cis_no, check_list_item).
-        // Indexed on cis_no because every per-CIS enrichment in this
-        // service filters by cis_no + a single item code.
         modelBuilder.Entity<CheckListData>(entity =>
         {
             entity.HasKey(e => new { e.CisNo, e.CheckListItem });
             entity.HasIndex(e => e.CisNo);
         });
-
-        // Single-table multi-group lookup. frp_id is the synthetic PK in webloan.
-        // Indexed on (group_no, path) — every ALAS lookup filters by group_no and
-        // joins on path (or id_code for cis_info_misc_data).
         modelBuilder.Entity<MisGroup>(entity =>
         {
             entity.HasKey(e => e.FrpId);
@@ -145,13 +88,11 @@ public class WebLoanDbContext : DbContext
         ThrowReadOnly();
         return 0;
     }
-
     public override Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
     {
         ThrowReadOnly();
         return Task.FromResult(0);
     }
-
     private static void ThrowReadOnly() =>
         throw new InvalidOperationException(
             "WebLoanDbContext is READ-ONLY. The webloan database is owned by the WebLoan system; " +

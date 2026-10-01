@@ -1,4 +1,4 @@
-namespace EBI.ALAS.Api.Common.Constants;
+﻿namespace EBI.ALAS.Api.Common.Constants;
 public static class RolePermissions
 {
     private static readonly Dictionary<string, string[]> RolePermissionMap = new()
@@ -54,10 +54,8 @@ public static class RolePermissions
     {
         if (!RolePermissionMap.TryGetValue(role, out var permissions))
             return false;
-
         if (role == Roles.Admin)
             return true;
-
         return permissions.Contains(permission);
     }
 }

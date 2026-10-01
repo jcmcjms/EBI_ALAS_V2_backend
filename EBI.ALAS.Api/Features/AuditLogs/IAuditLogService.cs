@@ -1,8 +1,4 @@
-namespace EBI.ALAS.Api.Features.AuditLogs;
-
-/// <summary>
-/// Audit log service interface. Records state-changing operations for compliance.
-/// </summary>
+﻿namespace EBI.ALAS.Api.Features.AuditLogs;
 public interface IAuditLogService
 {
     Task LogAsync(

@@ -1,27 +1,17 @@
-namespace EBI.ALAS.Api.Features.Loans.Computation;
-
-/// <summary>Per-product fee schedule rates. Config-driven from LoanProduct table.</summary>
+﻿namespace EBI.ALAS.Api.Features.Loans.Computation;
 public record FeeSchedule(
     decimal ApplicationChargeRate,
     decimal DocStampRate,
     decimal NotarialFee,
     decimal InsuranceRate);
-
-/// <summary>Deduction computation policy for a product.</summary>
 public record DeductionPolicy(
     DeductionPolicyMode Mode,
     decimal TotalRate);
-
-/// <summary>Deduction computation modes.</summary>
 public enum DeductionPolicyMode
 {
-    /// <summary>Total deductions = proposed × totalRate; applicationCharge is the residual.</summary>
     FixedTotalRate,
-    /// <summary>applicationCharge = proposed × applicationChargeRate (original behavior).</summary>
     SumOfComponents
 }
-
-/// <summary>Product-level computation config, assembled from LoanProduct + workflow.</summary>
 public record LoanProductComputationConfig(
     string ProductCode,
     decimal AnnualInterestRate,
@@ -34,16 +24,6 @@ public record LoanProductComputationConfig(
     decimal MaxLoanableStep = 100m,
     IReadOnlyList<MinimumAmortizationTier>? MinimumAmortizationTiers = null)
 {
-    /// <summary>
-    /// Build from a LoanProduct entity (the DB row). The loan's own
-    /// interestRate and termDays are passed separately because they
-    /// override the product defaults (the product provides the fee
-    /// schedule and amortization mode; the loan provides the specific
-    /// term/rate for this application).
-    ///
-    /// PolicyTermMonths is derived from termDays (termDays / 30) as the
-    /// authoritative source — never trust the catalog Term(Mos) column.
-    /// </summary>
     public static LoanProductComputationConfig FromEntity(
         LoanProduct product,
         decimal interestRate,
@@ -53,7 +33,6 @@ public record LoanProductComputationConfig(
         var deductionPolicy = isDim
             ? new DeductionPolicy(DeductionPolicyMode.FixedTotalRate, 0.06m)
             : new DeductionPolicy(DeductionPolicyMode.SumOfComponents, 0m);
-
         return new LoanProductComputationConfig(
             ProductCode: product.Code,
             AnnualInterestRate: interestRate,
@@ -72,25 +51,15 @@ public record LoanProductComputationConfig(
             MaxLoanableStep: 100m);
     }
 }
-
 public enum AmortizationMode { DIM, MIC }
-
 public record MinimumAmortizationTier(decimal From, decimal To, decimal MinimumAmortization);
-
-/// <summary>Resolved fees for a specific proposed amount (may include AO overrides).</summary>
 public record LoanFees(
     decimal ApplicationCharge,
     decimal DocStamp,
     decimal NotarialFee,
     decimal Insurance,
     decimal AdvanceInterest);
-
 public record ObligationRow(decimal Deductions, decimal OutstandingBalance);
-
-/// <summary>
-/// All inputs required for a full loan computation. Assembled by the
-/// endpoint from request DTO + product config + workflow settings.
-/// </summary>
 public record LoanComputationInput(
     decimal ProposedAmount,
     LoanProductComputationConfig Product,
@@ -101,13 +70,6 @@ public record LoanComputationInput(
     IReadOnlyList<ObligationRow> Reloans,
     IReadOnlyList<ObligationRow> BuyOuts,
     IReadOnlyList<decimal> IncomingDeductions);
-
-/// <summary>
-/// Full set of derived loan metrics. Snapshot columns
-/// (TotalDeductions, GrossProceeds, MonthlyAmortization, TotalExposure,
-/// MaximumLoanableAmount, NetProceedsToClient) are persisted on the
-/// LoanApplication entity — never read from the request.
-/// </summary>
 public record LoanComputationResults(
     LoanFees Fees,
     decimal TotalDeductions,
@@ -127,49 +89,13 @@ public record LoanComputationResults(
     decimal MaximumLoanableAmount,
     bool AmortizationExceedsDisposable,
     bool NthpBelowMinimum);
-
 public interface ILoanComputationService
 {
-    /// <summary>
-    /// Compute the expected (policy-default) fees for a product and
-    /// proposed amount. AO overrides are applied by the caller after
-    /// this returns.
-    /// </summary>
     LoanFees ComputeExpectedFees(LoanProductComputationConfig product, decimal proposedAmount);
-
-    /// <summary>
-    /// Full loan metrics computation. Pure math — no I/O, no side effects.
-    /// Registered as singleton (stateless).
-    /// </summary>
     LoanComputationResults ComputeLoanMetrics(LoanComputationInput input);
 }
-
-/// <summary>
-/// Authoritative loan computation engine. Mirrors the LAM Excel workbook
-/// formulas exactly (lam_A16.xlsx, lam_C23.xlsx, lam_C35.xlsx).
-///
-/// Key design decisions:
-///   • Excel ROUND parity (half-away-from-zero) on all rounding.
-///   • Integer-exponent decimal power (exponentiation by squaring) for
-///     the annuity factor — no double conversion, no precision loss.
-///   • Closed-form max-loanable: netDisposable / factor (O(1)).
-///   • ATM product hard caps on MLA (mirrors the nested IF chain in the
-///     legacy LAM template's "Maximum Loanable Amount" cell).
-///   • Stateless — safe as singleton.
-/// </summary>
 public sealed class LoanComputationService : ILoanComputationService
 {
-    /// <summary>
-    /// Hard-coded MLA caps for specific ATM products, mirroring the
-    /// nested IF chain in the legacy LAM template:
-    ///   C34 → 200,000
-    ///   C21 → 135,000
-    ///   C27 → 120,000
-    ///   C29 → 100,000
-    ///   C25 → 200,000
-    /// These bypass the PV(capacity) calculation entirely, even if the
-    /// borrower's capacity is negative.
-    /// </summary>
     private static readonly IReadOnlyDictionary<string, decimal> AtmHardCaps =
         new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase)
         {
@@ -187,78 +113,51 @@ public sealed class LoanComputationService : ILoanComputationService
         var advanceInterest = product.ChargeAdvanceInterest
             ? Round(proposedAmount * product.AnnualInterestRate * product.TermDays / 360m)
             : 0m;
-
         decimal applicationCharge;
         if (product.DeductionPolicy?.Mode == DeductionPolicyMode.FixedTotalRate)
         {
-            // Total deductions are fixed at proposed × totalRate.
-            // Application charge is the residual after other components.
             var totalDeductions = Round(proposedAmount * product.DeductionPolicy.TotalRate);
             applicationCharge = Math.Max(0m, Round(totalDeductions - docStamp - notarial - insurance));
         }
         else
         {
-            // SUM_OF_COMPONENTS (default / backward-compatible)
             applicationCharge = Round(proposedAmount * product.Fees.ApplicationChargeRate);
         }
-
         return new LoanFees(applicationCharge, docStamp, notarial, insurance, advanceInterest);
     }
-
     public LoanComputationResults ComputeLoanMetrics(LoanComputationInput input)
     {
         var proposed = input.ProposedAmount;
         var product = input.Product;
-
-        // Row 1–4: Deductions
         var totalDeductions = Round(
             input.Fees.ApplicationCharge
             + input.Fees.DocStamp
             + input.Fees.NotarialFee
             + input.Fees.Insurance
             + input.Fees.AdvanceInterest);
-
-        // Row 5: Gross Proceeds
         var grossProceeds = Round(proposed - totalDeductions);
-
-        // Row 6–7: Net Proceeds
         var totalAccountsBalance = Round(Sum(input.Reloans.Select(r => r.OutstandingBalance)));
         var netProceedsOnDS = Round(grossProceeds - totalAccountsBalance);
         var totalBuyOutBalance = Round(Sum(input.BuyOuts.Select(b => b.OutstandingBalance)));
         var netProceedsToClient = Round(netProceedsOnDS - totalBuyOutBalance);
-
-        // Row 8–9: Term & Amortization
-        // Use PolicyTermMonths when available (authoritative for amortization);
-        // fall back to TermDays / 30 only when PolicyTermMonths is not set.
         var termMonths = product.PolicyTermMonths > 0
             ? product.PolicyTermMonths
             : product.TermDays / 30m;
         var factor = AnnuityFactor(product.AnnualInterestRate / 12m, termMonths);
         var diminishingAmortization = Round(proposed * factor);
-
         var minimumAmortization = product.AmortizationMode == AmortizationMode.MIC
             ? product.MinimumAmortizationTiers?
                   .FirstOrDefault(t => proposed >= t.From && proposed <= t.To)?.MinimumAmortization ?? 0m
             : 0m;
-
         var monthlyAmortization = Math.Max(diminishingAmortization, minimumAmortization);
-
-        // Row 10: Total Exposure
         var totalExposure = Round(proposed + Sum(input.OutstandingPrincipalBalances));
-
-        // Row 11–14: Disposable Income Chain
         var releasedDeductions = Round(
             Sum(input.Reloans.Select(r => r.Deductions))
             + Sum(input.BuyOuts.Select(b => b.Deductions)));
-
         var netPayAfterDeduction = Round(input.NetTakeHomePay - monthlyAmortization + releasedDeductions);
         var grossDisposableIncome = Round(input.NetTakeHomePay + releasedDeductions);
         var capacityDeductions = Round(input.MinimumNthp + Sum(input.IncomingDeductions));
         var netDisposableIncome = Round(grossDisposableIncome - capacityDeductions);
-
-        // Row 15: Maximum Loanable Amount
-        // ATM products have hard caps that bypass the PV calculation.
-        // All other products use PV(netDisposableIncome) floored to step.
         decimal maximumLoanableAmount;
         if (AtmHardCaps.TryGetValue(product.ProductCode, out var hardCap))
         {
@@ -270,11 +169,8 @@ public sealed class LoanComputationService : ILoanComputationService
                 ? FloorToStep(netDisposableIncome / factor, product.MaxLoanableStep)
                 : 0m;
         }
-
-        // Row 16: Gates
         var amortizationExceedsDisposable = monthlyAmortization > netDisposableIncome;
         var nthpBelowMinimum = input.NetTakeHomePay < input.MinimumNthp;
-
         return new LoanComputationResults(
             Fees: input.Fees,
             TotalDeductions: totalDeductions,
@@ -295,65 +191,31 @@ public sealed class LoanComputationService : ILoanComputationService
             AmortizationExceedsDisposable: amortizationExceedsDisposable,
             NthpBelowMinimum: nthpBelowMinimum);
     }
-
-    /// <summary>
-    /// Standard annuity factor: i(1+i)^n / ((1+i)^n - 1).
-    /// Uses <see cref="DecimalPow"/> for exact decimal exponentiation.
-    ///
-    /// The monthly rate is rounded to 6 decimal places to match the
-    /// legacy Excel template's ROUND(rate/12, 6). Without this, the
-    /// unrounded repeating decimal compounds over 84 months and produces
-    /// a Maximum Loanable Amount that diverges by ~₱300 from the
-    /// printed form.
-    /// </summary>
     public static decimal AnnuityFactor(decimal monthlyRate, decimal termMonths)
     {
         if (termMonths <= 0) return 0m;
-        // Excel parity: ROUND(rate/12, 6) before exponentiation.
         monthlyRate = Math.Round(monthlyRate, 6, MidpointRounding.AwayFromZero);
         if (monthlyRate == 0m) return 1m / termMonths;
-
         var pow = DecimalPow(1m + monthlyRate, (int)termMonths);
         return monthlyRate * pow / (pow - 1m);
     }
-
-    /// <summary>
-    /// Exact decimal power for whole-month exponents via exponentiation
-    /// by squaring. No double conversion, no precision loss.
-    /// ~10 multiplications for 84 months.
-    /// </summary>
     private static decimal DecimalPow(decimal baseValue, int exponent)
     {
         if (exponent < 0)
             throw new ArgumentOutOfRangeException(nameof(exponent), "Exponent must be non-negative.");
-
         decimal result = 1m;
         decimal factor = baseValue;
-
         for (var n = exponent; n > 0; n >>= 1)
         {
             if ((n & 1) == 1)
                 result *= factor;
             factor *= factor;
         }
-
         return result;
     }
-
     private static decimal Sum(IEnumerable<decimal> values) => values.Sum();
-
-    /// <summary>
-    /// Excel ROUND parity: half-away-from-zero at 2 decimal places.
-    /// If Compliance later mandates banker's rounding, change this
-    /// single helper and regenerate golden fixtures.
-    /// </summary>
     private static decimal Round(decimal value) =>
         Math.Round(value, 2, MidpointRounding.AwayFromZero);
-
-    /// <summary>
-    /// Floor a value to the nearest step increment (e.g. 100 → nearest 100).
-    /// Used for Maximum Loanable Amount to match the Excel FLOOR step rule.
-    /// </summary>
     private static decimal FloorToStep(decimal value, decimal step) =>
         step > 0m ? Math.Floor(value / step) * step : value;
 }

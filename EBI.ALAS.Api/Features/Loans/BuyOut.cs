@@ -1,5 +1,4 @@
-namespace EBI.ALAS.Api.Features.Loans;
-
+﻿namespace EBI.ALAS.Api.Features.Loans;
 public class BuyOut
 {
     public int Id { get; set; }
@@ -8,6 +7,5 @@ public class BuyOut
     public string Name { get; set; } = string.Empty;
     public decimal Amortization { get; set; }
     public decimal OutstandingBalance { get; set; }
-
     public LoanApplication LoanApplication { get; set; } = null!;
 }

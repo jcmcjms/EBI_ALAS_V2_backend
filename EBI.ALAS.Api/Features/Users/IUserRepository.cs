@@ -1,8 +1,6 @@
-using EBI.ALAS.Api.Common.Models;
+﻿using EBI.ALAS.Api.Common.Models;
 using EBI.ALAS.Api.Features.Auth;
-
 namespace EBI.ALAS.Api.Features.Users;
-
 public interface IUserRepository
 {
     Task<PagedResult<UserResponse>> GetUsersAsync(UserQueryParameters parameters);

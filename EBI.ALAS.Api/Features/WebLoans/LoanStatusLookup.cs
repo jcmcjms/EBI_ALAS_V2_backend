@@ -1,5 +1,4 @@
-using System.ComponentModel.DataAnnotations.Schema;
-
+﻿using System.ComponentModel.DataAnnotations.Schema;
 namespace EBI.ALAS.Api.Features.WebLoans;
 [Table("loan_status", Schema = "dbo")]
 public class LoanStatusLookup

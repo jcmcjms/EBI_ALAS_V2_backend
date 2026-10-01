@@ -1,5 +1,4 @@
-namespace EBI.ALAS.Api.Features.Loans;
-
+﻿namespace EBI.ALAS.Api.Features.Loans;
 public enum WorkflowAction
 {
     Recommend,
@@ -9,5 +8,4 @@ public enum WorkflowAction
     Reject,
     ReturnForRevision,
 }
-
 public sealed record ResolvedAction(string TargetStatus, string? Verdict);

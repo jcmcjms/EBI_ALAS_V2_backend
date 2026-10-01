@@ -1,19 +1,9 @@
-namespace EBI.ALAS.Api.Features.Loans.DTOs;
-
-/// <summary>
-/// Document flag state — a deficiency is a FACT about paperwork, not a routing decision.
-/// Null when no active flag exists.
-/// </summary>
+﻿namespace EBI.ALAS.Api.Features.Loans.DTOs;
 public sealed record DocumentFlagDto(
     DateTime FlaggedAt,
     int? FlaggedById,
     string? Reason,
     int MissingCount);
-
-/// <summary>
-/// Response DTO for loan application details.
-/// Contains all loan data including computed metrics and workflow state.
-/// </summary>
 public class LoanResponse
 {
     public int Id { get; set; }
@@ -23,12 +13,10 @@ public class LoanResponse
     public string LoanNo { get; set; } = string.Empty;
     public string ProductCode { get; set; } = string.Empty;
     public string Product { get; set; } = string.Empty;
-
     public int? CreationTypeCode { get; set; }
     public string? CreationTypeLabel { get; set; }
     public string? RequestingOfficer { get; set; }
     public string? Lai { get; set; }
-
     public string? CisId { get; set; }
     public string FirstName { get; set; } = string.Empty;
     public string? MiddleName { get; set; }
@@ -47,26 +35,15 @@ public class LoanResponse
     public string? MisAgency { get; set; }
     public string? School { get; set; }
     public string? Referrer { get; set; }
-
     public string? Purpose { get; set; }
     public decimal ProposedAmount { get; set; }
     public int TermDays { get; set; }
     public decimal InterestRate { get; set; }
     public DateOnly? NthpDate { get; set; }
-
-    // Approval form convention fields (frozen at submission)
-    /// <summary>webloan loan_data.total_amortization: amortization period count (e.g. 84).</summary>
     public int? PolicyTermMonths { get; set; }
-
-    /// <summary>Frozen TERM (Days) printed on the approval form at submission time.</summary>
     public int? ApprovalTermDays { get; set; }
-
-    /// <summary>Frozen annual rate in percent (e.g. 21.57) normalized at submission time.</summary>
     public decimal? AnnualRatePercent { get; set; }
-
-    /// <summary>Frozen webloan c_doc_stamp used as the approval form Doc. Stamp.</summary>
     public decimal? CDocStamp { get; set; }
-
     public decimal NotarialFee { get; set; }
     public decimal DocStamps { get; set; }
     public decimal Insurance { get; set; }
@@ -75,8 +52,6 @@ public class LoanResponse
     public decimal StandardInsurance { get; set; }
     public decimal StandardApplicationCharge { get; set; }
     public decimal StandardAdvanceInterest { get; set; }
-
-    // Computed snapshot (server-authoritative)
     public decimal TotalDeductions { get; set; }
     public decimal DeductionRate { get; set; }
     public decimal GrossProceeds { get; set; }
@@ -91,7 +66,6 @@ public class LoanResponse
     public decimal MaximumLoanableAmount { get; set; }
     public bool AmortizationExceedsDisposable { get; set; }
     public bool NthpBelowMinimum { get; set; }
-
     public string? VerificationFindings { get; set; }
     public bool HasDeviations { get; set; }
     public List<string> DeviationDetails { get; set; } = new();
@@ -100,26 +74,15 @@ public class LoanResponse
     public string? AoRecommendation { get; set; }
     public string? OtherRemarks { get; set; }
     public string? FeeDeviationJustification { get; set; }
-
     public string Status { get; set; } = string.Empty;
     public DateTime ApplicationDate { get; set; }
     public DateTime LastActionDate { get; set; }
     public int CreatedById { get; set; }
     public string CreatedByName { get; set; } = string.Empty;
     public List<LoanActionResponse> Actions { get; set; } = new();
-
-    /// <summary>Officer the application last flowed through (resolved from
-    /// the latest LoanAction). Falls back to creator when no action exists.</summary>
     public string? LastActionByName { get; set; }
-
-    /// <summary>Verb of the latest workflow action (Created, StatusChanged,
-    /// PushedBack, EvaluatedRecommended, EvaluatedNotRecommended…).</summary>
     public string? LastAction { get; set; }
-
-    /// <summary>Latest evaluation verdict projected from the audit trail.
-    /// Values: "EvaluatedRecommended" | "EvaluatedNotRecommended" | null.</summary>
     public string? EvaluationVerdict { get; set; }
-
     public string LoanType { get; set; } = "New";
     public int DeviationSeverity { get; set; }
     public int? RequiredApprovalTier { get; set; }
@@ -127,23 +90,13 @@ public class LoanResponse
     public string? AssignedApproverName { get; set; }
     public DateTime? AssignedAt { get; set; }
     public DateTime? DocumentsCompleteAt { get; set; }
-
-    /// <summary>Escalation: the tier that originally matched but had no
-    /// configured approver. Null when no escalation occurred.</summary>
     public int? MatchedButUnstaffedTier { get; set; }
-
-    /// <summary>Reason routing failed. Null when routing succeeded.</summary>
     public string? NoAuthorityReason { get; set; }
-
-    /// <summary>Document flag state. Null when no active flag.</summary>
     public DocumentFlagDto? DocumentFlag { get; set; }
-
     public List<OutstandingLoanResponse> OutstandingLoans { get; set; } = new();
     public List<BuyOutResponse> BuyOuts { get; set; } = new();
     public List<EbiReloanResponse> EbiReloans { get; set; } = new();
     public List<IncomingLoanResponse> IncomingLoans { get; set; } = new();
-
-    // WebLoan Traceability
     public string? WebLoanCisNo { get; set; }
     public string? WebLoanBranchCode { get; set; }
     public List<string> WebLoanAccountNumbers { get; set; } = new();
