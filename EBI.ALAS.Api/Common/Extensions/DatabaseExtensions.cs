@@ -2,6 +2,21 @@ using EBI.ALAS.Api.Infrastructure.Data;
 using EBI.ALAS.Api.Infrastructure.Interceptors;
 using Microsoft.EntityFrameworkCore;
 namespace EBI.ALAS.Api.Common.Extensions;
+
+/// <summary>
+/// Scoped-compatible IDbContextFactory that resolves the context from the current DI scope.
+/// Avoids the singleton-vs-scoped mismatch when AddDbContext is used alongside AddDbContextFactory.
+/// </summary>
+internal sealed class ScopedDbContextFactory<TContext> : IDbContextFactory<TContext>
+    where TContext : DbContext
+{
+    private readonly IServiceProvider _sp;
+    public ScopedDbContextFactory(IServiceProvider sp) => _sp = sp;
+    public TContext CreateDbContext() => ActivatorUtilities.CreateInstance<TContext>(_sp);
+    public Task<TContext> CreateDbContextAsync(CancellationToken ct = default) =>
+        Task.FromResult(CreateDbContext());
+}
+
 public static class DatabaseExtensions
 {
     public static IServiceCollection AddAppDatabase(
@@ -24,7 +39,8 @@ public static class DatabaseExtensions
                 });
             options.AddInterceptors(sp.GetRequiredService<AuditSaveChangesInterceptor>());
         });
-        services.AddDbContextFactory<AppDbContext>();
+        services.AddScoped<IDbContextFactory<AppDbContext>>(sp =>
+            new ScopedDbContextFactory<AppDbContext>(sp));
         return services;
     }
     public static IServiceCollection AddWebLoanDatabase(
