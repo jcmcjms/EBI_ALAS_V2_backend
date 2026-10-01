@@ -126,7 +126,7 @@ public class ApproverPartitionsTests : IDisposable
                 }
             });
         await _db.SaveChangesAsync();
-        var desk = await _sut.GetDeskAsync(10, Roles.Approver, "001", CancellationToken.None);
+        var desk = await _sut.GetDeskAsync(10, Roles.Approver, "001");
         Assert.Equal(3, desk.Items.Count);
         Assert.Contains("Global", desk.ScopeDescription);
         Assert.Contains("3 branches", desk.ScopeDescription);
@@ -185,7 +185,7 @@ public class ApproverPartitionsTests : IDisposable
                 }
             });
         await _db.SaveChangesAsync();
-        var desk = await _sut.GetDeskAsync(20, Roles.Approver, "001", CancellationToken.None);
+        var desk = await _sut.GetDeskAsync(20, Roles.Approver, "001");
         Assert.Single(desk.Items);
         Assert.Equal(201, desk.Items[0].LoanId);
         Assert.Contains("Branch 001", desk.ScopeDescription);
@@ -261,7 +261,7 @@ public class ApproverPartitionsTests : IDisposable
                 }
             });
         await _db.SaveChangesAsync();
-        var desk = await _sut.GetDeskAsync(30, Roles.Approver, "001", CancellationToken.None);
+        var desk = await _sut.GetDeskAsync(30, Roles.Approver, "001");
         Assert.Equal(2, desk.Items.Count);
         Assert.Contains("001", desk.ScopeDescription);
         Assert.Contains("002", desk.ScopeDescription);
@@ -278,7 +278,7 @@ public class ApproverPartitionsTests : IDisposable
             ApprovalAuthorityKey = null,
         });
         await _db.SaveChangesAsync();
-        var desk = await _sut.GetDeskAsync(40, Roles.Approver, "001", CancellationToken.None);
+        var desk = await _sut.GetDeskAsync(40, Roles.Approver, "001");
         Assert.Empty(desk.Items);
         Assert.Contains("No authority", desk.ScopeDescription);
     }
@@ -311,7 +311,7 @@ public class ApproverPartitionsTests : IDisposable
                 }
             });
         await _db.SaveChangesAsync();
-        var desk = await _sut.GetDeskAsync(50, Roles.Recommender, "001", CancellationToken.None);
+        var desk = await _sut.GetDeskAsync(50, Roles.Recommender, "001");
         Assert.Single(desk.Items);
         Assert.Equal(401, desk.Items[0].LoanId);
     }
@@ -349,7 +349,7 @@ public class ApproverPartitionsTests : IDisposable
                 }
             });
         await _db.SaveChangesAsync();
-        var desk = await _sut.GetDeskAsync(99, Roles.Evaluator, "006", CancellationToken.None);
+        var desk = await _sut.GetDeskAsync(99, Roles.Evaluator, "006");
         Assert.Equal(2, desk.Items.Count);
         Assert.Equal(601, desk.Items[0].LoanId);
         Assert.True(desk.Items[0].IsHead);
