@@ -1,4 +1,4 @@
-﻿using EBI.ALAS.Api.Common.Time;
+using EBI.ALAS.Api.Common.Time;
 using EBI.ALAS.Api.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 namespace EBI.ALAS.Api.Features.Loans;
@@ -67,7 +67,6 @@ public sealed class DocumentChecklistStore(AppDbContext db, ITimeProvider time) 
                 .SetProperty(i => i.Status, "Submitted")
                 .SetProperty(i => i.UpdatedAtUtc, time.UtcNow)
                 .SetProperty(i => i.UpdatedById, actorId), ct);
-        await db.SaveChangesAsync(ct);
     }
     public async Task MarkVerifiedAsync(int loanId, IReadOnlyCollection<string> codes, int actorId, CancellationToken ct)
     {
@@ -79,6 +78,5 @@ public sealed class DocumentChecklistStore(AppDbContext db, ITimeProvider time) 
                 .SetProperty(i => i.Status, "Verified")
                 .SetProperty(i => i.UpdatedAtUtc, time.UtcNow)
                 .SetProperty(i => i.UpdatedById, actorId), ct);
-        await db.SaveChangesAsync(ct);
     }
 }

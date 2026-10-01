@@ -1,4 +1,4 @@
-﻿using System.Security.Claims;
+using System.Security.Claims;
 using EBI.ALAS.Api.Common.Constants;
 using EBI.ALAS.Api.Common.Extensions;
 using EBI.ALAS.Api.Common.Models;
@@ -100,9 +100,11 @@ public static class UpdateLoanStatus
             {
                 var me = await db.Users.AsNoTracking()
                     .FirstOrDefaultAsync(u => u.Id == userId, ct);
-                var inTier = me?.ApprovalAuthorityKey != null
-                    && db.ApprovalAuthorities.Any(a => a.Key == me.ApprovalAuthorityKey
-                        && a.Tier == loan.RequiredApprovalTier);
+                var inTier = me?.ApprovalAuthorityKey is not null
+                    && await db.ApprovalAuthorities.AnyAsync(
+                        a => a.Key == me.ApprovalAuthorityKey
+                          && a.Tier == loan.RequiredApprovalTier,
+                        ct);
                 var mineOrUnassigned = loan.AssignedApproverId is null || loan.AssignedApproverId == userId;
                 if (!inTier || !mineOrUnassigned)
                     return Results.Json(ApiResponse.ErrorResponse(
