@@ -172,6 +172,17 @@ public class LoanRepository(AppDbContext context) : ILoanRepository
         context.LoanSubmissionIdempotencies.Add(idempotency);
         await context.SaveChangesAsync(ct);
     }
+    public void TrackSubmission(
+        IReadOnlyList<LoanApplication> applications,
+        LoanSubmissionIdempotency idempotency)
+    {
+        context.LoanApplications.AddRange(applications);
+        context.LoanSubmissionIdempotencies.Add(idempotency);
+    }
+    public async Task SaveChangesAsync(CancellationToken ct = default)
+    {
+        await context.SaveChangesAsync(ct);
+    }
     public async Task UpdateIdempotencyResponseAsync(
         LoanSubmissionIdempotency idempotency, CancellationToken ct = default)
     {
