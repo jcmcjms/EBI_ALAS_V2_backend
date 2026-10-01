@@ -1,4 +1,4 @@
-﻿using EBI.ALAS.Api.Common.Extensions;
+using EBI.ALAS.Api.Common.Extensions;
 using FluentValidation;
 namespace EBI.ALAS.Api.Common.Filters;
 public class ValidationFilter<T> : IEndpointFilter where T : class
@@ -15,7 +15,7 @@ public class ValidationFilter<T> : IEndpointFilter where T : class
         var argument = context.Arguments.OfType<T>().FirstOrDefault();
         if (argument is null)
         {
-            return await next(context);
+            return await next(context); 
         }
         var validationResult = await validator.ValidateAsync(argument);
         if (!validationResult.IsValid)
