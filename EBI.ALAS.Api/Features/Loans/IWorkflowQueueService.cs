@@ -66,4 +66,5 @@ public interface IWorkflowQueueService
     Task PromoteHeadAsync(string partitionKey, CancellationToken ct);
     Task<LoanQueueState?> GetQueueStateAsync(int loanId, int userId, string currentStatus, CancellationToken ct);
     Task ExtendLeaseAsync(int loanId, int userId, CancellationToken ct);
+    string GetPartitionKey(LoanApplication loan, QueueStage stage);
 }

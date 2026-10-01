@@ -35,6 +35,7 @@ public class WorkflowQueueService : IWorkflowQueueService
         "ForApproval" => QueueStage.Approval,
         _ => null,
     };
+    public string GetPartitionKey(LoanApplication loan, QueueStage stage) => PartitionKey(stage, loan);
     private static string PartitionKey(QueueStage stage, LoanApplication loan) => stage switch
     {
         QueueStage.Approval => $"APP:{loan.BranchCode}:{loan.RequiredApprovalTier ?? 0}",
