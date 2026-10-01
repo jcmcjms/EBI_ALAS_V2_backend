@@ -7,6 +7,7 @@ using EBI.ALAS.Api.Features.Loans;
 using EBI.ALAS.Api.Features.Notifications;
 using EBI.ALAS.Api.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Options;
 using NSubstitute;
 using Xunit;
@@ -32,7 +33,7 @@ public class ApproverPartitionsTests : IDisposable
         queueOptions.CurrentValue.Returns(new QueueOptions { LeaseTtlMinutes = 30 });
         _sut = new WorkflowQueueService(
             _db, loanRepo, notifications,
-            time, queueOptions);
+            time, queueOptions, new MemoryCache(new MemoryCacheOptions()));
     }
     public void Dispose() => _db.Dispose();
     [Fact]
