@@ -1,4 +1,4 @@
-﻿namespace EBI.ALAS.Api.Infrastructure.Messaging.Events;
+namespace EBI.ALAS.Api.Infrastructure.Messaging.Events;
 public sealed record LoanStatusChangedEvent(
     int LoanId,
     string LamId,
@@ -8,8 +8,11 @@ public sealed record LoanStatusChangedEvent(
     string ToStatus,
     int ActorUserId,
     string ActorName,
+    string UserRole,
+    int LoanCreatedById,
     string? Comments,
     string? Verdict,
+    string ActionName,
     DateTime OccurredAt);
 public sealed record NotificationCreatedEvent(
     int UserId,
