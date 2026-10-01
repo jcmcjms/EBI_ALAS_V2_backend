@@ -4,6 +4,7 @@ using EBI.ALAS.Api.Features.ApprovalMatrix;
 using EBI.ALAS.Api.Features.Auth;
 using EBI.ALAS.Api.Features.Notifications;
 using EBI.ALAS.Api.Infrastructure.Data;
+using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 namespace EBI.ALAS.Api.Features.Loans;
@@ -174,61 +175,81 @@ public class WorkflowQueueService : IWorkflowQueueService
             .Select(i => i.PartitionKey)
             .FirstOrDefaultAsync(ct);
         if (partitionKey is null) return null;
-        var ordered = await _db.WorkflowQueueItems.AsNoTracking()
-            .Include(i => i.OwnerUser)
-            .Where(i => i.PartitionKey == partitionKey && i.State != QueueItemState.Completed)
-            .OrderBy(i => i.EnqueuedAt).ThenBy(i => i.Id)
+        var rows = await _db.Database.SqlQuery<QueueRankRow>(
+            $@"SELECT wi.LoanApplicationId,
+                wi.OwnerUserId,
+                u.FirstName AS OwnerFirst,
+                u.LastName  AS OwnerLast,
+                wi.LeasedAt,
+                ROW_NUMBER() OVER (
+                    ORDER BY CASE WHEN wi.State = 'Active' THEN 0 ELSE 1 END,
+                             wi.EnqueuedAt, wi.Id
+                ) AS Position,
+                COUNT(*) OVER () AS PartitionSize
+               FROM WorkflowQueueItems wi
+               LEFT JOIN Users u ON u.Id = wi.OwnerUserId
+               WHERE wi.PartitionKey = {partitionKey}
+                 AND wi.State <> 'Completed'")
             .ToListAsync(ct);
-        var position = 0;
-        foreach (var item in ordered)
-        {
-            position++;
-            if (item.LoanApplicationId != loanId) continue;
-            var ownerName = item.OwnerUser is null
-                ? null
-                : $"{item.OwnerUser.FirstName} {item.OwnerUser.LastName}";
-            return new LoanQueueState(
-                position,
-                position == 1,
-                item.OwnerUserId,
-                ownerName,
-                item.OwnerUserId == userId,
-                item.LeasedAt);
-        }
-        return null;
+        var row = rows.FirstOrDefault(r => r.LoanApplicationId == loanId);
+        if (row is null) return null;
+        var ownerName = row.OwnerFirst is null
+            ? null
+            : $"{row.OwnerFirst} {row.OwnerLast}";
+        return new LoanQueueState(
+            row.Position,
+            row.Position == 1,
+            row.OwnerUserId,
+            ownerName,
+            row.OwnerUserId == userId,
+            row.LeasedAt);
     }
     public async Task<IReadOnlyDictionary<int, QueuePositionInfo>> GetPositionsAsync(
         IReadOnlyCollection<int> loanIds, CancellationToken ct)
     {
         if (loanIds.Count == 0) return new Dictionary<int, QueuePositionInfo>();
-        var mine = await _db.WorkflowQueueItems.AsNoTracking()
+        var loanInfos = await _db.WorkflowQueueItems.AsNoTracking()
             .Where(i => loanIds.Contains(i.LoanApplicationId) && i.State != QueueItemState.Completed)
+            .Select(i => new { i.LoanApplicationId, i.PartitionKey, i.Stage })
             .ToListAsync(ct);
-        if (mine.Count == 0) return new Dictionary<int, QueuePositionInfo>();
-        var partitions = mine.Select(i => i.PartitionKey).Distinct().ToList();
-        var partitionItems = await _db.WorkflowQueueItems.AsNoTracking()
-            .Include(i => i.OwnerUser)
-            .Where(i => partitions.Contains(i.PartitionKey) && i.State != QueueItemState.Completed)
-            .OrderBy(i => i.PartitionKey).ThenBy(i => i.EnqueuedAt).ThenBy(i => i.Id)
+        if (loanInfos.Count == 0) return new Dictionary<int, QueuePositionInfo>();
+        var partitions = loanInfos.Select(i => i.PartitionKey).Distinct().ToList();
+        var loanStageMap = loanInfos.ToDictionary(i => i.LoanApplicationId, i => i.Stage);
+        var parameters = partitions
+            .Select((k, i) => new SqlParameter($"@p{i}", k))
+            .ToArray();
+        var inClause = string.Join(", ",
+            Enumerable.Range(0, partitions.Count).Select(i => $"@p{i}"));
+        var sql = $@"SELECT wi.LoanApplicationId,
+            wi.OwnerUserId,
+            u.FirstName AS OwnerFirst,
+            u.LastName  AS OwnerLast,
+            ROW_NUMBER() OVER (
+                PARTITION BY wi.PartitionKey
+                ORDER BY CASE WHEN wi.State = 'Active' THEN 0 ELSE 1 END,
+                         wi.EnqueuedAt, wi.Id
+            ) AS Position,
+            COUNT(*) OVER (PARTITION BY wi.PartitionKey) AS PartitionSize
+           FROM WorkflowQueueItems wi
+           LEFT JOIN Users u ON u.Id = wi.OwnerUserId
+           WHERE wi.PartitionKey IN ({inClause})
+             AND wi.State <> 'Completed'";
+        var rows = await _db.Database.SqlQueryRaw<QueueRankRow>(sql, parameters)
             .ToListAsync(ct);
+        var requestedSet = loanIds.ToHashSet();
         var result = new Dictionary<int, QueuePositionInfo>();
-        foreach (var group in partitionItems.GroupBy(i => i.PartitionKey))
+        foreach (var row in rows.Where(r => requestedSet.Contains(r.LoanApplicationId)))
         {
-            var rank = 0;
-            foreach (var item in group)
-            {
-                rank++;
-                if (!loanIds.Contains(item.LoanApplicationId)) continue;
-                var ownerName = item.OwnerUser == null ? null
-                    : $"{item.OwnerUser.FirstName} {item.OwnerUser.LastName}";
-                result[item.LoanApplicationId] = new QueuePositionInfo(
-                    item.Stage, rank, 0, item.OwnerUserId, ownerName, rank == 1);
-            }
-            foreach (var id in result.Keys.Where(id =>
-                         group.Any(i => i.LoanApplicationId == id)).ToList())
-            {
-                result[id] = result[id] with { QueueLength = rank };
-            }
+            var ownerName = row.OwnerFirst is null
+                ? null
+                : $"{row.OwnerFirst} {row.OwnerLast}";
+            result[row.LoanApplicationId] = new QueuePositionInfo(
+                loanStageMap[row.LoanApplicationId],
+                row.Position,
+                row.PartitionSize,
+                row.OwnerUserId,
+                ownerName,
+                row.Position == 1);
         }
         return result;
     }
@@ -497,5 +518,16 @@ public class WorkflowQueueService : IWorkflowQueueService
                         && i.State == QueueItemState.Active
                         && i.OwnerUserId == userId)
             .ExecuteUpdateAsync(s => s.SetProperty(i => i.LeasedAt, now), ct);
+    }
+
+    private class QueueRankRow
+    {
+        public int LoanApplicationId { get; set; }
+        public int? OwnerUserId { get; set; }
+        public string? OwnerFirst { get; set; }
+        public string? OwnerLast { get; set; }
+        public DateTime? LeasedAt { get; set; }
+        public int Position { get; set; }
+        public int PartitionSize { get; set; }
     }
 }
