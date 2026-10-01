@@ -1,5 +1,6 @@
-﻿using System.Net;
+using System.Net;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using EBI.ALAS.Api.Common.Exceptions;
 using EBI.ALAS.Api.Common.Models;
 using Microsoft.EntityFrameworkCore;
@@ -61,12 +62,41 @@ public sealed class GlobalExceptionHandler(
         }
         if (innerMessage.Contains("547") || innerMessage.Contains("FOREIGN KEY"))
         {
-            logger.LogWarning(dbEx, "Foreign key constraint violation: {Message}", innerMessage);
+            var constraintName = ExtractConstraintName(innerMessage);
+            var referencedTable = ExtractReferencedTable(innerMessage);
+            logger.LogWarning(dbEx,
+                "FK violation — constraint: {Constraint}, referenced table: {Table}, detail: {Message}",
+                constraintName ?? "unknown",
+                referencedTable ?? "unknown",
+                innerMessage);
+
+            if (environment.IsDevelopment())
+            {
+                var detail = constraintName is not null
+                    ? $"Referenced record does not exist. Constraint: {constraintName}, table: {referencedTable ?? "unknown"}"
+                    : $"Referenced record does not exist. Detail: {innerMessage}";
+                return (HttpStatusCode.BadRequest, ApiResponse.ErrorResponse(detail));
+            }
             return (HttpStatusCode.BadRequest, ApiResponse.ErrorResponse("Referenced record does not exist."));
         }
         return environment.IsDevelopment()
             ? (HttpStatusCode.InternalServerError, ApiResponse.ErrorResponse($"Database error: {innerMessage}"))
             : (HttpStatusCode.InternalServerError, ApiResponse.ErrorResponse("A database error occurred. Please try again later."));
+    }
+    private static string? ExtractConstraintName(string message)
+    {
+        // Matches: constraint 'FK_name' or constraint "FK_name" or constraint [FK_name]
+        var match = Regex.Match(message, @"constraint\s+['""]?\[?([^\]'""\s]+)\]?['""]?", RegexOptions.IgnoreCase);
+        return match.Success ? match.Groups[1].Value : null;
+    }
+    private static string? ExtractReferencedTable(string message)
+    {
+        // Matches: table 'dbo.TableName' or table "dbo.TableName" or table [dbo].[TableName]
+        var match = Regex.Match(message, @"table\s+['""]?\[?dbo\]?\.\[?([^\]'""\s]+)\]?['""]?", RegexOptions.IgnoreCase);
+        if (match.Success) return match.Groups[1].Value;
+        // Fallback: table 'TableName'
+        match = Regex.Match(message, @"table\s+['""]?\[?([^\]'""\s]+)\]?['""]?", RegexOptions.IgnoreCase);
+        return match.Success ? match.Groups[1].Value : null;
     }
     private (HttpStatusCode statusCode, ApiResponse response) HandleUnhandledException(Exception exception)
     {
