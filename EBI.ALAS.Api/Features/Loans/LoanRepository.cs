@@ -1,4 +1,4 @@
-﻿using EBI.ALAS.Api.Common.Constants;
+using EBI.ALAS.Api.Common.Constants;
 using EBI.ALAS.Api.Common.Models;
 using EBI.ALAS.Api.Features.Auth;
 using EBI.ALAS.Api.Infrastructure.Data;
@@ -120,6 +120,10 @@ public class LoanRepository(AppDbContext context) : ILoanRepository
     {
         context.LoanApplications.Update(loan);
         await context.SaveChangesAsync(ct);
+    }
+    public void TrackUpdate(LoanApplication loan)
+    {
+        context.LoanApplications.Update(loan);
     }
     public async Task<bool> ExistsAsync(int id, CancellationToken ct = default)
     {

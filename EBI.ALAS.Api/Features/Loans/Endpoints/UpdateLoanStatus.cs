@@ -90,7 +90,7 @@ public static class UpdateLoanStatus
                 loan.DeviationSeverity = decision.Severity;
                 loan.RequiredApprovalTier = decision.Tier == 0 ? null : decision.Tier;
                 loan.NoAuthorityReason = decision.NoAuthorityReason;
-                await loanRepository.UpdateAsync(loan);
+                loanRepository.TrackUpdate(loan);
                 if (decision.Tier > 0)
                     await assignmentService.AssignAsync(loan, ct);
                 else
@@ -133,15 +133,16 @@ public static class UpdateLoanStatus
                 await using var tx = await db.Database.BeginTransactionAsync(ct);
                 loan.Status = targetStatus;
                 loan.LastActionDate = timeProvider.UtcNow;
-                await loanRepository.UpdateAsync(loan);
+                loanRepository.TrackUpdate(loan);
                 var oldStage = WorkflowQueueService.StageForStatus(fromStatus);
                 var newStage = WorkflowQueueService.StageForStatus(targetStatus);
                 if (oldStage != null)
-                    await queueService.DequeueAndPromoteAsync(loan, fromStatus, ct);
+                    await queueService.DequeueAndPromoteWithoutSaveAsync(loan, fromStatus, ct);
                 if (newStage != null && !skipQueue)
-                    await queueService.EnqueueAsync(loan, targetStatus, ct);
-                await auditLogger.LogActionAsync(
+                    queueService.TrackEnqueue(loan, targetStatus);
+                auditLogger.TrackAction(
                     id, userId, actionName, fromStatus, targetStatus, comments);
+                await db.SaveChangesAsync(ct);
                 await tx.CommitAsync(ct);
             });
             await notificationDispatcher.DispatchTransitionNotificationsAsync(

@@ -1,4 +1,4 @@
-﻿namespace EBI.ALAS.Api.Features.Loans;
+namespace EBI.ALAS.Api.Features.Loans;
 public record QueuePositionInfo(
     QueueStage Stage,
     int Position,
@@ -53,7 +53,9 @@ public abstract record ClaimByIdResult
 public interface IWorkflowQueueService
 {
     Task EnqueueAsync(LoanApplication loan, string newStatus, CancellationToken ct);
+    void TrackEnqueue(LoanApplication loan, string newStatus);
     Task DequeueAndPromoteAsync(LoanApplication loan, string oldStatus, CancellationToken ct);
+    Task DequeueAndPromoteWithoutSaveAsync(LoanApplication loan, string oldStatus, CancellationToken ct);
     Task<IReadOnlyDictionary<int, QueuePositionInfo>> GetPositionsAsync(
         IReadOnlyCollection<int> loanIds, CancellationToken ct);
     Task<bool> IsHeadOwnerAsync(int loanId, int userId, string currentStatus, CancellationToken ct);
