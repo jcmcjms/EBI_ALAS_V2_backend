@@ -1,4 +1,4 @@
-﻿using EBI.ALAS.Api.Features.WebLoans;
+using EBI.ALAS.Api.Features.WebLoans;
 namespace EBI.ALAS.Api.Features.WebLoans;
 public interface IWebLoanRepository
 {
@@ -43,5 +43,8 @@ public interface IWebLoanRepository
         CancellationToken ct = default);
     Task<PreLoanData?> GetPreLoanDataByLoanNoAsync(
         string loanNo,
+        CancellationToken ct = default);
+    Task<IReadOnlyDictionary<string, PreLoanData>> GetPreLoanDataByLoanNosAsync(
+        IEnumerable<string> loanNos,
         CancellationToken ct = default);
 }

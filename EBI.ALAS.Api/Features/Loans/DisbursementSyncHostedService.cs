@@ -1,4 +1,4 @@
-﻿using EBI.ALAS.Api.Common.Constants;
+using EBI.ALAS.Api.Common.Constants;
 using EBI.ALAS.Api.Common.Time;
 using EBI.ALAS.Api.Features.Notifications;
 using EBI.ALAS.Api.Features.WebLoans;
@@ -58,6 +58,15 @@ public sealed class DisbursementSyncHostedService : BackgroundService
             .ToListAsync(ct);
         if (loans.Count == 0)
             return;
+
+        var loanNos = loans
+            .Where(l => !string.IsNullOrWhiteSpace(l.LoanNo))
+            .Select(l => l.LoanNo!)
+            .Distinct()
+            .ToList();
+
+        var preLoanData = await webLoanRepo.GetPreLoanDataByLoanNosAsync(loanNos, ct);
+
         _logger.LogDebug("Checking {Count} loan(s) for disbursement sync.", loans.Count);
         var systemUserId = await ResolveSystemUserIdAsync(db, cache, ct);
         var synced = 0;
@@ -65,11 +74,10 @@ public sealed class DisbursementSyncHostedService : BackgroundService
         {
             if (string.IsNullOrWhiteSpace(loan.LoanNo))
                 continue;
+            if (!preLoanData.TryGetValue(loan.LoanNo, out var preLoan))
+                continue;
             try
             {
-                var preLoan = await webLoanRepo.GetPreLoanDataByLoanNoAsync(loan.LoanNo, ct);
-                if (preLoan is null)
-                    continue;
                 string? targetStatus = null;
                 string? reason = null;
                 if (preLoan.ReleasedDate is not null && !string.IsNullOrWhiteSpace(preLoan.ReleasedBy)

@@ -1,4 +1,4 @@
-﻿using EBI.ALAS.Api.Infrastructure.Data;
+using EBI.ALAS.Api.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 namespace EBI.ALAS.Api.Features.WebLoans;
 public class WebLoanRepository(IDbContextFactory<WebLoanDbContext> contextFactory) : IWebLoanRepository
@@ -292,5 +292,18 @@ public class WebLoanRepository(IDbContextFactory<WebLoanDbContext> contextFactor
         return await context.PreLoanDatas
             .AsNoTracking()
             .FirstOrDefaultAsync(p => p.LoanNo == loanNo, ct);
+    }
+    public async Task<IReadOnlyDictionary<string, PreLoanData>> GetPreLoanDataByLoanNosAsync(
+        IEnumerable<string> loanNos,
+        CancellationToken ct = default)
+    {
+        var nos = loanNos.Distinct().ToList();
+        if (nos.Count == 0) return new Dictionary<string, PreLoanData>();
+
+        await using var context = await contextFactory.CreateDbContextAsync(ct);
+        return await context.PreLoanDatas
+            .AsNoTracking()
+            .Where(p => nos.Contains(p.LoanNo))
+            .ToDictionaryAsync(p => p.LoanNo, ct);
     }
 }
