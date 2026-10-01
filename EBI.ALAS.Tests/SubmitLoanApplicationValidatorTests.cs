@@ -1,4 +1,4 @@
-﻿using EBI.ALAS.Api.Features.Loans;
+using EBI.ALAS.Api.Features.Loans;
 using FluentValidation;
 using Xunit;
 namespace EBI.ALAS.Tests;
@@ -22,6 +22,8 @@ public class SubmitLoanApplicationValidatorTests
         public Task<LoanProduct> UpsertAsync(LoanProduct product, bool preservePolicyFields, int? updatedByUserId, DateTime updatedDate, CancellationToken ct = default) =>
             throw new NotImplementedException();
         public Task<bool> DeleteAsync(string code, CancellationToken ct = default) =>
+            throw new NotImplementedException();
+        public Task<IReadOnlyList<LoanProduct>> GetByCodesAsync(IReadOnlyCollection<string> codes, CancellationToken ct = default) =>
             throw new NotImplementedException();
     }
     private static LoanSection ValidLoan(string loanNo, string product) => new()

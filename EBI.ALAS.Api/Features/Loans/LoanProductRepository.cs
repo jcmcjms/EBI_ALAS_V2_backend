@@ -1,4 +1,4 @@
-﻿using EBI.ALAS.Api.Infrastructure.Data;
+using EBI.ALAS.Api.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 namespace EBI.ALAS.Api.Features.Loans;
 public class LoanProductRepository(AppDbContext context) : ILoanProductRepository
@@ -70,5 +70,14 @@ public class LoanProductRepository(AppDbContext context) : ILoanProductRepositor
         return await context.LoanProducts
             .AsNoTracking()
             .AnyAsync(p => p.Code == code && !p.IsRetired, ct);
+    }
+    public async Task<IReadOnlyList<LoanProduct>> GetByCodesAsync(IReadOnlyCollection<string> codes, CancellationToken ct = default)
+    {
+        if (codes is null || codes.Count == 0) return [];
+
+        return await context.LoanProducts
+            .AsNoTracking()
+            .Where(p => codes.Contains(p.Code))
+            .ToListAsync(ct);
     }
 }
