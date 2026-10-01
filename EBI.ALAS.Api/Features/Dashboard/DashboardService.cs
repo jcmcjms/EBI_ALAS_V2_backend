@@ -56,125 +56,135 @@ public class DashboardService : IDashboardService
         var activeSinceUtc = _timeProvider.UtcNow.Add(-ActiveWindow);
         var servingSinceUtc = _timeProvider.UtcNow.AddMinutes(-60);
         var pendingStatuses = PendingStatuses;
-        await using var ctxAgg = await _contextFactory.CreateDbContextAsync(ct);
-        await using var ctxWeek = await _contextFactory.CreateDbContextAsync(ct);
-        await using var ctxPending = await _contextFactory.CreateDbContextAsync(ct);
-        await using var ctxServing = await _contextFactory.CreateDbContextAsync(ct);
-        await using var ctxActive = await _contextFactory.CreateDbContextAsync(ct);
-        await using var ctxDoc = await _contextFactory.CreateDbContextAsync(ct);
-        IQueryable<LoanApplication> aggLoans = ctxAgg.LoanApplications.AsNoTracking();
-        if (scoped)
-            aggLoans = aggLoans.Where(l => l.BranchCode == branchCode);
-        var aggregatesTask = aggLoans
-            .Where(l => pendingStatuses.Contains(l.Status)
-                || (l.ApplicationDate >= yesterdayStartUtc && l.ApplicationDate < tomorrowStartUtc))
-            .GroupBy(_ => 1)
-            .Select(g => new
-            {
-                PendingCount = g.Count(l => pendingStatuses.Contains(l.Status)),
-                SubmittedToday = g.Count(l => l.ApplicationDate >= todayStartUtc && l.ApplicationDate < tomorrowStartUtc),
-                SubmittedYesterday = g.Count(l => l.ApplicationDate >= yesterdayStartUtc && l.ApplicationDate < todayStartUtc),
-            })
-            .FirstOrDefaultAsync(ct);
-        IQueryable<LoanAction> weekActionsQuery = ctxWeek.LoanActions.AsNoTracking();
-        if (scoped)
-            weekActionsQuery = weekActionsQuery.Where(a => a.LoanApplication.BranchCode == branchCode);
-        var weekDataTask = weekActionsQuery
-            .Where(a => a.ActionDate >= weekStartUtc
-                && (a.ToStatus == "Approved" || a.ToStatus == "ForRevision"))
-            .OrderByDescending(a => a.ActionDate)
-            .Select(a => new
-            {
-                a.ToStatus,
-                a.ActionDate,
-                a.Comments,
-                a.LoanApplicationId,
-                LamId = a.LoanApplication.LamId,
-                BranchCode = a.LoanApplication.BranchCode,
-                FullName = a.LoanApplication.FirstName + " " + a.LoanApplication.LastName,
-            })
-            .ToListAsync(ct);
-        IQueryable<LoanApplication> pendingLoans = ctxPending.LoanApplications.AsNoTracking();
-        if (scoped)
-            pendingLoans = pendingLoans.Where(l => l.BranchCode == branchCode);
-        var pendingTask = pendingLoans
-            .Where(l => pendingStatuses.Contains(l.Status))
-            .OrderBy(l => l.LastActionDate)
-            .Select(l => new
-            {
-                l.LamId, l.BranchCode, l.Status, l.LastActionDate,
-                ClientName = l.FirstName + " " + l.LastName,
-                EncoderName = l.CreatedBy.FirstName + " " + l.CreatedBy.LastName,
-            })
-            .Take(QueueSize)
-            .ToListAsync(ct);
-        IQueryable<WorkflowQueueItem> queueItems = ctxServing.WorkflowQueueItems.AsNoTracking();
-        if (scoped)
-            queueItems = queueItems.Where(i => i.LoanApplication.BranchCode == branchCode);
-        var nowServingTask = queueItems
-            .Where(i => i.State == QueueItemState.Active
-                        && i.OwnerUserId != null
-                        && i.LeasedAt != null
-                        && i.LeasedAt >= servingSinceUtc)
-            .OrderByDescending(i => i.LeasedAt)
-            .Take(ListSize)
-            .Select(i => new
-            {
-                i.OwnerUserId,
-                OwnerName = i.OwnerUser != null
-                    ? i.OwnerUser.FirstName + " " + i.OwnerUser.LastName
-                    : null,
-                LamId = i.LoanApplication != null ? i.LoanApplication.LamId : "",
-                i.LeasedAt,
-            })
-            .ToListAsync(ct);
-        IQueryable<LoanAction> activeActions = ctxActive.LoanActions.AsNoTracking();
-        if (scoped)
-            activeActions = activeActions.Where(a => a.LoanApplication.BranchCode == branchCode);
-        var activeTask = activeActions
-            .Where(a => a.ActionDate >= activeSinceUtc)
-            .OrderByDescending(a => a.ActionDate)
-            .Select(a => new
-            {
-                a.ActionByUserId,
-                Name = a.ActionByUser.FirstName + " " + a.ActionByUser.LastName,
-                a.ActionDate,
-                LamId = a.LoanApplication.LamId,
-            })
-            .Take(ActiveProbeCap)
-            .ToListAsync(ct);
-        IQueryable<LoanApplication> docLoans = ctxDoc.LoanApplications.AsNoTracking();
-        if (scoped)
-            docLoans = docLoans.Where(l => l.BranchCode == branchCode);
-        var docQueueTask = docLoans
-            .Where(l => l.DocumentsFlaggedAt != null)
-            .OrderBy(l => l.DocumentsFlaggedAt)
-            .Select(l => new
-            {
-                l.Id,
-                l.LamId,
-                l.BranchCode,
-                ClientName = l.FirstName + " " + l.LastName,
-                EncoderName = l.CreatedBy.FirstName + " " + l.CreatedBy.LastName,
-                l.LastActionDate,
-                l.Status,
-                MissingCount = l.DocumentChecklists.Count(d => d.Status == "Missing" || d.Status == "Pending"),
-                l.DocumentsFlaggedAt,
-                FlaggedByName = l.DocumentsFlaggedBy != null
-                    ? l.DocumentsFlaggedBy.FirstName + " " + l.DocumentsFlaggedBy.LastName
-                    : null,
-            })
-            .Take(QueueSize)
-            .ToListAsync(ct);
-        await Task.WhenAll(
-            aggregatesTask, weekDataTask, pendingTask,
-            nowServingTask, activeTask, docQueueTask);
-        var aggregates = aggregatesTask.Result;
-        var weekData = weekDataTask.Result;
-        var pendingRows = pendingTask.Result;
-        var nowServingItems = nowServingTask.Result;
-        var activeRows = activeTask.Result;
-        var docQueueRows = docQueueTask.Result;
+        // Context A: aggregates, pending queue, now-serving
+        var ctxATask = Task.Run(async () =>
+        {
+            await using var ctx = await _contextFactory.CreateDbContextAsync(ct);
+
+            IQueryable<LoanApplication> aggLoans = ctx.LoanApplications.AsNoTracking();
+            if (scoped)
+                aggLoans = aggLoans.Where(l => l.BranchCode == branchCode);
+            var aggregates = await aggLoans
+                .Where(l => pendingStatuses.Contains(l.Status)
+                    || (l.ApplicationDate >= yesterdayStartUtc && l.ApplicationDate < tomorrowStartUtc))
+                .GroupBy(_ => 1)
+                .Select(g => new
+                {
+                    PendingCount = g.Count(l => pendingStatuses.Contains(l.Status)),
+                    SubmittedToday = g.Count(l => l.ApplicationDate >= todayStartUtc && l.ApplicationDate < tomorrowStartUtc),
+                    SubmittedYesterday = g.Count(l => l.ApplicationDate >= yesterdayStartUtc && l.ApplicationDate < todayStartUtc),
+                })
+                .FirstOrDefaultAsync(ct);
+
+            IQueryable<LoanApplication> pendingLoans = ctx.LoanApplications.AsNoTracking();
+            if (scoped)
+                pendingLoans = pendingLoans.Where(l => l.BranchCode == branchCode);
+            var pendingRows = await pendingLoans
+                .Where(l => pendingStatuses.Contains(l.Status))
+                .OrderBy(l => l.LastActionDate)
+                .Select(l => new
+                {
+                    l.LamId, l.BranchCode, l.Status, l.LastActionDate,
+                    ClientName = l.FirstName + " " + l.LastName,
+                    EncoderName = l.CreatedBy.FirstName + " " + l.CreatedBy.LastName,
+                })
+                .Take(QueueSize)
+                .ToListAsync(ct);
+
+            IQueryable<WorkflowQueueItem> queueItems = ctx.WorkflowQueueItems.AsNoTracking();
+            if (scoped)
+                queueItems = queueItems.Where(i => i.LoanApplication.BranchCode == branchCode);
+            var nowServingItems = await queueItems
+                .Where(i => i.State == QueueItemState.Active
+                            && i.OwnerUserId != null
+                            && i.LeasedAt != null
+                            && i.LeasedAt >= servingSinceUtc)
+                .OrderByDescending(i => i.LeasedAt)
+                .Take(ListSize)
+                .Select(i => new
+                {
+                    i.OwnerUserId,
+                    OwnerName = i.OwnerUser != null
+                        ? i.OwnerUser.FirstName + " " + i.OwnerUser.LastName
+                        : null,
+                    LamId = i.LoanApplication != null ? i.LoanApplication.LamId : "",
+                    i.LeasedAt,
+                })
+                .ToListAsync(ct);
+
+            return (aggregates, pendingRows, nowServingItems);
+        });
+
+        // Context B: week actions, active officers, document queue
+        var ctxBTask = Task.Run(async () =>
+        {
+            await using var ctx = await _contextFactory.CreateDbContextAsync(ct);
+
+            IQueryable<LoanAction> weekActionsQuery = ctx.LoanActions.AsNoTracking();
+            if (scoped)
+                weekActionsQuery = weekActionsQuery.Where(a => a.LoanApplication.BranchCode == branchCode);
+            var weekData = await weekActionsQuery
+                .Where(a => a.ActionDate >= weekStartUtc
+                    && (a.ToStatus == "Approved" || a.ToStatus == "ForRevision"))
+                .OrderByDescending(a => a.ActionDate)
+                .Select(a => new
+                {
+                    a.ToStatus,
+                    a.ActionDate,
+                    a.Comments,
+                    a.LoanApplicationId,
+                    LamId = a.LoanApplication.LamId,
+                    BranchCode = a.LoanApplication.BranchCode,
+                    FullName = a.LoanApplication.FirstName + " " + a.LoanApplication.LastName,
+                })
+                .ToListAsync(ct);
+
+            IQueryable<LoanAction> activeActions = ctx.LoanActions.AsNoTracking();
+            if (scoped)
+                activeActions = activeActions.Where(a => a.LoanApplication.BranchCode == branchCode);
+            var activeRows = await activeActions
+                .Where(a => a.ActionDate >= activeSinceUtc)
+                .OrderByDescending(a => a.ActionDate)
+                .Select(a => new
+                {
+                    a.ActionByUserId,
+                    Name = a.ActionByUser.FirstName + " " + a.ActionByUser.LastName,
+                    a.ActionDate,
+                    LamId = a.LoanApplication.LamId,
+                })
+                .Take(ActiveProbeCap)
+                .ToListAsync(ct);
+
+            IQueryable<LoanApplication> docLoans = ctx.LoanApplications.AsNoTracking();
+            if (scoped)
+                docLoans = docLoans.Where(l => l.BranchCode == branchCode);
+            var docQueueRows = await docLoans
+                .Where(l => l.DocumentsFlaggedAt != null)
+                .OrderBy(l => l.DocumentsFlaggedAt)
+                .Select(l => new
+                {
+                    l.Id,
+                    l.LamId,
+                    l.BranchCode,
+                    ClientName = l.FirstName + " " + l.LastName,
+                    EncoderName = l.CreatedBy.FirstName + " " + l.CreatedBy.LastName,
+                    l.LastActionDate,
+                    l.Status,
+                    MissingCount = l.DocumentChecklists.Count(d => d.Status == "Missing" || d.Status == "Pending"),
+                    l.DocumentsFlaggedAt,
+                    FlaggedByName = l.DocumentsFlaggedBy != null
+                        ? l.DocumentsFlaggedBy.FirstName + " " + l.DocumentsFlaggedBy.LastName
+                        : null,
+                })
+                .Take(QueueSize)
+                .ToListAsync(ct);
+
+            return (weekData, activeRows, docQueueRows);
+        });
+
+        await Task.WhenAll(ctxATask, ctxBTask);
+        var (aggregates, pendingRows, nowServingItems) = ctxATask.Result;
+        var (weekData, activeRows, docQueueRows) = ctxBTask.Result;
         var weekActionGroups = weekData
             .GroupBy(a => new { Day = a.ActionDate.Add(PhOffset).Date, a.ToStatus })
             .Select(g => new WeekActionGroupRow
