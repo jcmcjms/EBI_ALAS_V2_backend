@@ -6,6 +6,7 @@ using EBI.ALAS.Api.Features.Notifications;
 using EBI.ALAS.Api.Infrastructure.Data;
 using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Options;
 namespace EBI.ALAS.Api.Features.Loans;
 public class WorkflowQueueService : IWorkflowQueueService
@@ -15,18 +16,21 @@ public class WorkflowQueueService : IWorkflowQueueService
     private readonly INotificationService _notifications;
     private readonly ITimeProvider _time;
     private readonly IOptionsMonitor<QueueOptions> _queueOptions;
+    private readonly IMemoryCache _cache;
     public WorkflowQueueService(
         AppDbContext db,
         ILoanRepository loanRepo,
         INotificationService notifications,
         ITimeProvider time,
-        IOptionsMonitor<QueueOptions> queueOptions)
+        IOptionsMonitor<QueueOptions> queueOptions,
+        IMemoryCache cache)
     {
         _db = db;
         _loanRepo = loanRepo;
         _notifications = notifications;
         _time = time;
         _queueOptions = queueOptions;
+        _cache = cache;
     }
     public static QueueStage? StageForStatus(string status) => status switch
     {
@@ -145,8 +149,13 @@ public class WorkflowQueueService : IWorkflowQueueService
         var candidates = await _loanRepo.GetUsersByRoleAndBranchAsync(Roles.Approver, loan.BranchCode, ct);
         if (loan.RequiredApprovalTier is int tier)
         {
-            var keys = await _db.ApprovalAuthorities
-                .Where(a => a.Tier == tier).Select(a => a.Key).ToListAsync(ct);
+            var tierCacheKey = $"approval_tier:{tier}";
+            if (!_cache.TryGetValue(tierCacheKey, out List<string>? keys) || keys is null)
+            {
+                keys = await _db.ApprovalAuthorities
+                    .Where(a => a.Tier == tier).Select(a => a.Key).ToListAsync(ct);
+                _cache.Set(tierCacheKey, keys, TimeSpan.FromMinutes(5));
+            }
             candidates = candidates
                 .Where(u => u.ApprovalAuthorityKey != null && keys.Contains(u.ApprovalAuthorityKey))
                 .ToList();
@@ -315,13 +324,19 @@ public class WorkflowQueueService : IWorkflowQueueService
             .Include(u => u.BranchCoverages)
             .FirstOrDefaultAsync(u => u.Id == userId, ct);
         if (user?.ApprovalAuthorityKey is null) return ([], "No authority assigned");
-        var authority = await _db.ApprovalAuthorities.AsNoTracking()
-            .FirstOrDefaultAsync(a => a.Key == user.ApprovalAuthorityKey, ct);
+        var authorityKey = user.ApprovalAuthorityKey;
+        var cacheKey = $"approval_authority:{authorityKey}";
+        if (!_cache.TryGetValue(cacheKey, out ApprovalAuthority? authority))
+        {
+            authority = await _db.ApprovalAuthorities.AsNoTracking()
+                .FirstOrDefaultAsync(a => a.Key == authorityKey, ct);
+            if (authority is not null)
+                _cache.Set(cacheKey, authority, TimeSpan.FromMinutes(5));
+        }
         if (authority is null) return ([], "No authority assigned");
         var branches = authority.ScopeType switch
         {
-            AuthorityScope.Global => await _db.Branches.AsNoTracking()
-                .Select(b => b.Code).ToListAsync(ct),
+            AuthorityScope.Global => await GetCachedBranchCodesAsync(ct),
             AuthorityScope.Area => user.BranchCoverages.Select(c => c.BranchCode).ToList(),
             _ => [user.BranchId],
         };
@@ -332,6 +347,17 @@ public class WorkflowQueueService : IWorkflowQueueService
             _ => $"Branch {user.BranchId}",
         };
         return (branches.Select(b => $"APP:{b}:{authority.Tier}").ToList(), scope);
+    }
+    private async Task<List<string>> GetCachedBranchCodesAsync(CancellationToken ct)
+    {
+        const string cacheKey = "branches:all";
+        if (_cache.TryGetValue(cacheKey, out List<string>? codes) && codes is not null)
+            return codes;
+        codes = await _db.Branches.AsNoTracking()
+            .Select(b => b.Code)
+            .ToListAsync(ct);
+        _cache.Set(cacheKey, codes, TimeSpan.FromMinutes(5));
+        return codes;
     }
     private static string DeskLabelFor(string role) => role switch
     {
