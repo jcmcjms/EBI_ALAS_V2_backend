@@ -1,4 +1,4 @@
-﻿using EBI.ALAS.Api.Infrastructure.Data;
+using EBI.ALAS.Api.Infrastructure.Data;
 using EBI.ALAS.Api.Infrastructure.Interceptors;
 using Microsoft.EntityFrameworkCore;
 namespace EBI.ALAS.Api.Common.Extensions;
@@ -24,6 +24,7 @@ public static class DatabaseExtensions
                 });
             options.AddInterceptors(sp.GetRequiredService<AuditSaveChangesInterceptor>());
         });
+        services.AddDbContextFactory<AppDbContext>();
         return services;
     }
     public static IServiceCollection AddWebLoanDatabase(
