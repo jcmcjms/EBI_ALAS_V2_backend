@@ -199,4 +199,9 @@ public class LoanRepository(AppDbContext context) : ILoanRepository
             .Where(u => u.Role == role && u.BranchId == branchId && u.IsActive)
             .ToListAsync(ct);
     }
+    public async Task<User?> GetUserByIdAsync(int userId, CancellationToken ct = default)
+    {
+        return await context.Users.AsNoTracking()
+            .FirstOrDefaultAsync(u => u.Id == userId, ct);
+    }
 }
