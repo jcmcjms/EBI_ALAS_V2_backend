@@ -194,7 +194,8 @@ public class WorkflowQueueService : IWorkflowQueueService
                 WHERE wi.PartitionKey = {partitionKey}
                   AND wi.State <> 'Completed'
             )
-            SELECT LoanApplicationId, OwnerUserId, OwnerFirst, OwnerLast, LeasedAt, Position, PartitionSize
+            SELECT LoanApplicationId, OwnerUserId, OwnerFirst, OwnerLast, LeasedAt,
+                   CAST(Position AS INT) AS Position, CAST(PartitionSize AS INT) AS PartitionSize
             FROM Ranked WHERE LoanApplicationId = {loanId}")
             .ToListAsync(ct);
         var row = rows.FirstOrDefault();
@@ -231,14 +232,15 @@ public class WorkflowQueueService : IWorkflowQueueService
         // State stored as string via HasConversion<string>() in WorkflowQueueItemConfiguration
         var sql = $@"SELECT wi.LoanApplicationId,
             wi.OwnerUserId,
+            wi.LeasedAt,
             u.FirstName AS OwnerFirst,
             u.LastName  AS OwnerLast,
-            ROW_NUMBER() OVER (
+            CAST(ROW_NUMBER() OVER (
                 PARTITION BY wi.PartitionKey
                 ORDER BY CASE WHEN wi.State = 'Active' THEN 0 ELSE 1 END,
                          wi.EnqueuedAt, wi.Id
-            ) AS Position,
-            COUNT(*) OVER (PARTITION BY wi.PartitionKey) AS PartitionSize
+            ) AS INT) AS Position,
+            CAST(COUNT(*) OVER (PARTITION BY wi.PartitionKey) AS INT) AS PartitionSize
            FROM WorkflowQueueItems wi
            LEFT JOIN Users u ON u.Id = wi.OwnerUserId
            WHERE wi.PartitionKey IN ({inClause})
