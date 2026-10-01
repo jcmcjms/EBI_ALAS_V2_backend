@@ -1,4 +1,4 @@
-﻿using EBI.ALAS.Api.Common.Time;
+using EBI.ALAS.Api.Common.Time;
 using EBI.ALAS.Api.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 namespace EBI.ALAS.Api.Features.Loans;
@@ -39,5 +39,25 @@ public class AuditLogger : IAuditLogger
             .Include(a => a.ActionByUser)
             .OrderByDescending(a => a.ActionDate)
             .ToListAsync();
+    }
+    public void TrackAction(
+        int loanApplicationId,
+        int actionByUserId,
+        string action,
+        string? fromStatus,
+        string? toStatus,
+        string? comments = null)
+    {
+        var loanAction = new LoanAction
+        {
+            LoanApplicationId = loanApplicationId,
+            ActionByUserId = actionByUserId,
+            Action = action,
+            FromStatus = fromStatus,
+            ToStatus = toStatus,
+            Comments = comments,
+            ActionDate = _timeProvider.UtcNow
+        };
+        _context.LoanActions.Add(loanAction);
     }
 }

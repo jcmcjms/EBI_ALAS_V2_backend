@@ -1,4 +1,4 @@
-﻿using EBI.ALAS.Api.Common.Constants;
+using EBI.ALAS.Api.Common.Constants;
 using EBI.ALAS.Api.Common.Time;
 using EBI.ALAS.Api.Features.ApprovalMatrix;
 using EBI.ALAS.Api.Features.Auth;
@@ -62,6 +62,20 @@ public class WorkflowQueueService : IWorkflowQueueService
         await _db.SaveChangesAsync(ct);
         await PromoteAsync(partitionKey, loan, ct);
     }
+    public void TrackEnqueue(LoanApplication loan, string newStatus)
+    {
+        var stage = StageForStatus(newStatus);
+        if (stage is null) return;
+        var item = new WorkflowQueueItem
+        {
+            LoanApplicationId = loan.Id,
+            Stage = stage.Value,
+            PartitionKey = PartitionKey(stage.Value, loan),
+            EnqueuedAt = _time.UtcNow,
+            State = QueueItemState.Queued
+        };
+        _db.WorkflowQueueItems.Add(item);
+    }
     public async Task DequeueAndPromoteAsync(LoanApplication loan, string oldStatus, CancellationToken ct)
     {
         var stage = StageForStatus(oldStatus);
@@ -75,6 +89,19 @@ public class WorkflowQueueService : IWorkflowQueueService
         item.DequeuedAt = _time.UtcNow;
         await _db.SaveChangesAsync(ct);
         await PromoteAsync(partitionKey, loan, ct);
+    }
+    public async Task DequeueAndPromoteWithoutSaveAsync(LoanApplication loan, string oldStatus, CancellationToken ct)
+    {
+        var stage = StageForStatus(oldStatus);
+        if (stage == null) return;
+        var item = await _db.WorkflowQueueItems.FirstOrDefaultAsync(i =>
+            i.LoanApplicationId == loan.Id && i.Stage == stage &&
+            (i.State == QueueItemState.Queued || i.State == QueueItemState.Active), ct);
+        if (item == null) return;
+        var partitionKey = item.PartitionKey;
+        item.State = QueueItemState.Completed;
+        item.DequeuedAt = _time.UtcNow;
+        await PromoteWithoutSaveAsync(partitionKey, loan, ct);
     }
     private async Task PromoteAsync(string partitionKey, LoanApplication loan, CancellationToken ct)
     {
@@ -111,6 +138,41 @@ public class WorkflowQueueService : IWorkflowQueueService
         head.OwnerUserId = ownerId;
         head.LeasedAt = ownerId is null ? null : _time.UtcNow;
         await _db.SaveChangesAsync(ct);
+    }
+    private async Task PromoteWithoutSaveAsync(string partitionKey, LoanApplication loan, CancellationToken ct)
+    {
+        if (await _db.WorkflowQueueItems.AnyAsync(i =>
+                i.PartitionKey == partitionKey && i.State == QueueItemState.Active, ct))
+            return;
+        var head = await _db.WorkflowQueueItems
+            .Where(i => i.PartitionKey == partitionKey && i.State == QueueItemState.Queued)
+            .OrderBy(i => i.EnqueuedAt).ThenBy(i => i.Id)
+            .FirstOrDefaultAsync(ct);
+        if (head == null) return;
+        int? ownerId = null;
+        if (head.Stage == QueueStage.Approval)
+        {
+            var owner = await ResolveApproverAsync(loan, ct);
+            ownerId = owner?.Id;
+            var application = await _db.LoanApplications.FindAsync([loan.Id], ct);
+            if (application != null)
+            {
+                application.AssignedApproverId = owner?.Id;
+                application.AssignedAt = owner == null ? null : _time.UtcNow;
+            }
+            if (owner != null)
+            {
+                var link = $"/loans/monitoring?id={loan.Id}";
+                var title = "Your turn: application ready for review";
+                var body = $"{loan.LamId} ({loan.FirstName} {loan.LastName}) is next in your queue.";
+                await _notifications.CreateAsync(owner.Id, title, body, link);
+                await _realtime.NotifyUserAsync(owner.Id, title, body, link);
+            }
+        }
+        head.State = QueueItemState.Active;
+        head.PromotedAt = _time.UtcNow;
+        head.OwnerUserId = ownerId;
+        head.LeasedAt = ownerId is null ? null : _time.UtcNow;
     }
     private async Task<User?> ResolveApproverAsync(LoanApplication loan, CancellationToken ct)
     {
@@ -300,10 +362,10 @@ public class WorkflowQueueService : IWorkflowQueueService
                 .Select(i => new { i.Id, i.LoanApplicationId, i.PartitionKey })
                 .FirstOrDefaultAsync(ct);
             if (candidate is null) return null;
-            var (won, loanApplicationId) = await TryLeaseItemAsync(candidate.Id, userId, ct);
+            var won = await TryLeaseItemAsync(candidate.Id, userId, ct);
             if (!won) continue;
             var loan = await _db.LoanApplications.AsNoTracking()
-                .Where(l => l.Id == loanApplicationId)
+                .Where(l => l.Id == candidate.LoanApplicationId)
                 .Select(l => new { l.Id, l.LamId, l.FirstName, l.LastName, l.Status })
                 .FirstOrDefaultAsync(ct);
             if (loan is null) return null;
@@ -312,7 +374,7 @@ public class WorkflowQueueService : IWorkflowQueueService
         }
         return null;
     }
-    private async Task<(bool Won, int LoanApplicationId)> TryLeaseItemAsync(
+    private async Task<bool> TryLeaseItemAsync(
         int itemId, int userId, CancellationToken ct)
     {
         var now = _time.UtcNow;
@@ -326,13 +388,7 @@ public class WorkflowQueueService : IWorkflowQueueService
             .ExecuteUpdateAsync(s => s
                 .SetProperty(i => i.OwnerUserId, userId)
                 .SetProperty(i => i.LeasedAt, now), ct);
-        if (won != 1)
-            return (false, 0);
-        var loanId = await _db.WorkflowQueueItems
-            .Where(i => i.Id == itemId)
-            .Select(i => i.LoanApplicationId)
-            .FirstAsync(ct);
-        return (true, loanId);
+        return won == 1;
     }
     public async Task<DeskQueueResponse> GetDeskAsync(
         int userId, string role, string branchCode, CancellationToken ct)
@@ -432,7 +488,7 @@ public class WorkflowQueueService : IWorkflowQueueService
                         && prefixes.Contains(i.PartitionKey)
                         && (i.State == QueueItemState.Active || i.State == QueueItemState.Queued))
             .OrderBy(i => i.EnqueuedAt).ThenBy(i => i.Id)
-            .Select(i => new { i.Id, i.OwnerUserId, i.State })
+            .Select(i => new { i.Id, i.LoanApplicationId, i.OwnerUserId, i.State })
             .FirstOrDefaultAsync(ct);
         if (item is null)
             return new ClaimByIdResult.NotFound();
@@ -446,11 +502,11 @@ public class WorkflowQueueService : IWorkflowQueueService
                 .FirstOrDefaultAsync(ct) ?? "another reviewer";
             return new ClaimByIdResult.LeasedByOther(ownerName);
         }
-        var (won, loanApplicationId) = await TryLeaseItemAsync(item.Id, userId, ct);
+        var won = await TryLeaseItemAsync(item.Id, userId, ct);
         if (!won)
             return new ClaimByIdResult.LeasedByOther("another reviewer");
         var loan = await _db.LoanApplications.AsNoTracking()
-            .Where(l => l.Id == loanApplicationId)
+            .Where(l => l.Id == item.LoanApplicationId)
             .Select(l => new { l.Id, l.LamId, l.FirstName, l.LastName, l.Status })
             .FirstOrDefaultAsync(ct);
         if (loan is null)

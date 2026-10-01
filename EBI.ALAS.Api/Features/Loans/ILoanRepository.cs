@@ -1,4 +1,4 @@
-﻿using EBI.ALAS.Api.Common.Models;
+using EBI.ALAS.Api.Common.Models;
 using EBI.ALAS.Api.Features.Auth;
 namespace EBI.ALAS.Api.Features.Loans;
 public interface ILoanRepository
@@ -16,6 +16,7 @@ public interface ILoanRepository
         CancellationToken ct = default);
     Task<LoanApplication> CreateAsync(LoanApplication loan, CancellationToken ct = default);
     Task UpdateAsync(LoanApplication loan, CancellationToken ct = default);
+    void TrackUpdate(LoanApplication loan);
     Task<bool> ExistsAsync(int id, CancellationToken ct = default);
     Task<int> GetCountByStatusAsync(string status, string? branchId = null, CancellationToken ct = default);
     Task<decimal> GetTotalAmountByStatusAsync(string status, string? branchId = null, CancellationToken ct = default);
