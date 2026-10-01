@@ -10,7 +10,8 @@ public record DeskQueueResponse(
     string DeskLabel,
     IReadOnlyList<QueuedLoanDto> Items,
     QueuedLoanDto? CurrentClaim,
-    string ScopeDescription);
+    string ScopeDescription,
+    int TotalCount = 0);
 public record QueuedLoanDto(
     int LoanId,
     string LamId,
@@ -60,7 +61,7 @@ public interface IWorkflowQueueService
         IReadOnlyCollection<int> loanIds, CancellationToken ct);
     Task<bool> IsHeadOwnerAsync(int loanId, int userId, string currentStatus, CancellationToken ct);
     Task<ClaimResponse?> ClaimHeadAsync(int userId, string role, string branchCode, CancellationToken ct);
-    Task<DeskQueueResponse> GetDeskAsync(int userId, string role, string branchCode, CancellationToken ct);
+    Task<DeskQueueResponse> GetDeskAsync(int userId, string role, string branchCode, int page = 1, int pageSize = 20, CancellationToken ct = default);
     Task<bool> ReleaseClaimAsync(int userId, CancellationToken ct);
     Task<ClaimByIdResult> ClaimByIdAsync(int id, int userId, string role, string branchCode, CancellationToken ct);
     Task PromoteHeadAsync(string partitionKey, CancellationToken ct);

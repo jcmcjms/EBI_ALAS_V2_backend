@@ -388,7 +388,7 @@ public class WorkflowQueueService : IWorkflowQueueService
         return won == 1;
     }
     public async Task<DeskQueueResponse> GetDeskAsync(
-        int userId, string role, string branchCode, CancellationToken ct)
+        int userId, string role, string branchCode, int page = 1, int pageSize = 20, CancellationToken ct = default)
     {
         List<string> prefixes;
         string scope;
@@ -402,62 +402,75 @@ public class WorkflowQueueService : IWorkflowQueueService
             scope = role == Roles.Admin ? "All approval partitions" : $"{branchCode} — {DeskLabelFor(role)}";
         }
         if (prefixes.Count == 0)
-            return new DeskQueueResponse(DeskLabelFor(role), [], null, scope);
-        var rows = await _db.WorkflowQueueItems.AsNoTracking()
-            .Where(i => prefixes.Contains(i.PartitionKey)
-                        && i.State != QueueItemState.Completed)
-            .OrderBy(i => i.EnqueuedAt).ThenBy(i => i.Id)
-            .Select(i => new
-            {
-                i.LoanApplicationId,
-                i.OwnerUserId,
-                i.EnqueuedAt,
-                OwnerName = i.OwnerUser == null
-                    ? null
-                    : i.OwnerUser.FirstName + " " + i.OwnerUser.LastName,
-                LamId = i.LoanApplication.LamId,
-                ClientName = (i.LoanApplication.FirstName + " " + i.LoanApplication.LastName).Trim(),
-                i.LoanApplication.Status,
-                i.LoanApplication.BranchCode,
-                i.LoanApplication.ProductCode,
-                i.LoanApplication.Product,
-                LoanType = i.LoanApplication.CreationTypeLabel,
-                i.LoanApplication.Purpose,
-                i.LoanApplication.ProposedAmount,
-                i.LoanApplication.TermDays,
-                i.LoanApplication.ApplicationDate,
-                i.LoanApplication.HasDeviations,
-            })
-            .ToListAsync(ct);
-        var rank = 0;
-        var dtos = new List<QueuedLoanDto>(rows.Count);
-        QueuedLoanDto? currentClaim = null;
-        foreach (var row in rows)
-        {
-            rank++;
-            var dto = new QueuedLoanDto(
-                row.LoanApplicationId,
-                row.LamId,
-                row.ClientName,
-                rank,
-                rank == 1,
-                row.OwnerUserId,
-                row.OwnerName,
-                row.EnqueuedAt,
-                row.Status,
-                row.BranchCode,
-                row.ProductCode,
-                row.Product,
-                row.LoanType,
-                row.Purpose,
-                row.ProposedAmount,
-                row.TermDays,
-                row.ApplicationDate,
-                row.HasDeviations);
-            dtos.Add(dto);
-            if (row.OwnerUserId == userId) currentClaim = dto;
-        }
-        return new DeskQueueResponse(DeskLabelFor(role), dtos, currentClaim, scope);
+            return new DeskQueueResponse(DeskLabelFor(role), [], null, scope, 0);
+
+        var totalCount = await _db.WorkflowQueueItems.AsNoTracking()
+            .Where(i => prefixes.Contains(i.PartitionKey) && i.State != QueueItemState.Completed)
+            .CountAsync(ct);
+
+        if (totalCount == 0)
+            return new DeskQueueResponse(DeskLabelFor(role), [], null, scope, 0);
+
+        var skip = (page - 1) * pageSize;
+        var parameters = prefixes
+            .Select((k, i) => new SqlParameter($"@p{i}", k))
+            .ToArray();
+        var inClause = string.Join(", ", Enumerable.Range(0, prefixes.Count).Select(i => $"@p{i}"));
+
+        var sql = $@"
+            WITH Ranked AS (
+                SELECT wi.LoanApplicationId,
+                       wi.OwnerUserId,
+                       wi.EnqueuedAt,
+                       u.FirstName + ' ' + u.LastName AS OwnerName,
+                       la.LamId,
+                       la.FirstName + ' ' + la.LastName AS ClientName,
+                       la.Status,
+                       la.BranchCode,
+                       la.ProductCode,
+                       la.Product,
+                       la.CreationTypeLabel AS LoanType,
+                       la.Purpose,
+                       la.ProposedAmount,
+                       la.TermDays,
+                       la.ApplicationDate,
+                       la.HasDeviations,
+                       ROW_NUMBER() OVER (ORDER BY wi.EnqueuedAt, wi.Id) AS Rank
+                FROM WorkflowQueueItems wi
+                INNER JOIN LoanApplications la ON la.Id = wi.LoanApplicationId
+                LEFT JOIN Users u ON u.Id = wi.OwnerUserId
+                WHERE wi.PartitionKey IN ({inClause})
+                  AND wi.State <> 'Completed'
+            )
+            SELECT * FROM Ranked
+            ORDER BY Rank
+            OFFSET {skip} ROWS FETCH NEXT {pageSize} ROWS ONLY";
+
+        var rows = await _db.Database.SqlQueryRaw<DeskQueueRow>(sql, parameters).ToListAsync(ct);
+
+        var dtos = rows.Select(row => new QueuedLoanDto(
+            row.LoanApplicationId,
+            row.LamId ?? "",
+            (row.ClientName ?? "").Trim(),
+            row.Rank,
+            row.Rank == 1,
+            row.OwnerUserId,
+            row.OwnerName,
+            row.EnqueuedAt,
+            row.Status ?? "",
+            row.BranchCode ?? "",
+            row.ProductCode ?? "",
+            row.Product ?? "",
+            row.LoanType,
+            row.Purpose,
+            row.ProposedAmount,
+            row.TermDays,
+            row.ApplicationDate,
+            row.HasDeviations)).ToList();
+
+        var currentClaim = dtos.FirstOrDefault(d => d.OwnerUserId == userId);
+
+        return new DeskQueueResponse(DeskLabelFor(role), dtos, currentClaim, scope, totalCount);
     }
     public async Task<bool> ReleaseClaimAsync(int userId, CancellationToken ct)
     {
@@ -541,5 +554,25 @@ public class WorkflowQueueService : IWorkflowQueueService
         public DateTime? LeasedAt { get; set; }
         public int Position { get; set; }
         public int PartitionSize { get; set; }
+    }
+    private class DeskQueueRow
+    {
+        public int LoanApplicationId { get; set; }
+        public int? OwnerUserId { get; set; }
+        public DateTime EnqueuedAt { get; set; }
+        public string? OwnerName { get; set; }
+        public string? LamId { get; set; }
+        public string? ClientName { get; set; }
+        public string? Status { get; set; }
+        public string? BranchCode { get; set; }
+        public string? ProductCode { get; set; }
+        public string? Product { get; set; }
+        public string? LoanType { get; set; }
+        public string? Purpose { get; set; }
+        public decimal ProposedAmount { get; set; }
+        public int TermDays { get; set; }
+        public DateTime ApplicationDate { get; set; }
+        public bool HasDeviations { get; set; }
+        public int Rank { get; set; }
     }
 }
