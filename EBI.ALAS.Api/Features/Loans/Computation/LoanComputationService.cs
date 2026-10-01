@@ -1,4 +1,4 @@
-﻿namespace EBI.ALAS.Api.Features.Loans.Computation;
+namespace EBI.ALAS.Api.Features.Loans.Computation;
 public record FeeSchedule(
     decimal ApplicationChargeRate,
     decimal DocStampRate,
@@ -22,7 +22,8 @@ public record LoanProductComputationConfig(
     DeductionPolicy DeductionPolicy,
     int PolicyTermMonths = 0,
     decimal MaxLoanableStep = 100m,
-    IReadOnlyList<MinimumAmortizationTier>? MinimumAmortizationTiers = null)
+    IReadOnlyList<MinimumAmortizationTier>? MinimumAmortizationTiers = null,
+    bool IsApds = false)
 {
     public static LoanProductComputationConfig FromEntity(
         LoanProduct product,
@@ -31,15 +32,18 @@ public record LoanProductComputationConfig(
     {
         var isDim = (product.AmortizationMode ?? "DIM") == "DIM";
         var deductionPolicy = isDim
-            ? new DeductionPolicy(DeductionPolicyMode.FixedTotalRate, 0.06m)
+            ? new DeductionPolicy(DeductionPolicyMode.FixedTotalRate, product.ApplicationChargeRate > 0 ? product.ApplicationChargeRate : 0.06m)
             : new DeductionPolicy(DeductionPolicyMode.SumOfComponents, 0m);
+        var isApds = product.Code.StartsWith("A", StringComparison.OrdinalIgnoreCase);
         return new LoanProductComputationConfig(
             ProductCode: product.Code,
             AnnualInterestRate: interestRate,
             TermDays: termDays,
             AmortizationMode: product.AmortizationMode == "MIC"
                 ? Computation.AmortizationMode.MIC
-                : Computation.AmortizationMode.DIM,
+                : product.AmortizationMode == "ADO-LUMP"
+                    ? Computation.AmortizationMode.ADOLump
+                    : Computation.AmortizationMode.DIM,
             ChargeAdvanceInterest: product.ChargeAdvanceInterest,
             Fees: new FeeSchedule(
                 ApplicationChargeRate: product.ApplicationChargeRate,
@@ -48,10 +52,11 @@ public record LoanProductComputationConfig(
                 InsuranceRate: product.InsuranceFee > 0 ? product.InsuranceFee : 0m),
             DeductionPolicy: deductionPolicy,
             PolicyTermMonths: termDays > 0 ? (int)Math.Round(termDays / 30m) : 0,
-            MaxLoanableStep: 100m);
+            MaxLoanableStep: 100m,
+            IsApds: isApds);
     }
 }
-public enum AmortizationMode { DIM, MIC }
+public enum AmortizationMode { DIM, MIC, ADOLump }
 public record MinimumAmortizationTier(decimal From, decimal To, decimal MinimumAmortization);
 public record LoanFees(
     decimal ApplicationCharge,
@@ -100,17 +105,21 @@ public sealed class LoanComputationService : ILoanComputationService
         new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase)
         {
             ["C34"] = 200_000m,
-            ["C21"] = 135_000m,
+            ["C21"] = 215_000m,
             ["C27"] = 120_000m,
             ["C29"] = 100_000m,
             ["C25"] = 200_000m,
+            ["C02"] = 100_000m,
         };
     public LoanFees ComputeExpectedFees(LoanProductComputationConfig product, decimal proposedAmount)
     {
         var docStamp = Round(proposedAmount * product.Fees.DocStampRate);
         var notarial = product.Fees.NotarialFee;
-        var insurance = Round(proposedAmount * product.Fees.InsuranceRate);
-        var advanceInterest = product.ChargeAdvanceInterest
+        var isC02 = product.ProductCode.Equals("C02", StringComparison.OrdinalIgnoreCase);
+        var insurance = isC02
+            ? Round(proposedAmount / 1000m * 3m * product.TermDays / 360m)
+            : Round(proposedAmount * product.Fees.InsuranceRate);
+        var advanceInterest = (product.ChargeAdvanceInterest || isC02)
             ? Round(proposedAmount * product.AnnualInterestRate * product.TermDays / 360m)
             : 0m;
         decimal applicationCharge;
@@ -144,17 +153,19 @@ public sealed class LoanComputationService : ILoanComputationService
             ? product.PolicyTermMonths
             : product.TermDays / 30m;
         var factor = AnnuityFactor(product.AnnualInterestRate / 12m, termMonths);
-        var diminishingAmortization = Round(proposed * factor);
-        var minimumAmortization = product.AmortizationMode == AmortizationMode.MIC
+        var diminishingAmortization = Math.Ceiling(proposed * factor);
+        var minimumAmortization = product.AmortizationMode is AmortizationMode.MIC or AmortizationMode.ADOLump
             ? product.MinimumAmortizationTiers?
                   .FirstOrDefault(t => proposed >= t.From && proposed <= t.To)?.MinimumAmortization ?? 0m
             : 0m;
         var monthlyAmortization = Math.Max(diminishingAmortization, minimumAmortization);
         var totalExposure = Round(proposed + Sum(input.OutstandingPrincipalBalances));
-        var releasedDeductions = Round(
-            Sum(input.Reloans.Select(r => r.Deductions))
-            + Sum(input.BuyOuts.Select(b => b.Deductions)));
-        var netPayAfterDeduction = Round(input.NetTakeHomePay - monthlyAmortization + releasedDeductions);
+        var ebiDeductions = Round(Sum(input.Reloans.Select(r => r.Deductions)));
+        var buyOutDeductions = Round(Sum(input.BuyOuts.Select(b => b.Deductions)));
+        var releasedDeductions = ebiDeductions + buyOutDeductions;
+        var netPayAfterDeduction = product.IsApds
+            ? Round(input.NetTakeHomePay - monthlyAmortization + releasedDeductions)
+            : Round(input.NetTakeHomePay - monthlyAmortization);
         var grossDisposableIncome = Round(input.NetTakeHomePay + releasedDeductions);
         var capacityDeductions = Round(input.MinimumNthp + Sum(input.IncomingDeductions));
         var netDisposableIncome = Round(grossDisposableIncome - capacityDeductions);
