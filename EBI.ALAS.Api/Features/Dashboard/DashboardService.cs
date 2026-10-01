@@ -180,7 +180,7 @@ public class DashboardService : IDashboardService
             .Select(g => new WeekActionGroupRow
             {
                 DayLabel = g.Key.Day,
-                ToStatus = g.Key.ToStatus,
+                ToStatus = g.Key.ToStatus ?? "",
                 Count = g.Count()
             })
             .ToList();
