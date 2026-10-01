@@ -175,23 +175,29 @@ public class WorkflowQueueService : IWorkflowQueueService
             .Select(i => i.PartitionKey)
             .FirstOrDefaultAsync(ct);
         if (partitionKey is null) return null;
+        // State stored as string via HasConversion<string>() in WorkflowQueueItemConfiguration
         var rows = await _db.Database.SqlQuery<QueueRankRow>(
-            $@"SELECT wi.LoanApplicationId,
-                wi.OwnerUserId,
-                u.FirstName AS OwnerFirst,
-                u.LastName  AS OwnerLast,
-                wi.LeasedAt,
-                ROW_NUMBER() OVER (
-                    ORDER BY CASE WHEN wi.State = 'Active' THEN 0 ELSE 1 END,
-                             wi.EnqueuedAt, wi.Id
-                ) AS Position,
-                COUNT(*) OVER () AS PartitionSize
-               FROM WorkflowQueueItems wi
-               LEFT JOIN Users u ON u.Id = wi.OwnerUserId
-               WHERE wi.PartitionKey = {partitionKey}
-                 AND wi.State <> 'Completed'")
+            $@"WITH Ranked AS (
+                SELECT wi.Id,
+                    wi.LoanApplicationId,
+                    wi.OwnerUserId,
+                    wi.LeasedAt,
+                    u.FirstName AS OwnerFirst,
+                    u.LastName  AS OwnerLast,
+                    ROW_NUMBER() OVER (
+                        ORDER BY CASE WHEN wi.State = 'Active' THEN 0 ELSE 1 END,
+                                 wi.EnqueuedAt, wi.Id
+                    ) AS Position,
+                    COUNT(*) OVER () AS PartitionSize
+                FROM WorkflowQueueItems wi
+                LEFT JOIN Users u ON u.Id = wi.OwnerUserId
+                WHERE wi.PartitionKey = {partitionKey}
+                  AND wi.State <> 'Completed'
+            )
+            SELECT LoanApplicationId, OwnerUserId, OwnerFirst, OwnerLast, LeasedAt, Position, PartitionSize
+            FROM Ranked WHERE LoanApplicationId = {loanId}")
             .ToListAsync(ct);
-        var row = rows.FirstOrDefault(r => r.LoanApplicationId == loanId);
+        var row = rows.FirstOrDefault();
         if (row is null) return null;
         var ownerName = row.OwnerFirst is null
             ? null
@@ -214,12 +220,15 @@ public class WorkflowQueueService : IWorkflowQueueService
             .ToListAsync(ct);
         if (loanInfos.Count == 0) return new Dictionary<int, QueuePositionInfo>();
         var partitions = loanInfos.Select(i => i.PartitionKey).Distinct().ToList();
-        var loanStageMap = loanInfos.ToDictionary(i => i.LoanApplicationId, i => i.Stage);
+        var loanStageMap = loanInfos
+            .GroupBy(i => i.LoanApplicationId)
+            .ToDictionary(g => g.Key, g => g.First().Stage);
         var parameters = partitions
             .Select((k, i) => new SqlParameter($"@p{i}", k))
             .ToArray();
         var inClause = string.Join(", ",
             Enumerable.Range(0, partitions.Count).Select(i => $"@p{i}"));
+        // State stored as string via HasConversion<string>() in WorkflowQueueItemConfiguration
         var sql = $@"SELECT wi.LoanApplicationId,
             wi.OwnerUserId,
             u.FirstName AS OwnerFirst,
