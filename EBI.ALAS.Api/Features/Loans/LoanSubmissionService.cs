@@ -1,4 +1,4 @@
-﻿using System.Security.Claims;
+using System.Security.Claims;
 using System.Text.Json;
 using EBI.ALAS.Api.Common.Constants;
 using EBI.ALAS.Api.Common.Exceptions;
@@ -76,12 +76,20 @@ public class LoanSubmissionService(
         var groupNo = await lamIdGenerator.GenerateGroupNumberAsync(ct);
         var lamIds = await lamIdGenerator.GenerateLamIdsAsync(request.Loans.Count, ct);
         var now = timeProvider.UtcNow;
+
+        // Batch product lookup: 1 query instead of N
+        var productCodes = request.Loans
+            .Select(x => x.ProductCode)
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+        var products = await productRepository.GetByCodesAsync(productCodes, ct);
+        var productByCode = products.ToDictionary(x => x.Code, StringComparer.Ordinal);
+
         var applications = new List<LoanApplication>();
         foreach (var (loan, i) in request.Loans.Select((l, i) => (l, i)))
         {
             var application = MapApplication(request, loan, groupNo, lamIds[i], branchCode, userId, now);
-            var product = await productRepository.GetByCodeAsync(loan.ProductCode, ct);
-            if (product is not null)
+            if (productByCode.TryGetValue(loan.ProductCode, out var product))
             {
                 var productConfig = LoanProductComputationConfig.FromEntity(
                     product, loan.Parameters.InterestRate, loan.Parameters.Term);
@@ -119,6 +127,7 @@ public class LoanSubmissionService(
             }
             applications.Add(application);
         }
+
         var idempotency = new LoanSubmissionIdempotency
         {
             IdempotencyKey = idempotencyKey,
@@ -126,6 +135,8 @@ public class LoanSubmissionService(
             ResponseJson = string.Empty,
             CreatedAt = now,
         };
+
+        // Build response before IDs are assigned (IDs come from SaveChanges)
         var response = new LoanSubmissionResponse
         {
             ApplicationGroupNo = groupNo,
@@ -141,11 +152,26 @@ public class LoanSubmissionService(
                 })
                 .ToList(),
         };
-        await loanRepository.CreateSubmissionAsync(applications, idempotency, ct);
+
+        // Track all entities — single SaveChanges writes everything
+        loanRepository.TrackSubmission(applications, idempotency);
+
         foreach (var application in applications)
         {
-            await queueService.EnqueueAsync(application, workflowService.InitialStatus, ct);
+            queueService.TrackEnqueue(application, workflowService.InitialStatus);
+            auditLogger.TrackAction(application.Id, userId, "Created", null, "Draft",
+                $"Loan application created (group {groupNo})");
+            auditLogger.TrackAction(application.Id, userId, "StatusChanged", "Draft",
+                workflowService.InitialStatus,
+                workflowService.InitialStatus == "ForRecommendation"
+                    ? "Submitted for recommendation"
+                    : "Submitted for evaluation");
         }
+
+        // Single flush: applications + idempotency + queue items + audit actions
+        await loanRepository.SaveChangesAsync(ct);
+
+        // Update response with generated IDs
         response = response with
         {
             Loans = applications
@@ -162,18 +188,26 @@ public class LoanSubmissionService(
         };
         idempotency.ResponseJson = JsonSerializer.Serialize(response);
         await loanRepository.UpdateIdempotencyResponseAsync(idempotency, ct);
-        foreach (var application in applications)
+
+        // Promote affected queue partitions (reads committed state)
+        var initialStage = WorkflowQueueService.StageForStatus(workflowService.InitialStatus);
+        if (initialStage is not null)
         {
-            await auditLogger.LogActionAsync(application.Id, userId, "Created", null, "Draft",
-                $"Loan application created (group {groupNo})");
-            await auditLogger.LogActionAsync(application.Id, userId, "StatusChanged", "Draft", workflowService.InitialStatus,
-                workflowService.InitialStatus == "ForRecommendation"
-                    ? "Submitted for recommendation"
-                    : "Submitted for evaluation");
+            var affectedPartitions = applications
+                .Select(a => queueService.GetPartitionKey(a, initialStage.Value))
+                .Distinct(StringComparer.Ordinal);
+
+            foreach (var partitionKey in affectedPartitions)
+            {
+                await queueService.PromoteHeadAsync(partitionKey, ct);
+            }
         }
+
+        // Notifications + SignalR after commit
         await NotifySubmissionRecipientsAsync(
             branchCode, groupNo, applications, workflowService.RequireRecommendation, ct);
         await realtimeService.NotifyDashboardUpdateAsync(branchCode);
+
         return (response, false);
     }
     private async Task NotifySubmissionRecipientsAsync(
@@ -185,32 +219,21 @@ public class LoanSubmissionService(
     {
         var firstLoan = applications.First();
         var clientName = $"{firstLoan.FirstName} {firstLoan.LastName}";
-        if (requireRecommendation)
-        {
-            var recommenders = await loanRepository.GetUsersByRoleAndBranchAsync(
-                Roles.Recommender, branchCode, ct);
-            foreach (var recommender in recommenders)
-            {
-                var message = $"Application group {groupNo} for {clientName} has been submitted for recommendation.";
-                await notificationService.CreateAsync(
-                    recommender.Id, "New Loan Application Submitted", message, "/loans/monitoring");
-                await realtimeService.NotifyUserAsync(
-                    recommender.Id, "New Loan Application Submitted", message, "/loans/monitoring");
-            }
-        }
-        else
-        {
-            var evaluators = await loanRepository.GetUsersByRoleAndBranchAsync(
-                Roles.Evaluator, branchCode, ct);
-            foreach (var evaluator in evaluators)
-            {
-                var message = $"Application group {groupNo} for {clientName} has been submitted for evaluation.";
-                await notificationService.CreateAsync(
-                    evaluator.Id, "New Loan Application Submitted", message, "/loans/monitoring");
-                await realtimeService.NotifyUserAsync(
-                    evaluator.Id, "New Loan Application Submitted", message, "/loans/monitoring");
-            }
-        }
+
+        var (recipients, actionWord) = requireRecommendation
+            ? (await loanRepository.GetUsersByRoleAndBranchAsync(Roles.Recommender, branchCode, ct), "recommendation")
+            : (await loanRepository.GetUsersByRoleAndBranchAsync(Roles.Evaluator, branchCode, ct), "evaluation");
+
+        if (recipients.Count == 0) return;
+
+        var notifTitle = "New Loan Application Submitted";
+        var notifDesc = $"Application group {groupNo} for {clientName} has been submitted for {actionWord}.";
+        var notifLink = "/loans/monitoring";
+
+        await notificationService.CreateBatchAsync(recipients.Select(r =>
+            (r.Id, notifTitle, notifDesc, (string?)notifLink)));
+
+        await realtimeService.NotifyBranchAsync(branchCode, notifTitle, notifDesc, notifLink);
     }
     private LoanApplication MapApplication(
         SubmitLoanApplicationRequest request,
