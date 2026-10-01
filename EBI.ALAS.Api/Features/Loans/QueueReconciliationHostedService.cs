@@ -16,6 +16,7 @@ public sealed class QueueReconciliationHostedService : BackgroundService
         _logger = logger;
         _queueOptions = queueOptions;
     }
+    private const int ReconciliationBatchLimit = 200;
     protected override async Task ExecuteAsync(CancellationToken ct)
     {
         var interval = TimeSpan.FromMinutes(5);
@@ -34,6 +35,7 @@ public sealed class QueueReconciliationHostedService : BackgroundService
                         && ((i.Stage == QueueStage.Recommendation && i.LoanApplication.Status != "ForRecommendation")
                          || (i.Stage == QueueStage.Evaluation && i.LoanApplication.Status != "ForChecking")
                          || (i.Stage == QueueStage.Approval && i.LoanApplication.Status != "ForApproval")))
+                    .Take(ReconciliationBatchLimit)
                     .ExecuteUpdateAsync(s => s
                         .SetProperty(i => i.State, QueueItemState.Completed)
                         .SetProperty(i => i.DequeuedAt, DateTime.UtcNow), ct);
@@ -42,13 +44,28 @@ public sealed class QueueReconciliationHostedService : BackgroundService
                              && !db.WorkflowQueueItems.Any(i =>
                                  i.LoanApplicationId == l.Id
                                  && (i.State == QueueItemState.Active || i.State == QueueItemState.Queued)))
+                    .Take(ReconciliationBatchLimit)
                     .ToListAsync(ct);
-                foreach (var loan in missingQueue)
+
+                if (missingQueue.Count > 0)
                 {
-                    _logger.LogInformation(
-                        "Rule A: enqueueing ForApproval loan {LoanId} (LamId={LamId}, tier={Tier}) — no active queue row.",
-                        loan.Id, loan.LamId, loan.RequiredApprovalTier);
-                    await queueService.EnqueueAsync(loan, loan.Status, ct);
+                    var now = DateTime.UtcNow;
+                    var newItems = missingQueue.Select(loan =>
+                    {
+                        _logger.LogInformation(
+                            "Rule A: enqueueing ForApproval loan {LoanId} (LamId={LamId}, tier={Tier}) — no active queue row.",
+                            loan.Id, loan.LamId, loan.RequiredApprovalTier);
+                        return new WorkflowQueueItem
+                        {
+                            LoanApplicationId = loan.Id,
+                            Stage = QueueStage.Approval,
+                            PartitionKey = $"APP:{loan.BranchCode}:{loan.RequiredApprovalTier}",
+                            EnqueuedAt = now,
+                            State = QueueItemState.Queued,
+                        };
+                    }).ToList();
+
+                    db.WorkflowQueueItems.AddRange(newItems);
                 }
                 var stalePartitions = await db.WorkflowQueueItems
                     .Include(i => i.LoanApplication)
