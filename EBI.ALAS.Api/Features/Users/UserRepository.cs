@@ -1,4 +1,4 @@
-﻿using EBI.ALAS.Api.Common.Models;
+using EBI.ALAS.Api.Common.Models;
 using EBI.ALAS.Api.Features.ApprovalMatrix;
 using EBI.ALAS.Api.Features.Auth;
 using EBI.ALAS.Api.Infrastructure.Data;
@@ -13,11 +13,11 @@ public class UserRepository : IUserRepository
         var query = _context.Users.AsQueryable();
         if (!string.IsNullOrWhiteSpace(parameters.Search))
         {
-            var search = parameters.Search.ToLower();
+            var search = parameters.Search;
             query = query.Where(u =>
-                u.Username.ToLower().Contains(search) ||
-                u.FirstName.ToLower().Contains(search) ||
-                u.LastName.ToLower().Contains(search));
+                u.Username.Contains(search) ||
+                u.FirstName.Contains(search) ||
+                u.LastName.Contains(search));
         }
         if (!string.IsNullOrWhiteSpace(parameters.Role))
             query = query.Where(u => u.Role == parameters.Role);
