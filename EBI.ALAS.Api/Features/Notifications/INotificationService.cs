@@ -1,4 +1,4 @@
-﻿namespace EBI.ALAS.Api.Features.Notifications;
+namespace EBI.ALAS.Api.Features.Notifications;
 public interface INotificationService
 {
     Task CreateAsync(int userId, string title, string description, string? link = null);
@@ -8,4 +8,5 @@ public interface INotificationService
     Task<InboxPage> GetInboxAsync(int userId, InboxQuery query, CancellationToken ct = default);
     Task<bool> MarkReadAsync(int userId, int notificationId, CancellationToken ct = default);
     Task<int> MarkAllReadAsync(int userId, CancellationToken ct = default);
+    void TrackCreate(int userId, string title, string description, string? link = null);
 }

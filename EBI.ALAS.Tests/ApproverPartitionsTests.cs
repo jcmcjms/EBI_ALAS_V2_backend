@@ -1,4 +1,4 @@
-﻿using EBI.ALAS.Api.Common.Constants;
+using EBI.ALAS.Api.Common.Constants;
 using EBI.ALAS.Api.Common.Time;
 using EBI.ALAS.Api.Features.ApprovalMatrix;
 using EBI.ALAS.Api.Features.Auth;
@@ -26,14 +26,13 @@ public class ApproverPartitionsTests : IDisposable
                 Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(new List<User>());
         var notifications = Substitute.For<INotificationService>();
-        var realtime = Substitute.For<IRealtimeNotificationService>();
         var time = Substitute.For<ITimeProvider>();
         time.UtcNow.Returns(new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc));
         var queueOptions = Substitute.For<IOptionsMonitor<QueueOptions>>();
         queueOptions.CurrentValue.Returns(new QueueOptions { LeaseTtlMinutes = 30 });
         _sut = new WorkflowQueueService(
             _db, loanRepo, notifications,
-            realtime, time, queueOptions);
+            time, queueOptions);
     }
     public void Dispose() => _db.Dispose();
     [Fact]
