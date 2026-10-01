@@ -12,21 +12,18 @@ public class WorkflowQueueService : IWorkflowQueueService
     private readonly AppDbContext _db;
     private readonly ILoanRepository _loanRepo;
     private readonly INotificationService _notifications;
-    private readonly IRealtimeNotificationService _realtime;
     private readonly ITimeProvider _time;
     private readonly IOptionsMonitor<QueueOptions> _queueOptions;
     public WorkflowQueueService(
         AppDbContext db,
         ILoanRepository loanRepo,
         INotificationService notifications,
-        IRealtimeNotificationService realtime,
         ITimeProvider time,
         IOptionsMonitor<QueueOptions> queueOptions)
     {
         _db = db;
         _loanRepo = loanRepo;
         _notifications = notifications;
-        _realtime = realtime;
         _time = time;
         _queueOptions = queueOptions;
     }
@@ -66,6 +63,10 @@ public class WorkflowQueueService : IWorkflowQueueService
     {
         var stage = StageForStatus(newStatus);
         if (stage is null) return;
+        if (stage == QueueStage.Approval && loan.RequiredApprovalTier is null)
+            throw new InvalidOperationException(
+                $"Cannot enqueue loan {loan.Id} for approval — RequiredApprovalTier is null. " +
+                "Route through the approval matrix first.");
         var item = new WorkflowQueueItem
         {
             LoanApplicationId = loan.Id,
@@ -78,20 +79,14 @@ public class WorkflowQueueService : IWorkflowQueueService
     }
     public async Task DequeueAndPromoteAsync(LoanApplication loan, string oldStatus, CancellationToken ct)
     {
-        var stage = StageForStatus(oldStatus);
-        if (stage == null) return;
-        var item = await _db.WorkflowQueueItems.FirstOrDefaultAsync(i =>
-            i.LoanApplicationId == loan.Id && i.Stage == stage &&
-            (i.State == QueueItemState.Queued || i.State == QueueItemState.Active), ct);
-        if (item == null) return;
-        var partitionKey = item.PartitionKey;
-        item.State = QueueItemState.Completed;
-        item.DequeuedAt = _time.UtcNow;
-        await _db.SaveChangesAsync(ct);
-        await PromoteAsync(partitionKey, loan, ct);
+        await DequeueAndPromoteCoreAsync(loan, oldStatus, save: true, ct);
     }
     public async Task DequeueAndPromoteWithoutSaveAsync(LoanApplication loan, string oldStatus, CancellationToken ct)
     {
+        await DequeueAndPromoteCoreAsync(loan, oldStatus, save: false, ct);
+    }
+    private async Task DequeueAndPromoteCoreAsync(LoanApplication loan, string oldStatus, bool save, CancellationToken ct)
+    {
         var stage = StageForStatus(oldStatus);
         if (stage == null) return;
         var item = await _db.WorkflowQueueItems.FirstOrDefaultAsync(i =>
@@ -101,45 +96,14 @@ public class WorkflowQueueService : IWorkflowQueueService
         var partitionKey = item.PartitionKey;
         item.State = QueueItemState.Completed;
         item.DequeuedAt = _time.UtcNow;
-        await PromoteWithoutSaveAsync(partitionKey, loan, ct);
+        if (save) await _db.SaveChangesAsync(ct);
+        await PromoteCoreAsync(partitionKey, loan, save, ct);
     }
     private async Task PromoteAsync(string partitionKey, LoanApplication loan, CancellationToken ct)
     {
-        if (await _db.WorkflowQueueItems.AnyAsync(i =>
-                i.PartitionKey == partitionKey && i.State == QueueItemState.Active, ct))
-            return;
-        var head = await _db.WorkflowQueueItems
-            .Where(i => i.PartitionKey == partitionKey && i.State == QueueItemState.Queued)
-            .OrderBy(i => i.EnqueuedAt).ThenBy(i => i.Id)
-            .FirstOrDefaultAsync(ct);
-        if (head == null) return;
-        int? ownerId = null;
-        if (head.Stage == QueueStage.Approval)
-        {
-            var owner = await ResolveApproverAsync(loan, ct);
-            ownerId = owner?.Id;
-            var application = await _db.LoanApplications.FindAsync([loan.Id], ct);
-            if (application != null)
-            {
-                application.AssignedApproverId = owner?.Id;
-                application.AssignedAt = owner == null ? null : _time.UtcNow;
-            }
-            if (owner != null)
-            {
-                var link = $"/loans/monitoring?id={loan.Id}";
-                var title = "Your turn: application ready for review";
-                var body = $"{loan.LamId} ({loan.FirstName} {loan.LastName}) is next in your queue.";
-                await _notifications.CreateAsync(owner.Id, title, body, link);
-                await _realtime.NotifyUserAsync(owner.Id, title, body, link);
-            }
-        }
-        head.State = QueueItemState.Active;
-        head.PromotedAt = _time.UtcNow;
-        head.OwnerUserId = ownerId;
-        head.LeasedAt = ownerId is null ? null : _time.UtcNow;
-        await _db.SaveChangesAsync(ct);
+        await PromoteCoreAsync(partitionKey, loan, save: true, ct);
     }
-    private async Task PromoteWithoutSaveAsync(string partitionKey, LoanApplication loan, CancellationToken ct)
+    private async Task PromoteCoreAsync(string partitionKey, LoanApplication loan, bool save, CancellationToken ct)
     {
         if (await _db.WorkflowQueueItems.AnyAsync(i =>
                 i.PartitionKey == partitionKey && i.State == QueueItemState.Active, ct))
@@ -165,14 +129,14 @@ public class WorkflowQueueService : IWorkflowQueueService
                 var link = $"/loans/monitoring?id={loan.Id}";
                 var title = "Your turn: application ready for review";
                 var body = $"{loan.LamId} ({loan.FirstName} {loan.LastName}) is next in your queue.";
-                await _notifications.CreateAsync(owner.Id, title, body, link);
-                await _realtime.NotifyUserAsync(owner.Id, title, body, link);
+                _notifications.TrackCreate(owner.Id, title, body, link);
             }
         }
         head.State = QueueItemState.Active;
         head.PromotedAt = _time.UtcNow;
         head.OwnerUserId = ownerId;
         head.LeasedAt = ownerId is null ? null : _time.UtcNow;
+        if (save) await _db.SaveChangesAsync(ct);
     }
     private async Task<User?> ResolveApproverAsync(LoanApplication loan, CancellationToken ct)
     {

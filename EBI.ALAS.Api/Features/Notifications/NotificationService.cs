@@ -1,4 +1,4 @@
-﻿using EBI.ALAS.Api.Common.Constants;
+using EBI.ALAS.Api.Common.Constants;
 using EBI.ALAS.Api.Common.Time;
 using EBI.ALAS.Api.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
@@ -39,6 +39,19 @@ public class NotificationService : INotificationService
         };
         _context.Notifications.Add(notification);
         await _context.SaveChangesAsync();
+    }
+    public void TrackCreate(int userId, string title, string description, string? link = null)
+    {
+        var notification = new Notification
+        {
+            UserId = userId,
+            Title = title,
+            Description = description,
+            Link = link,
+            CreatedAt = _timeProvider.UtcNow,
+            Type = NotificationClassifier.Classify(title)
+        };
+        _context.Notifications.Add(notification);
     }
     public async Task CreateBatchAsync(
         IEnumerable<(int UserId, string Title, string Description, string? Link)> notifications)
