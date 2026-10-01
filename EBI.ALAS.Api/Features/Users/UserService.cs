@@ -1,4 +1,4 @@
-using EBI.ALAS.Api.Common.Constants;
+﻿using EBI.ALAS.Api.Common.Constants;
 using EBI.ALAS.Api.Common.Exceptions;
 using EBI.ALAS.Api.Common.Models;
 using EBI.ALAS.Api.Common.Time;
@@ -6,9 +6,7 @@ using EBI.ALAS.Api.Features.ApprovalMatrix;
 using EBI.ALAS.Api.Features.Auth;
 using EBI.ALAS.Api.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
-
 namespace EBI.ALAS.Api.Features.Users;
-
 public class UserService : IUserService
 {
     private readonly IUserRepository _userRepository;
@@ -16,7 +14,6 @@ public class UserService : IUserService
     private readonly ITimeProvider _timeProvider;
     private readonly IRefreshTokenRepository _refreshTokenRepository;
     private readonly AppDbContext _context;
-
     public UserService(
         IUserRepository userRepository,
         IPasswordHasher passwordHasher,
@@ -30,22 +27,18 @@ public class UserService : IUserService
         _refreshTokenRepository = refreshTokenRepository;
         _context = context;
     }
-
     public async Task<PagedResult<UserResponse>> GetUsersAsync(UserQueryParameters parameters) =>
         await _userRepository.GetUsersAsync(parameters);
-
     public async Task<UserResponse?> GetUserByIdAsync(int id)
     {
         var user = await _userRepository.GetUserByIdAsync(id);
         if (user == null) return null;
         return await MapToResponseAsync(user);
     }
-
     public async Task<UserResponse> CreateUserAsync(CreateUserRequest request)
     {
         if (await _userRepository.UsernameExistsAsync(request.Username))
             throw new InvalidOperationException("Username already exists");
-
         var user = new User
         {
             Username = request.Username,
@@ -60,38 +53,25 @@ public class UserService : IUserService
             CreatedAt = _timeProvider.UtcNow,
             TempPasswordExpiresAt = _timeProvider.UtcNow.AddHours(24),
         };
-
-        // Approver: JobTitle is the authority key, sync both fields
         ApprovalAuthority? authority = null;
         if (request.Role == Roles.Approver && !string.IsNullOrWhiteSpace(request.JobTitle))
         {
             authority = await _context.ApprovalAuthorities
                 .AsNoTracking()
                 .FirstOrDefaultAsync(a => a.Key == request.JobTitle);
-
             if (authority is null)
                 throw new InvalidOperationException($"Invalid approval authority: {request.JobTitle}");
-
             user.ApprovalAuthorityKey = authority.Key;
-            user.JobTitle = authority.DisplayName; // Store human-readable label
+            user.JobTitle = authority.DisplayName;
         }
         else
         {
-            // Non-approver: free text, no authority link
             user.ApprovalAuthorityKey = null;
             user.JobTitle = request.JobTitle;
         }
-
         if (!string.IsNullOrWhiteSpace(request.ESignature))
             user.ESignature = request.ESignature;
-
         await _userRepository.AddUserAsync(user);
-
-        // Multi-branch coverage for Branch-scope approvers
-        // Only persist when Role == Approver AND authority scope is
-        // Branch AND the caller supplied a non-empty list. Otherwise
-        // no coverage rows are written — the user's home branch (in
-        // BranchId) is the identity, not a coverage row.
         if (authority?.ScopeType == AuthorityScope.Branch
             && request.CoveredBranches is { Count: > 0 })
         {
@@ -105,65 +85,37 @@ public class UserService : IUserService
             }
             await _context.SaveChangesAsync();
         }
-
         return await MapToResponseAsync(user);
     }
-
     public async Task<UserResponse?> UpdateUserAsync(int id, UpdateUserRequest request)
     {
         var user = await _userRepository.GetUserByIdAsync(id);
         if (user == null) return null;
-
         user.FirstName = request.FirstName;
         user.MiddleName = request.MiddleName;
         user.LastName = request.LastName;
         user.BranchId = request.BranchId;
         user.Role = request.Role;
-
-        // Approver: sync authority key from JobTitle dropdown value
         if (request.Role == Roles.Approver && !string.IsNullOrWhiteSpace(request.JobTitle))
         {
             var authority = await _context.ApprovalAuthorities
                 .AsNoTracking()
                 .FirstOrDefaultAsync(a => a.Key == request.JobTitle);
-
             if (authority is null)
                 throw new InvalidOperationException($"Invalid approval authority: {request.JobTitle}");
-
             user.ApprovalAuthorityKey = authority.Key;
-            user.JobTitle = authority.DisplayName; // Store human-readable label
+            user.JobTitle = authority.DisplayName;
         }
         else
         {
             user.ApprovalAuthorityKey = null;
             user.JobTitle = request.JobTitle;
         }
-
-        // Only update the signature when the client explicitly provided
-        // a value. This preserves the existing base64 PNG when the user
-        // edits their name or branch without touching the signature pad.
-        // - ESignature == null  → no change, leave as-is
-        // - ESignature == ""    → clear the signature
-        // - ESignature == "..." → replace with the new payload
         if (request.ESignature is not null)
         {
             user.ESignature = string.IsNullOrEmpty(request.ESignature) ? null : request.ESignature;
         }
-
         await _userRepository.UpdateUserAsync();
-
-        // Multi-branch coverage for Branch-scope approvers
-        // Rules:
-        //   1. Role != Approver or authority is null → clear existing
-        //      coverage (handles role/authority changes away from
-        //      approver or Branch scope).
-        //   2. Role == Approver + Branch scope + CoveredBranches is
-        //      non-null → replace coverage with the supplied list.
-        //   3. Role == Approver + Branch scope + CoveredBranches is
-        //      null → keep existing coverage (editing name/branch
-        //      without touching coverage should not wipe it).
-        //   4. Role == Approver + Area/Global scope → clear existing
-        //      coverage (only Branch-scope approvers have rows).
         {
             ApprovalAuthority? authority = null;
             if (request.Role == Roles.Approver && !string.IsNullOrWhiteSpace(request.JobTitle))
@@ -172,15 +124,11 @@ public class UserService : IUserService
                     .AsNoTracking()
                     .FirstOrDefaultAsync(a => a.Key == request.JobTitle);
             }
-
             var existingCoverage = await _context.UserBranchCoverages
                 .Where(ubc => ubc.UserId == id).ToListAsync();
-
             if (authority?.ScopeType == AuthorityScope.Branch && request.CoveredBranches is not null)
             {
-                // Rule 2: Replace coverage
                 _context.UserBranchCoverages.RemoveRange(existingCoverage);
-
                 foreach (var branchCode in request.CoveredBranches.Distinct())
                 {
                     _context.UserBranchCoverages.Add(new UserBranchCoverage
@@ -193,75 +141,58 @@ public class UserService : IUserService
             }
             else if (authority?.ScopeType != AuthorityScope.Branch || request.Role != Roles.Approver)
             {
-                // Rules 1 & 4: Clear existing coverage
                 if (existingCoverage.Count > 0)
                 {
                     _context.UserBranchCoverages.RemoveRange(existingCoverage);
                     await _context.SaveChangesAsync();
                 }
             }
-            // Rule 3: Branch scope + null CoveredBranches → keep existing
         }
-
         return await MapToResponseAsync(user);
     }
-
     public async Task<bool> UpdateUserStatusAsync(int id, bool isActive)
     {
         var user = await _userRepository.GetUserByIdAsync(id);
         if (user == null) return false;
-
-        // Banking Rule: NEVER hard delete users. Soft delete only to preserve audit trails.
         user.IsActive = isActive;
         await _userRepository.UpdateUserAsync();
         return true;
     }
-
     public async Task<bool> ForcePasswordResetAsync(int id)
     {
         var user = await _userRepository.GetUserByIdAsync(id);
         if (user == null) return false;
-
         user.MustChangePassword = true;
         await _userRepository.UpdateUserAsync();
         return true;
     }
-
     public async Task<ResetPasswordResponse> ResetPasswordAsync(int id, string newPassword)
     {
         var user = await _userRepository.GetUserByIdAsync(id);
         if (user == null)
             throw new NotFoundException("User", id);
-
         user.PasswordHash = _passwordHasher.HashPassword(newPassword, IPasswordHasher.TemporaryWorkFactor);
-        user.MustChangePassword = true; // Force change on next login
+        user.MustChangePassword = true;
         user.TempPasswordExpiresAt = _timeProvider.UtcNow.AddHours(24);
         await _userRepository.UpdateUserAsync();
-
         return new ResetPasswordResponse(user.Username, newPassword, user.MustChangePassword);
     }
-
     public async Task<int> RevokeAllSessionsAsync(int id)
     {
         var user = await _userRepository.GetUserByIdAsync(id);
         if (user == null)
             throw new NotFoundException("User", id);
-
         var activeSessions = await _context.RefreshTokens
             .Where(rt => rt.UserId == id && rt.ExpiresAt > _timeProvider.UtcNow && !rt.IsRevoked)
             .CountAsync();
-
         await _refreshTokenRepository.RevokeAllUserTokensAsync(id);
-
         return activeSessions;
     }
-
     public async Task<List<UserAuditLogResponse>> GetAuditLogAsync(int userId, int pageNumber = 1, int pageSize = 20)
     {
         var query = _context.AuditLogs
             .Where(log => log.UserId == userId)
             .OrderByDescending(log => log.Timestamp);
-
         var items = await query
             .Skip((pageNumber - 1) * pageSize)
             .Take(pageSize)
@@ -275,25 +206,17 @@ public class UserService : IUserService
                 log.IpAddress
             ))
             .ToListAsync();
-
         return items;
     }
-
-    /// <summary>
-    /// Maps a User entity to UserResponse, resolving the approval authority
-    /// info and multi-branch coverage when applicable.
-    /// </summary>
     private async Task<UserResponse> MapToResponseAsync(User user)
     {
         ApprovalAuthorityInfo? authorityInfo = null;
         List<string>? coveredBranches = null;
-
         if (!string.IsNullOrEmpty(user.ApprovalAuthorityKey))
         {
             var authority = await _context.ApprovalAuthorities
                 .AsNoTracking()
                 .FirstOrDefaultAsync(a => a.Key == user.ApprovalAuthorityKey);
-
             if (authority is not null)
             {
                 authorityInfo = new ApprovalAuthorityInfo(
@@ -302,7 +225,6 @@ public class UserService : IUserService
                     authority.Tier,
                     authority.Priority,
                     authority.MaxTotalExposure);
-
                 if (authority.ScopeType == AuthorityScope.Branch)
                 {
                     coveredBranches = await _context.UserBranchCoverages
@@ -313,7 +235,6 @@ public class UserService : IUserService
                 }
             }
         }
-
         return new UserResponse(
             user.Id,
             user.Username,

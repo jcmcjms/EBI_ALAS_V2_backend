@@ -1,10 +1,9 @@
-using EBI.ALAS.Api.Common.Time;
+﻿using EBI.ALAS.Api.Common.Time;
 using EBI.ALAS.Api.Features.ApprovalMatrix;
 using EBI.ALAS.Api.Features.Auth;
 using EBI.ALAS.Api.Features.Branches;
 using EBI.ALAS.Api.Features.Loans;
 using Microsoft.EntityFrameworkCore;
-
 namespace EBI.ALAS.Api.Infrastructure.Data;
 public static class DbInitializer
 {
@@ -12,22 +11,6 @@ public static class DbInitializer
     {
         var timeProvider = serviceProvider.GetRequiredService<ITimeProvider>();
         var logger = serviceProvider.GetRequiredService<ILogger<AppDbContext>>();
-
-        // NOTE: We intentionally do NOT call EnsureCreatedAsync here.
-        // That method is incompatible with Migrations: if any migration
-        // has already created the schema, EnsureCreatedAsync becomes a
-        // no-op, and any pending migration is silently ignored. We use
-        // MigrateAsync instead, which walks the __EFMigrationsHistory
-        // table and applies whatever's missing.
-        // If you have a fresh dev environment and want the schema
-        // bootstrapped without authoring migrations yet, run:
-        //   dotnet ef database update
-        // from the project directory — this generates the
-        // __EFMigrationsHistory row automatically.
-        // Any failure here (missing connection, auth error, pending
-        // migration that conflicts) is logged loudly and rethrown so
-        // the app fails fast rather than silently booting with a
-        // half-migrated schema.
         try
         {
             await context.Database.MigrateAsync();
@@ -37,46 +20,19 @@ public static class DbInitializer
             logger.LogError(ex, "Database migration failed during startup. The application will halt.");
             throw;
         }
-
-        // Removed the outer `if (Users.AnyAsync()) return;` guard.
-        // Each seed method already has its own idempotency guard (e.g., Branches.AnyAsync(),
-        // Users.AnyAsync(u => u.Username == "system")). The outer guard was harmful because:
-        // 1. If any Users row existed first (migration backfill, service account), loan products
-        //    and approval matrix were never seeded — causing silent failures on loan submission.
-        // 2. Multi-pod startup race: two replicas both observe Users.AnyAsync()==false, both seed,
-        //    unique-index violations crash one pod.
-        // Each method's inner guard is sufficient and idempotent.
-
-        // Seed branches first (if not already seeded by migration)
         await SeedBranchesAsync(context, timeProvider);
-
-        // Seed admin user
         await SeedAdminUserAsync(context, timeProvider);
-
-        // Seed system principal (reserved for automated gate actions; cannot log in)
         await SeedSystemUserAsync(context, timeProvider);
-
-        // Seed loan products (required before checklist, which has FK to LoanProducts)
         await SeedLoanProductsAsync(context, timeProvider);
-
-        // Seed loan product checklist requirements
         await SeedLoanProductChecklistAsync(context);
-
-        // Seed approval authority matrix
         await SeedApprovalAuthoritiesAsync(context);
-
-        // Seed deviation severity catalog
         await SeedDeviationCatalogAsync(context);
-
-        // Seed branch area codes
         await SeedBranchAreaCodesAsync(context);
     }
-
     private static async Task SeedBranchesAsync(AppDbContext context, ITimeProvider timeProvider)
     {
         if (await context.Branches.AnyAsync())
             return;
-
         var now = timeProvider.UtcNow;
         var branches = new List<Branch>
         {
@@ -112,18 +68,13 @@ public static class DbInitializer
             new() { Code = "031", Name = "Ronda Branch", IsActive = true, CreatedAt = now },
             new() { Code = "991", Name = "Corporate Center", IsActive = true, CreatedAt = now },
         };
-
         context.Branches.AddRange(branches);
         await context.SaveChangesAsync();
     }
-
     private static async Task SeedAdminUserAsync(AppDbContext context, ITimeProvider timeProvider)
     {
         if (await context.Users.AnyAsync(u => u.Username == "admin"))
             return;
-
-        // MustChangePassword = true forces password rotation on first login.
-        // Real employee name replaced with role label to avoid PII in a public repo.
         var adminUser = new User
         {
             Username = "admin",
@@ -131,43 +82,37 @@ public static class DbInitializer
             FirstName = "System",
             MiddleName = null,
             LastName = "Administrator",
-            BranchId = "011", // Head Office Branch
+            BranchId = "011",
             Role = "Admin",
             IsActive = true,
             MustChangePassword = true,
             CreatedAt = timeProvider.UtcNow
         };
-
         context.Users.Add(adminUser);
         await context.SaveChangesAsync();
     }
-
     private static async Task SeedSystemUserAsync(AppDbContext context, ITimeProvider timeProvider)
     {
         if (await context.Users.AnyAsync(u => u.Username == "system"))
             return;
-
         var systemUser = new User
         {
             Username = "system",
-            PasswordHash = "!", // unusable — this account cannot log in
+            PasswordHash = "!",
             FirstName = "System",
             LastName = "Gate",
-            BranchId = "011", // Head Office
-            Role = "Encoder", // minimal role; workflow uses Roles.System via ClaimsPrincipal
+            BranchId = "011",
+            Role = "Encoder",
             IsActive = false,
             CreatedAt = timeProvider.UtcNow,
         };
-
         context.Users.Add(systemUser);
         await context.SaveChangesAsync();
     }
-
     private static async Task SeedLoanProductsAsync(AppDbContext context, ITimeProvider timeProvider)
     {
         if (await context.LoanProducts.AnyAsync())
             return;
-
         var now = timeProvider.UtcNow;
         var products = new List<LoanProduct>
         {
@@ -263,19 +208,15 @@ public static class DbInitializer
                 UpdatedDate = now,
             },
         };
-
         context.LoanProducts.AddRange(products);
         await context.SaveChangesAsync();
     }
-
     private static async Task SeedLoanProductChecklistAsync(AppDbContext context)
     {
         if (await context.LoanProductChecklists.AnyAsync())
             return;
-
         var checklistItems = new List<LoanProductChecklist>
         {
-            // A16
             new() { LoanProduct = "A16", IdCode = "A1004" },
             new() { LoanProduct = "A16", IdCode = "A2008" },
             new() { LoanProduct = "A16", IdCode = "A2016" },
@@ -289,8 +230,6 @@ public static class DbInitializer
             new() { LoanProduct = "A16", IdCode = "CCR38" },
             new() { LoanProduct = "A16", IdCode = "PIC02" },
             new() { LoanProduct = "A16", IdCode = "PIC03" },
-
-            // A17
             new() { LoanProduct = "A17", IdCode = "A1004" },
             new() { LoanProduct = "A17", IdCode = "A2008" },
             new() { LoanProduct = "A17", IdCode = "A2016" },
@@ -306,8 +245,6 @@ public static class DbInitializer
             new() { LoanProduct = "A17", IdCode = "CCR38" },
             new() { LoanProduct = "A17", IdCode = "PIC02" },
             new() { LoanProduct = "A17", IdCode = "PIC03" },
-
-            // C02
             new() { LoanProduct = "C02", IdCode = "A1004" },
             new() { LoanProduct = "C02", IdCode = "A2008" },
             new() { LoanProduct = "C02", IdCode = "A2018" },
@@ -317,8 +254,6 @@ public static class DbInitializer
             new() { LoanProduct = "C02", IdCode = "CCR38" },
             new() { LoanProduct = "C02", IdCode = "PIC02" },
             new() { LoanProduct = "C02", IdCode = "PIC03" },
-
-            // C23
             new() { LoanProduct = "C23", IdCode = "A1004" },
             new() { LoanProduct = "C23", IdCode = "A2008" },
             new() { LoanProduct = "C23", IdCode = "A2018" },
@@ -328,8 +263,6 @@ public static class DbInitializer
             new() { LoanProduct = "C23", IdCode = "CCR38" },
             new() { LoanProduct = "C23", IdCode = "PIC02" },
             new() { LoanProduct = "C23", IdCode = "PIC03" },
-
-            // C35
             new() { LoanProduct = "C35", IdCode = "A1004" },
             new() { LoanProduct = "C35", IdCode = "A2008" },
             new() { LoanProduct = "C35", IdCode = "A2018" },
@@ -339,8 +272,6 @@ public static class DbInitializer
             new() { LoanProduct = "C35", IdCode = "CCR38" },
             new() { LoanProduct = "C35", IdCode = "PIC02" },
             new() { LoanProduct = "C35", IdCode = "PIC03" },
-
-            // C21
             new() { LoanProduct = "C21", IdCode = "A1004" },
             new() { LoanProduct = "C21", IdCode = "A2008" },
             new() { LoanProduct = "C21", IdCode = "A2018" },
@@ -355,21 +286,15 @@ public static class DbInitializer
             new() { LoanProduct = "C21", IdCode = "PIC02" },
             new() { LoanProduct = "C21", IdCode = "PIC03" },
         };
-
         context.LoanProductChecklists.AddRange(checklistItems);
         await context.SaveChangesAsync();
     }
-
     private static async Task SeedApprovalAuthoritiesAsync(AppDbContext context)
     {
-        // Migration: merge separate CEO + President rows into one
-        // For databases that already have the old two-row setup, consolidate
-        // into a single "CEOPresident" key. Reassign any users first.
         var ceoRow = await context.ApprovalAuthorities.FindAsync("CEO");
         var presidentRow = await context.ApprovalAuthorities.FindAsync("President");
         if (ceoRow is not null && presidentRow is not null)
         {
-            // Reassign users with the old "President" key to the new consolidated key
             var presidentUsers = await context.Users
                 .Where(u => u.ApprovalAuthorityKey == "President")
                 .ToListAsync();
@@ -378,11 +303,8 @@ public static class DbInitializer
                 u.ApprovalAuthorityKey = "CEOPresident";
                 u.JobTitle = "CEO / President";
             }
-
-            // Remove the old separate rows
             context.ApprovalAuthorities.Remove(ceoRow);
             context.ApprovalAuthorities.Remove(presidentRow);
-
             context.ApprovalAuthorities.Add(new ApprovalAuthority
             {
                 Key = "CEOPresident",
@@ -395,29 +317,21 @@ public static class DbInitializer
                 MaxTotalExposure = 1_500_000,
                 ScopeType = AuthorityScope.Global,
             });
-
             await context.SaveChangesAsync();
         }
-
         if (await context.ApprovalAuthorities.AnyAsync())
             return;
-
         var authorities = new List<ApprovalAuthority>
         {
-            // Tier 1: Branch Head + OIC Level 1 (Renewal only, max 300K)
             new() { Key = "BranchHead", DisplayName = "Branch Head", Tier = 1, Priority = 1,
                 AllowNew = false, AllowRenewal = true, MaxSeverity = DeviationSeverity.None,
                 MaxTotalExposure = 300_000, ScopeType = AuthorityScope.Branch },
             new() { Key = "OICLevel1", DisplayName = "OIC Level 1", Tier = 1, Priority = 2,
                 AllowNew = false, AllowRenewal = true, MaxSeverity = DeviationSeverity.None,
                 MaxTotalExposure = 300_000, ScopeType = AuthorityScope.Branch },
-
-            // Tier 2: Area Head (Renewal only, max 600K, area scope)
             new() { Key = "AreaHead", DisplayName = "Area Head", Tier = 2, Priority = 1,
                 AllowNew = false, AllowRenewal = true, MaxSeverity = DeviationSeverity.None,
                 MaxTotalExposure = 600_000, ScopeType = AuthorityScope.Area },
-
-            // Tier 3: RBG Head, Product Head, Credit Head (New+Renewal, Minor, max 1M)
             new() { Key = "RBGHead", DisplayName = "RBG Head", Tier = 3, Priority = 1,
                 AllowNew = true, AllowRenewal = true, MaxSeverity = DeviationSeverity.Minor,
                 MaxTotalExposure = 1_000_000, ScopeType = AuthorityScope.Global },
@@ -427,14 +341,9 @@ public static class DbInitializer
             new() { Key = "CreditHead", DisplayName = "Credit Head", Tier = 3, Priority = 3,
                 AllowNew = true, AllowRenewal = true, MaxSeverity = DeviationSeverity.Minor,
                 MaxTotalExposure = 1_000_000, ScopeType = AuthorityScope.Global },
-
-            // Tier 4: COO (New+Renewal, Major, max 1.2M)
             new() { Key = "COO", DisplayName = "Chief Operating Officer", Tier = 4, Priority = 1,
                 AllowNew = true, AllowRenewal = true, MaxSeverity = DeviationSeverity.Major,
                 MaxTotalExposure = 1_200_000, ScopeType = AuthorityScope.Global },
-
-            // Tier 5: CEO/President (single person), CreCom Chair Level D
-            // (New+Renewal, Major, max 1.5M)
             new() { Key = "CEOPresident", DisplayName = "CEO / President", Tier = 5, Priority = 1,
                 AllowNew = true, AllowRenewal = true, MaxSeverity = DeviationSeverity.Major,
                 MaxTotalExposure = 1_500_000, ScopeType = AuthorityScope.Global },
@@ -442,26 +351,19 @@ public static class DbInitializer
                 AllowNew = true, AllowRenewal = true, MaxSeverity = DeviationSeverity.Major,
                 MaxTotalExposure = 1_500_000, ScopeType = AuthorityScope.Global },
         };
-
         context.ApprovalAuthorities.AddRange(authorities);
         await context.SaveChangesAsync();
     }
-
     private static async Task SeedDeviationCatalogAsync(AppDbContext context)
     {
         if (await context.DeviationCatalog.AnyAsync())
             return;
-
-        // Major deviations (from the bank's delegation matrix)
         var catalog = new List<DeviationCatalogItem>
         {
-            // Major severity
             new() { Id = 1,  Description = "Age not within the prescribed parameters", Severity = DeviationSeverity.Major },
             new() { Id = 2,  Description = "Discounted Application Fee", Severity = DeviationSeverity.Major },
             new() { Id = 3,  Description = "Interest rate reduction", Severity = DeviationSeverity.Major },
             new() { Id = 4,  Description = "With past due account - non performing loan", Severity = DeviationSeverity.Major },
-
-            // Minor severity (all other deviations)
             new() { Id = 5,  Description = "Lacking bank statement of account", Severity = DeviationSeverity.Minor },
             new() { Id = 6,  Description = "Lacking CIBI", Severity = DeviationSeverity.Minor },
             new() { Id = 7,  Description = "Lacking marriage cert. with surname as single", Severity = DeviationSeverity.Minor },
@@ -480,33 +382,22 @@ public static class DbInitializer
             new() { Id = 20, Description = "With NFIS findings", Severity = DeviationSeverity.Minor },
             new() { Id = 21, Description = "With past due account - performing", Severity = DeviationSeverity.Minor },
         };
-
         context.DeviationCatalog.AddRange(catalog);
         await context.SaveChangesAsync();
     }
-
     private static async Task SeedBranchAreaCodesAsync(AppDbContext context)
     {
-        // Area mapping from the bank's delegation matrix
         var areaMapping = new Dictionary<string, string>
         {
-            // A1: San Francisco, Butuan, Cagayan, Trento, Bayugan, Nabunturan, Surigao, Gingoog
             ["003"] = "A1", ["008"] = "A1", ["012"] = "A1", ["023"] = "A1",
             ["025"] = "A1", ["026"] = "A1", ["028"] = "A1", ["029"] = "A1",
-
-            // A2: Lianga, Barobo, Arasasan, Hinatuan, Bislig, Cateel, Madrid
             ["000"] = "A2", ["002"] = "A2", ["004"] = "A2", ["005"] = "A2",
             ["007"] = "A2", ["009"] = "A2", ["017"] = "A2", ["027"] = "A2",
-
-            // A3: Tagum, General Santos, Panabo, Valencia, Davao-Matina, Mati
             ["006"] = "A3", ["011"] = "A3", ["014"] = "A3", ["015"] = "A3",
             ["016"] = "A3", ["022"] = "A3", ["024"] = "A3",
-
-            // A4: Talisay, Tacloban, Bacolod, Iloilo, CTS (Mandaue), Ronda
             ["013"] = "A4", ["019"] = "A4", ["020"] = "A4", ["021"] = "A4",
             ["030"] = "A4", ["031"] = "A4",
         };
-
         var branches = await context.Branches.ToListAsync();
         foreach (var branch in branches)
         {
@@ -515,7 +406,6 @@ public static class DbInitializer
                 branch.AreaCode = areaCode;
             }
         }
-
         await context.SaveChangesAsync();
     }
 }

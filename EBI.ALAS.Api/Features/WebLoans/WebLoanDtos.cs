@@ -1,8 +1,4 @@
-namespace EBI.ALAS.Api.Features.WebLoans;
-
-// Loan status
-// Mirrors the SQL CASE block from the original webloan query. Translated
-// here so the frontend gets human-readable labels without parsing integers.
+﻿namespace EBI.ALAS.Api.Features.WebLoans;
 public enum WebLoanStatus
 {
     Current = 0,
@@ -13,11 +9,6 @@ public enum WebLoanStatus
     WriteOff = 5,
     Unknown = 99
 }
-
-// Region codes (cis_info.b_region_code)
-// The webloan column is varchar(20) and mixes numeric strings ("1".."18")
-// with codes for non-regional groupings ("NCR", "CRG"). Mapping here so the
-// API surface is consistent regardless of how webloan stores the value.
 public static class WebLoanRegions
 {
     public static string Resolve(string? code) => code switch
@@ -44,7 +35,6 @@ public static class WebLoanRegions
         "CRG" => "CARAGA",
         _ => "Unknown Region"
     };
-
     public static WebLoanStatus ResolveLoanStatus(byte? code) => code switch
     {
         0 => WebLoanStatus.Current,
@@ -55,7 +45,6 @@ public static class WebLoanRegions
         5 => WebLoanStatus.WriteOff,
         _ => WebLoanStatus.Unknown
     };
-
     public static string Label(WebLoanStatus status) => status switch
     {
         WebLoanStatus.Current => "Current",
@@ -66,10 +55,6 @@ public static class WebLoanRegions
         WebLoanStatus.WriteOff => "Write-off",
         _ => "Unknown"
     };
-
-    // Mirrors the `Case ld.creation_type` block in the original webloan
-    // SQL. 0=New, 1=Reloan, 2=Restructured, 6=Additional Loan. Anything
-    // else (including NULL when no loan_data row exists) → "Unknown".
     public static string CreationTypeLabel(byte? code) => code switch
     {
         0 => "New Loan",
@@ -79,12 +64,9 @@ public static class WebLoanRegions
         _ => "Unknown"
     };
 }
-
-// GET /api/webloans/cis/{cisNo}/search
 public record CisSearchResponse(
     BorrowerDto Borrower,
     IReadOnlyList<AccountDto> Accounts);
-
 public record BorrowerDto(
     string CisNo,
     string FirstName,
@@ -103,169 +85,72 @@ public record BorrowerDto(
     string? EmployeeNumber,
     string? MisAgency,
     string? RequestingOfficer,
-    string? LengthOfService);   // "<years> years, <months> months" — sourced from
-                                //   check_list_data WHERE check_list_item = 'CCR10'
-
+    string? LengthOfService);
 public record AccountDto(
     string BankCode,
     string BranchCode,
     string AccountNo,
-    string AccountId,           // combined "<branchCode>-<accountNo>" per WebLoanAccountId
+    string AccountId,
     string? Name,
     decimal? CreditLimit,
     decimal? UsedCredit,
     string? BorrowerType);
-
-// ─── GET /api/webloans/cis/{cisNo}/accounts/{accountId}/outstanding-loans ─
-// accountId is the combined "<branchCode>-<accountNo>" form
-// (e.g. "011-05-13081-1") — see WebLoanAccountId.
 public record OutstandingLoansResponse(
     string CisNo,
-    string AccountId,             // "<branchCode>-<accountNo>" — echoed from the URL
-    string BranchCode,            // parsed from AccountId (mirror of bch column)
-    string AccountNo,             // parsed from AccountId (mirror of acct_no column)
+    string AccountId,
+    string BranchCode,
+    string AccountNo,
     IReadOnlyList<OutstandingLoanDto> Loans);
-
 public record OutstandingLoanDto(
     string? LoanNo,
     decimal? Principal,
     decimal? PrincipalBalance,
-    decimal? AmortAmount,     // CASE-computed: principal for C35/C23,
-                             //   otherwise amort_data.total_amort (amort_no=1).
-                             //   NULL when no amort_data row exists for
-                             //   a non-C35/C23 loan.
+    decimal? AmortAmount,
     DateTime? DateGranted,
     DateTime? DateMaturity,
     string ProductCode,
-    string ProductStatus,        // "<loan_product> - <status label>"
-    // "<loan_product> - <description>" (e.g. "C35 - Quick Loan"), or
-    // just the product code when no loan_product row matched the join
-    // (orphaned/retired product). Assembled in SQL via a LEFT JOIN to
-    // webloan.dbo.loan_product on (ld.loan_product = lp.id_code); see
-    // WebLoanRepository.GetOutstandingLoansAsync for the join +
-    // ISNULL(coalesce) rationale.
+    string ProductStatus,
     string ProductWithDescription);
-
-// GET /api/webloans/cis/{cisNo}/accounts/{accountId}/pending-loan
-// accountId is the combined "<branchCode>-<accountNo>" form
-// (e.g. "011-05-13081-1") — see WebLoanAccountId.
-// Returns ALL in-flight pre_loan_data rows for the (bch, acct_no) pair
-// + NTHP (Net Take-Home Pay) enrichment joined from check_list_data
-// WHERE check_list_item = 'CCR07'. Used by underwriters while evaluating
-// pending loan applications.
-// Multiple in-flight loans are possible because the schema permits
-// duplicates for (bch, acct_no) — e.g. an account with several
-// preparation cycles in progress.
-// NTHP is hoisted to the response level because it is a CIS-level
-// attribute (joined on cis_no), not a loan-level one. Duplicating it
-// per loan would mislead the UI into thinking NTHP differs by loan.
 public record PendingLoanResponse(
     string CisNo,
-    string AccountId,             // "<branchCode>-<accountNo>" — echoed from the URL
-    string BranchCode,            // parsed from AccountId
-    string AccountNo,             // parsed from AccountId
+    string AccountId,
+    string BranchCode,
+    string AccountNo,
     IReadOnlyList<PendingLoanDto> Loans,
-    string? Nthp,                 // Net Take-Home Pay amount (varchar number)
+    string? Nthp,
     DateTime? NthpDate);
-
 public record PendingLoanDto(
     string LoanNo,
     decimal? Principal,
     decimal? GrantedRate,
-    // Exact day count from SQL's DATEDIFF(DAY, date_granted, date_maturity).
-    // NULL when either loan_data date is missing (LEFT JOIN miss).
-    // Replaces the legacy `total_amortization * 30` approximation, which
-    // drifted by up to ±1 day per period.
     int? TotalTermDays,
-    // Policy term in months from loan_data.total_amortization — the
-    // "amortization months" the loan was set up against. Distinct from
-    // TotalTermDays (which is the day-count derived from the grant /
-    // maturity dates): the policy term is the authoritative input to
-    // amortization calculations and stays stable across calendar
-    // boundary edge cases, whereas TotalTermDays can drift by a day or
-    // two for short-term products. NULL when no loan_data row exists
-    // for the (bch, acct_no, loan_no) tuple — i.e. the pre_loan_data
-    // row was created but the ledger row has not been written yet.
     int? PolicyTermMonths,
-    string ProductWithDescription,  // "<loan_product> - <description>"
+    string ProductWithDescription,
     string? LoanPurpose,
-    byte? CreationType,           // raw code from loan_data.creation_type
-    string CreationTypeLabel,     // "New Loan" / "Reloan" / "Restructured" / "Additional Loan" / "Unknown"
-    decimal? CDocStamp);          // webloan loan_data.c_doc_stamp — approval-form Doc. Stamp
-
-// GET /api/webloans/loan-products
-// Surfaces every row in dbo.loan_product where expiration IS NULL —
-// i.e. products that have not been retired by the webloan system.
-// Projects only id_code + description per the spec; the retirement
-// flag is server-side only.
-// Ordered by id_code ascending (enforced in the repository) so
-// dropdowns render in a stable order across calls.
+    byte? CreationType,
+    string CreationTypeLabel,
+    decimal? CDocStamp);
 public record LoanProductDto(
     string IdCode,
     string Description);
-
-// GET /api/webloans/loan-class
-// Resolves `cat_loan_class` for a single (bch, loan_no, loan_product) tuple
-// in dbo.loan_data. The (bch, loan_no, loan_product) trio is taken from the
-// caller (composite input — all three required for determinism), so the
-// repository can issue an exact-match lookup.
-// Why all three are required:
-//   * `(bch, loan_no)` alone is NOT unique in webloan — the same PN can
-//     appear under different branches or accounts (rebookings, branch
-//     transfers, separate ledgers). Returning the first match would be
-//     non-deterministic; returning the full list would push the ambiguity
-//     back to the caller.
-//   * `loan_product` is the most selective filter in the original SQL and
-//     matches the user's stated query shape (`WHERE loan_product = '...'`
-//     AND `bch = ...` AND `loan_no = ...`).
-// 404 when no row matches the trio — mirrors the README §546 /active-loans
-// anti-enumeration stance (no row = unknown, not "no class").
 public record CatLoanClassResponse(
     string Bch,
     string LoanNo,
     string LoanProduct,
-    string? CatLoanClass);   // null when dbo.loan_data.cat_loan_class IS NULL
-
-// GET /api/webloans/cis/{cisNo}/cocree-status
-// Returns the COCREE completion status for a CIS. The frontend calls
-// this during loan creation to block applications for CIS numbers
-// with incomplete COCREE (check_list_data items CCR01–CCR11).
-// A CIS with zero checklist rows → all items incomplete (not 404).
-// No caching: checklist data changes as officers submit; stale cache
-// would block valid applications.
+    string? CatLoanClass);
 public record CocreeStatusResponse(
     string CisNo,
     bool IsComplete,
     IReadOnlyList<CocreeItemStatus> Items);
-
 public record CocreeItemStatus(
     string ItemCode,
     DateTime? Submitted,
     string? Description,
     DateTime? Expiration);
-
-// Combined account identifier ("branchCode-accountNo")
-// The two drill-down endpoints (outstanding-loans, pending-loan) take a
-// single route parameter `accountId` instead of separate `branchCode` and
-// `accountNo` query/path parameters — the branch becomes part of the
-// account identity, mirroring how webloan itself stores it (bch + acct_no).
-// Format: <branchCode>-<accountNo>  (e.g. "011-05-13081-1")
-// Split rule: split on the FIRST '-' only. The remainder is treated as the
-// literal account number verbatim, so account numbers that themselves
-// contain hyphens ("05-13081-1") are preserved.
-//   "011-05-13081-1"  →  bch="011",  acctNo="05-13081-1"
-//   "011-05-13081-1-A" → bch="011",  acctNo="05-13081-1-A"
-// Validation: both segments must be non-empty after trimming. The format
-// is intentionally lenient on input characters because webloan's acct_no
-// column is varchar and accepts a wide range of values in production data.
 public static class WebLoanAccountId
 {
     public static string Format(string branchCode, string accountNo)
         => $"{branchCode}-{accountNo}";
-
-    // Returns (branchCode, accountNo). Throws ArgumentException when the
-    // combined string is malformed — the endpoint maps that to 400 via
-    // the existing GlobalExceptionHandler.
     public static (string BranchCode, string AccountNo) Parse(string accountId)
     {
         if (string.IsNullOrWhiteSpace(accountId))
@@ -274,7 +159,6 @@ public static class WebLoanAccountId
                 "accountId is required and must be in '<branchCode>-<accountNo>' format.",
                 nameof(accountId));
         }
-
         var idx = accountId.IndexOf('-');
         if (idx <= 0 || idx == accountId.Length - 1)
         {
@@ -283,17 +167,14 @@ public static class WebLoanAccountId
                 $"(e.g. '011-05-13081-1').",
                 nameof(accountId));
         }
-
         var bch = accountId[..idx].Trim();
         var acct = accountId[(idx + 1)..].Trim();
-
         if (bch.Length == 0 || acct.Length == 0)
         {
             throw new ArgumentException(
                 $"accountId '{accountId}' has an empty branch or account segment.",
                 nameof(accountId));
         }
-
         return (bch, acct);
     }
 }

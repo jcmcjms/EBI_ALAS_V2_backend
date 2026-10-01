@@ -1,16 +1,13 @@
-using EBI.ALAS.Api.Common.Time;
+﻿using EBI.ALAS.Api.Common.Time;
 using EBI.ALAS.Api.Features.Loans;
 using EBI.ALAS.Api.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 using NSubstitute;
-
 namespace EBI.ALAS.Tests;
-
 public class DocumentChecklistStoreTests : IDisposable
 {
     private readonly AppDbContext _context;
     private readonly DocumentChecklistStore _store;
-
     public DocumentChecklistStoreTests()
     {
         var options = new DbContextOptionsBuilder<AppDbContext>()
@@ -21,9 +18,7 @@ public class DocumentChecklistStoreTests : IDisposable
         time.UtcNow.Returns(new DateTime(2026, 9, 29, 12, 0, 0, DateTimeKind.Utc));
         _store = new DocumentChecklistStore(_context, time);
     }
-
     public void Dispose() => _context.Dispose();
-
     private async Task<int> SeedLoanWithChecklistAsync(params (string Code, string Status)[] items)
     {
         var loan = new LoanApplication
@@ -43,7 +38,6 @@ public class DocumentChecklistStoreTests : IDisposable
         };
         _context.LoanApplications.Add(loan);
         await _context.SaveChangesAsync();
-
         foreach (var (code, status) in items)
         {
             _context.DocumentChecklists.Add(new DocumentChecklist
@@ -57,11 +51,9 @@ public class DocumentChecklistStoreTests : IDisposable
         await _context.SaveChangesAsync();
         return loan.Id;
     }
-
     [Fact]
     public async Task CountUnresolvedAsync_counts_missing_and_pending()
     {
-        // Mirrors LAM-20260928-000002: A2020, A2021, A2035, PIC02.
         var id = await SeedLoanWithChecklistAsync(
             ("A2020", "Missing"),
             ("A2021", "Missing"),
@@ -69,24 +61,18 @@ public class DocumentChecklistStoreTests : IDisposable
             ("PIC02", "Missing"),
             ("A2100", "Submitted"),
             ("A2101", "Verified"));
-
         var count = await _store.CountUnresolvedAsync(id, CancellationToken.None);
-
         Assert.Equal(4, count);
     }
-
     [Fact]
     public async Task CountUnresolvedAsync_counts_pending_as_unresolved()
     {
         var id = await SeedLoanWithChecklistAsync(
             ("A2020", "Pending"),
             ("A2021", "Verified"));
-
         var count = await _store.CountUnresolvedAsync(id, CancellationToken.None);
-
         Assert.Equal(1, count);
     }
-
     [Fact]
     public async Task GetUnresolvedAsync_matches_CountUnresolvedAsync()
     {
@@ -95,14 +81,11 @@ public class DocumentChecklistStoreTests : IDisposable
             ("A2021", "Pending"),
             ("A2035", "Submitted"),
             ("PIC02", "Verified"));
-
         var rows = await _store.GetUnresolvedAsync(id, CancellationToken.None);
         var count = await _store.CountUnresolvedAsync(id, CancellationToken.None);
-
         Assert.Equal(count, rows.Count);
         Assert.Equal(2, count);
     }
-
     [Fact]
     public void UnresolvedStatuses_is_missing_and_pending()
     {

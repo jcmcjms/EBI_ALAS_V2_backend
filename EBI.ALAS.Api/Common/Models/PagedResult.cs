@@ -1,9 +1,4 @@
-namespace EBI.ALAS.Api.Common.Models;
-
-/// <summary>
-/// Generic paged result with computed pagination metadata.
-/// Immutable after construction — all properties use init setters.
-/// </summary>
+﻿namespace EBI.ALAS.Api.Common.Models;
 public sealed record PagedResult<T>
 {
     public List<T> Items { get; init; } = [];
@@ -13,9 +8,7 @@ public sealed record PagedResult<T>
     public int TotalPages => PageSize <= 0 ? 0 : (int)Math.Ceiling(TotalCount / (double)PageSize);
     public bool HasPreviousPage => CurrentPage > 1;
     public bool HasNextPage => CurrentPage < TotalPages;
-
     public PagedResult() { }
-
     public PagedResult(List<T> items, int totalCount, int currentPage, int pageSize)
     {
         Items = items;
@@ -23,7 +16,6 @@ public sealed record PagedResult<T>
         CurrentPage = currentPage;
         PageSize = pageSize;
     }
-
     public static PagedResult<T> Create(IEnumerable<T> source, int totalCount, int currentPage, int pageSize)
         => new()
         {
@@ -33,18 +25,11 @@ public sealed record PagedResult<T>
             PageSize = pageSize
         };
 }
-
-/// <summary>
-/// Pagination parameters with a hard ceiling on page size.
-/// Immutable after construction.
-/// </summary>
 public sealed record PaginationParams
 {
     private const int MaxPageSize = 100;
-
     public int Page { get; init; } = 1;
     public int PageSize { get; init; } = 20;
-
     public PaginationParams Sanitized() => this with
     {
         Page = Page < 1 ? 1 : Page,

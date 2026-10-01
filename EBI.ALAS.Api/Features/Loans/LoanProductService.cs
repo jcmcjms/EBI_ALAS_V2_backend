@@ -1,58 +1,30 @@
-using EBI.ALAS.Api.Common.Time;
-
+﻿using EBI.ALAS.Api.Common.Time;
 namespace EBI.ALAS.Api.Features.Loans;
-
 public class LoanProductService(
     ILoanProductRepository repository,
     ILoanProductSyncService syncService,
     ITimeProvider timeProvider) : ILoanProductService
 {
-    // Hard business ceiling: no product may offer more than 7 years
-    // + 2 months grace period (2,617 days). Buy-Now-Pay-Later products
-    // allow 84 months to pay plus a 2-month grace period before the
-    // first amortization, which can yield terms up to 2,587 days.
-    // Enforced here AND in the validator so the CreateLoan and
-    // admin-update paths both reject violations.
     public const int AbsoluteMaxTermDays = 2617;
-
     public async Task<IReadOnlyList<LoanProductResponse>> GetAllAsync(CancellationToken ct = default)
     {
         var rows = await repository.GetAllAsync(ct);
         return rows.Select(ToResponse).ToList();
     }
-
     public async Task<LoanProductResponse?> GetByCodeAsync(string code, CancellationToken ct = default)
     {
         var row = await repository.GetByCodeAsync(code, ct);
         return row is null ? null : ToResponse(row);
     }
-
     public async Task<LoanProductResponse?> UpdateAsync(
         string code,
         UpdateLoanProductRequest request,
         int updatedByUserId,
         CancellationToken ct = default)
     {
-        // Mirror rows for the policy fields can only be configured
-        // once the sync has run and pulled the product into ALAS.
-        // Hitting UPDATE on a code that doesn't exist locally is a
-        // 404 — ops should run sync first, then edit.
         var existing = await repository.GetByCodeAsync(code, ct);
         if (existing is null) return null;
-
-        // Defense-in-depth validation. FluentValidation on the
-        // request DTO catches most of these, but the service is the
-        // last gate before the DB — re-checking here means a
-        // programmatically-bypassed validator (e.g. a future internal
-        // caller) still cannot violate the business rules.
         ValidatePolicyFields(request);
-
-        // Sync-owned fields (IsRetired, Description, LastSyncedAt,
-        // Code) are preserved on this path. Only the policy fields
-        // ops is editing change. This mirrors the sync's
-        // preservePolicyFields=true semantics, just inverted: the
-        // admin path preserves the sync-owned fields and overwrites
-        // the policy fields.
         existing.MinAmount = request.MinAmount;
         existing.MaxAmount = request.MaxAmount;
         existing.MinTermDays = request.MinTermDays;
@@ -61,23 +33,12 @@ public class LoanProductService(
         existing.DocStampFee = request.DocStampFee;
         existing.InsuranceFee = request.InsuranceFee;
         existing.AdvanceInterestRate = request.AdvanceInterestRate;
-        // Nullable fields: only overwrite when the caller explicitly
-        // provided a value. Old frontend versions that don't send
-        // these fields will preserve the existing row values.
         if (request.ApplicationChargeRate.HasValue)
             existing.ApplicationChargeRate = request.ApplicationChargeRate.Value;
         if (request.AmortizationMode is not null)
             existing.AmortizationMode = request.AmortizationMode;
         if (request.ChargeAdvanceInterest.HasValue)
             existing.ChargeAdvanceInterest = request.ChargeAdvanceInterest.Value;
-
-        // UpsertAsync with preservePolicyFields=false is what writes
-        // the updated row — the merge helper keeps the logic in one
-        // place. updatedByUserId comes from the endpoint (the
-        // caller's User.Id, resolved from the ClaimsPrincipal); the
-        // server clock (ITimeProvider — never DateTime.UtcNow) is the
-        // UpdatedDate source so all writes are testable and timezone
-        // handling stays centralized in Common/Time/.
         var updated = await repository.UpsertAsync(
             existing,
             preservePolicyFields: false,
@@ -86,12 +47,10 @@ public class LoanProductService(
             ct);
         return ToResponse(updated);
     }
-
     public async Task<LoanProductSyncResult> SyncFromWebloanAsync(CancellationToken ct = default)
     {
         return await syncService.SyncAsync(ct);
     }
-
     private static LoanProductResponse ToResponse(LoanProduct p) => new(
         p.Code,
         p.Description,
@@ -110,16 +69,9 @@ public class LoanProductService(
         p.LastSyncedAt,
         p.UpdatedDate,
         p.UpdatedById,
-        // Resolved from the navigation property when it is loaded
-        // (sync-driven rows have null UpdatedById, so the name is
-        // null too — the UI shows "system" or hides the column for
-        // those rows). The repository does NOT eagerly include
-        // UpdatedBy today; the admin grid query that needs the name
-        // should .Include(p => p.UpdatedBy) at the call site.
         p.UpdatedBy is null
             ? null
             : $"{p.UpdatedBy.FirstName} {p.UpdatedBy.LastName}");
-
     private static void ValidatePolicyFields(UpdateLoanProductRequest r)
     {
         if (r.MinAmount < 0)

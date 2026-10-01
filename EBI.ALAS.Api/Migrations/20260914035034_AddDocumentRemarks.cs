@@ -1,14 +1,10 @@
 ﻿using System;
 using Microsoft.EntityFrameworkCore.Migrations;
-
 #nullable disable
-
 namespace EBI.ALAS.Api.Migrations
 {
-    /// <inheritdoc />
     public partial class AddDocumentRemarks : Migration
     {
-        /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
             migrationBuilder.CreateTable(
@@ -48,24 +44,19 @@ namespace EBI.ALAS.Api.Migrations
                         principalColumn: "Id",
                         onDelete: ReferentialAction.Restrict);
                 });
-
             migrationBuilder.CreateIndex(
                 name: "IX_DocumentRemarks_AuthorId",
                 table: "DocumentRemarks",
                 column: "AuthorId");
-
             migrationBuilder.CreateIndex(
                 name: "IX_DocumentRemarks_LoanApplicationId_ChecklistIdCode_CreatedAt",
                 table: "DocumentRemarks",
                 columns: new[] { "LoanApplicationId", "ChecklistIdCode", "CreatedAt" });
-
             migrationBuilder.CreateIndex(
                 name: "IX_DocumentRemarks_ParentRemarkId",
                 table: "DocumentRemarks",
                 column: "ParentRemarkId");
         }
-
-        /// <inheritdoc />
         protected override void Down(MigrationBuilder migrationBuilder)
         {
             migrationBuilder.DropTable(

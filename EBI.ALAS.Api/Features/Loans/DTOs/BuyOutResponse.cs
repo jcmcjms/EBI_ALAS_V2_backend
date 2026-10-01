@@ -1,8 +1,4 @@
-namespace EBI.ALAS.Api.Features.Loans.DTOs;
-
-/// <summary>
-/// Response DTO for buy-out loan details.
-/// </summary>
+﻿namespace EBI.ALAS.Api.Features.Loans.DTOs;
 public class BuyOutResponse
 {
     public int Id { get; set; }

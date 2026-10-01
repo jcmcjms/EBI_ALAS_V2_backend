@@ -1,8 +1,4 @@
-namespace EBI.ALAS.Api.Features.Loans.DTOs;
-
-/// <summary>
-/// Response DTO for loan action history.
-/// </summary>
+﻿namespace EBI.ALAS.Api.Features.Loans.DTOs;
 public class LoanActionResponse
 {
     public int Id { get; set; }

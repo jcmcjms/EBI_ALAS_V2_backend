@@ -1,10 +1,8 @@
-using EBI.ALAS.Api.Common.Models;
+﻿using EBI.ALAS.Api.Common.Models;
 using EBI.ALAS.Api.Features.Loans.DTOs;
 using EBI.ALAS.Api.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
-
 namespace EBI.ALAS.Api.Features.Loans.Endpoints;
-
 public static class GetLoanById
 {
     public static void MapGetLoanByIdEndpoints(this WebApplication app)
@@ -12,7 +10,6 @@ public static class GetLoanById
         var group = app.MapGroup("/api/loans")
             .WithTags("Loans")
             .RequireAuthorization();
-
         group.MapGet("/{id:int}", async (
             int id,
             ILoanRepository loanRepository,
@@ -26,19 +23,12 @@ public static class GetLoanById
             {
                 return Results.NotFound(ApiResponse.ErrorResponse("Loan not found"));
             }
-
-            // TRAP: the compiled detail query does NOT Include DocumentChecklists, so
-            // loan.DocumentChecklists is an empty AsNoTracking navigation and an
-            // in-memory Count() silently yields 0 (the "0 doc(s) flagged" bug).
-            // Count in SQL with the same predicate the list projection uses.
             var unresolvedCount = loan.DocumentsFlaggedAt is null
                 ? 0
                 : await checklistStore.CountUnresolvedAsync(id, ct);
-
             var lastAction = loan.Actions
                 .OrderByDescending(a => a.ActionDate).ThenByDescending(a => a.Id)
                 .FirstOrDefault();
-
             string? assignedApproverName = null;
             if (loan.AssignedApproverId is { } assigneeId)
             {
@@ -49,7 +39,6 @@ public static class GetLoanById
                 if (assignee is not null)
                     assignedApproverName = $"{assignee.FirstName} {assignee.LastName}";
             }
-
             var loanResponse = new LoanResponse
             {
                 Id = loan.Id,
@@ -202,7 +191,6 @@ public static class GetLoanById
                 PreLoanId = loan.PreLoanId,
                 PreLoanFormNumber = loan.PreLoanFormNumber
             };
-
             return Results.Ok(ApiResponse<LoanResponse>.SuccessResponse(loanResponse));
         })
         .WithName("GetLoan")

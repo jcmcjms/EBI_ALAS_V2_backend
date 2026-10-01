@@ -1,5 +1,4 @@
-namespace EBI.ALAS.Api.Features.Dashboard;
-
+﻿namespace EBI.ALAS.Api.Features.Dashboard;
 public interface IDashboardService
 {
     Task<DashboardOverviewResponse> GetOverviewAsync(

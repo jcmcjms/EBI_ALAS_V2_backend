@@ -1,4 +1,4 @@
-using System.Security.Claims;
+﻿using System.Security.Claims;
 using EBI.ALAS.Api.Common.Constants;
 using EBI.ALAS.Api.Common.Extensions;
 using EBI.ALAS.Api.Common.Models;
@@ -8,9 +8,7 @@ using EBI.ALAS.Api.Features.Loans.DTOs;
 using EBI.ALAS.Api.Features.Loans.Endpoints;
 using EBI.ALAS.Api.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
-
 namespace EBI.ALAS.Api.Features.Loans;
-
 public static class LoanEndpoints
 {
     public static void MapLoanEndpoints(this WebApplication app)
@@ -26,12 +24,9 @@ public static class LoanEndpoints
         app.MapGetLoanTimelineEndpoints();
         app.MapDocumentFlagEndpoints();
         app.MapSyncDisbursementStatusEndpoints();
-
-        // POST /api/loans/{id}/assignment/release — release an active lease
         var group = app.MapGroup("/api/loans")
             .WithTags("Loans")
             .RequireAuthorization();
-
         group.MapPost("/{id:int}/assignment/release", async (
             int id,
             ClaimsPrincipal principal,
@@ -41,15 +36,12 @@ public static class LoanEndpoints
         {
             var userId = principal.GetUserId();
             await assignment.ReleaseAsync(id, userId, ct);
-            // Also clear the queue item lease so the desk recovers.
             await queue.ReleaseClaimAsync(userId, ct);
             return Results.Ok(ApiResponse.SuccessResponse("Assignment released."));
         })
         .WithName("ReleaseAssignment")
         .Produces<ApiResponse>(200)
         .RequireAuthorization("CanViewLoan");
-
-        // GET /api/loans/{id}/routing — tier + matched rule + completeness
         group.MapGet("/{id:int}/routing", async (
             int id,
             AppDbContext db,
@@ -60,13 +52,9 @@ public static class LoanEndpoints
                 .AsNoTracking()
                 .Include(l => l.Deviations)
                 .FirstOrDefaultAsync(l => l.Id == id, ct);
-
             if (loan is null)
                 return Results.NotFound(ApiResponse.ErrorResponse("Loan not found"));
-
             var completenessResult = await completeness.CheckAsync(loan, ct);
-
-            // Resolve assigned approver name
             string? assignedName = null;
             if (loan.AssignedApproverId is { } assigneeId)
             {
@@ -77,8 +65,6 @@ public static class LoanEndpoints
                 if (assignee is not null)
                     assignedName = $"{assignee.FirstName} {assignee.LastName}";
             }
-
-            // Resolve matched rule description
             string? matchedRule = null;
             if (loan.RequiredApprovalTier is { } tier)
             {
@@ -87,7 +73,6 @@ public static class LoanEndpoints
                 if (auth is not null)
                     matchedRule = $"{auth.DisplayName} (Tier {tier})";
             }
-
             var dto = new LoanRoutingDto
             {
                 LoanId = loan.Id,
@@ -109,15 +94,12 @@ public static class LoanEndpoints
                     Exposure = loan.TotalExposure,
                 },
             };
-
             return Results.Ok(ApiResponse<LoanRoutingDto>.SuccessResponse(dto));
         })
         .WithName("GetLoanRouting")
         .Produces<ApiResponse<LoanRoutingDto>>(200)
         .Produces<ApiResponse>(404)
         .RequireAuthorization("CanViewLoan");
-
-        // POST /api/loans/{id}/documents/verify — on-demand completeness recheck
         group.MapPost("/{id:int}/documents/verify", async (
             int id,
             ClaimsPrincipal principal,
@@ -129,8 +111,6 @@ public static class LoanEndpoints
         {
             var loan = await db.LoanApplications.FindAsync([id], ct);
             if (loan is null) return Results.NotFound(ApiResponse.ErrorResponse("Loan not found"));
-
-            // Branch scoping: non-Admin users can only verify loans in their own branch.
             var userRole = principal.GetRole();
             if (userRole != Roles.Admin)
             {
@@ -138,17 +118,13 @@ public static class LoanEndpoints
                 if (!string.Equals(loan.BranchCode, branchCode, StringComparison.Ordinal))
                     return Results.Forbid();
             }
-
             var result = await completeness.CheckByLoanNoAsync(loan.LoanNo, ct, bypassCache: true);
             loan.DocumentsCompleteAt = result.Complete ? time.UtcNow : null;
             await db.SaveChangesAsync(ct);
-
-            // If the loan has a document flag and is now complete, clear it.
             if (result.Complete)
             {
                 await gate.SyncAsync(loan, ct);
             }
-
             return Results.Ok(ApiResponse<object>.SuccessResponse(new
             {
                 complete = result.Complete,

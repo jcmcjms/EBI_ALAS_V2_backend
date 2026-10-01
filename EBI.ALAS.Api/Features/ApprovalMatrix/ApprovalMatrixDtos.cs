@@ -1,5 +1,4 @@
-namespace EBI.ALAS.Api.Features.ApprovalMatrix;
-
+﻿namespace EBI.ALAS.Api.Features.ApprovalMatrix;
 public class ApprovalAuthorityDto
 {
     public string Key { get; set; } = string.Empty;
@@ -12,14 +11,12 @@ public class ApprovalAuthorityDto
     public decimal MaxTotalExposure { get; set; }
     public int ScopeType { get; set; }
 }
-
 public class DeviationCatalogDto
 {
     public int Id { get; set; }
     public string Description { get; set; } = string.Empty;
     public int Severity { get; set; }
 }
-
 public class ApproverPresenceDto
 {
     public int UserId { get; set; }

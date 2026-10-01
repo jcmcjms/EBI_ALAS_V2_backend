@@ -1,9 +1,4 @@
-namespace EBI.ALAS.Api.Features.Loans.DTOs;
-
-/// <summary>
-/// Response DTO for loan routing information.
-/// Contains delegation-of-authority routing details with escalation metadata.
-/// </summary>
+﻿namespace EBI.ALAS.Api.Features.Loans.DTOs;
 public class LoanRoutingDto
 {
     public int LoanId { get; set; }
@@ -16,18 +11,10 @@ public class LoanRoutingDto
     public List<string> MissingDocuments { get; set; } = new();
     public int? AssignedApproverId { get; set; }
     public string? AssignedApproverName { get; set; }
-
-    /// <summary>The tier that originally matched but had no configured
-    /// approver — escalation occurred from this tier. Null when no escalation.</summary>
     public int? EscalatedFromTier { get; set; }
-
-    /// <summary>Reason routing failed. Null when routing succeeded.</summary>
     public string? NoAuthorityReason { get; set; }
-
-    /// <summary>Evaluated routing inputs for audit/display.</summary>
     public RoutingEvaluatedInputsDto? Evaluated { get; set; }
 }
-
 public class RoutingEvaluatedInputsDto
 {
     public string Cycle { get; set; } = string.Empty;

@@ -1,7 +1,5 @@
-using Microsoft.EntityFrameworkCore.Migrations;
-
+﻿using Microsoft.EntityFrameworkCore.Migrations;
 #nullable disable
-
 namespace EBI.ALAS.Api.Migrations
 {
     public partial class AddSchoolAndReferrerFields : Migration
@@ -14,7 +12,6 @@ namespace EBI.ALAS.Api.Migrations
                 type: "nvarchar(100)",
                 maxLength: 100,
                 nullable: true);
-
             migrationBuilder.AddColumn<string>(
                 name: "School",
                 table: "LoanApplications",
@@ -27,7 +24,6 @@ namespace EBI.ALAS.Api.Migrations
             migrationBuilder.DropColumn(
                 name: "Referrer",
                 table: "LoanApplications");
-
             migrationBuilder.DropColumn(
                 name: "School",
                 table: "LoanApplications");

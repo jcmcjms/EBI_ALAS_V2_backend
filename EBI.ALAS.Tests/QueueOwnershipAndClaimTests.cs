@@ -1,8 +1,6 @@
-using EBI.ALAS.Api.Features.Loans;
+﻿using EBI.ALAS.Api.Features.Loans;
 using Xunit;
-
 namespace EBI.ALAS.Tests;
-
 public class QueueOwnershipAndClaimTests
 {
     [Fact]

@@ -1,11 +1,9 @@
-using System.Security.Claims;
+﻿using System.Security.Claims;
 using EBI.ALAS.Api.Common.Exceptions;
 using EBI.ALAS.Api.Common.Models;
 using FluentValidation;
 using Microsoft.AspNetCore.Mvc;
-
 namespace EBI.ALAS.Api.Features.Loans.Endpoints;
-
 public static class CreateLoan
 {
     public static void MapCreateLoanEndpoints(this WebApplication app)
@@ -13,7 +11,6 @@ public static class CreateLoan
         var group = app.MapGroup("/api/loans")
             .WithTags("Loans")
             .RequireAuthorization();
-
         group.MapPost("/", async (
             HttpContext http,
             [FromBody] SubmitLoanApplicationRequest request,
@@ -27,7 +24,6 @@ public static class CreateLoan
                 return Results.BadRequest(ApiResponse.ErrorResponse(
                     "A valid Idempotency-Key header (GUID) is required."));
             }
-
             var validationResult = await validator.ValidateAsync(request, ct);
             if (!validationResult.IsValid)
             {
@@ -36,17 +32,14 @@ public static class CreateLoan
                     .ToDictionary(
                         g => g.Key,
                         g => g.Select(e => e.ErrorMessage).ToArray());
-
                 return Results.BadRequest(ApiResponse.ErrorResponse(
                     "Validation failed",
                     errors.SelectMany(e => e.Value).ToList()));
             }
-
             try
             {
                 var (response, replayed) = await submissionService.SubmitAsync(
                     request, idempotencyKey, user, ct);
-
                 return replayed
                     ? Results.Ok(ApiResponse<LoanSubmissionResponse>.SuccessResponse(
                         response, "Submission replayed — Idempotency-Key already used."))

@@ -1,49 +1,34 @@
-using EBI.ALAS.Api.Common.Time;
+﻿using EBI.ALAS.Api.Common.Time;
 using EBI.ALAS.Api.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
-
 namespace EBI.ALAS.Api.Features.Loans;
-
 public class LamIdGenerator : ILamIdGenerator
 {
     private const string LamPrefix = "LAM-";
     private const string GroupPrefix = "APP-";
     private const int SequenceWidth = 6;
-
     private readonly AppDbContext _context;
     private readonly ITimeProvider _timeProvider;
-
-    // Serializes allocation within this process only. The unique indexes on
-    // LoanApplications.LamId / ApplicationGroupNo are the cross-process
-    // backstop; LoanSubmissionService retries on duplicate-key violations.
     private static readonly SemaphoreSlim _semaphore = new(1, 1);
-
     public LamIdGenerator(AppDbContext context, ITimeProvider timeProvider)
     {
         _context = context;
         _timeProvider = timeProvider;
     }
-
     public async Task<string> GenerateLamIdAsync(CancellationToken ct = default)
         => (await AllocateAsync(LamPrefix, 1, isGroup: false, ct))[0];
-
     public Task<IReadOnlyList<string>> GenerateLamIdsAsync(int count, CancellationToken ct = default)
         => AllocateAsync(LamPrefix, count, isGroup: false, ct);
-
     public async Task<string> GenerateGroupNumberAsync(CancellationToken ct = default)
         => (await AllocateAsync(GroupPrefix, 1, isGroup: true, ct))[0];
-
     private async Task<IReadOnlyList<string>> AllocateAsync(
         string prefix, int count, bool isGroup, CancellationToken ct)
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(count);
-
         var fullPrefix = $"{prefix}{_timeProvider.PhilippinesNow:yyyyMMdd}-";
-
         await _semaphore.WaitAsync(ct);
         try
         {
-            // Fixed-width sequence => ordinal string ordering == numeric ordering.
             var last = isGroup
                 ? await _context.LoanApplications
                     .Where(l => l.ApplicationGroupNo.StartsWith(fullPrefix))
@@ -55,7 +40,6 @@ public class LamIdGenerator : ILamIdGenerator
                     .OrderByDescending(l => l.LamId)
                     .Select(l => l.LamId)
                     .FirstOrDefaultAsync(ct);
-
             var next = 1;
             if (!string.IsNullOrEmpty(last))
             {
@@ -65,7 +49,6 @@ public class LamIdGenerator : ILamIdGenerator
                     next = lastSequence + 1;
                 }
             }
-
             return Enumerable.Range(next, count)
                 .Select(n => $"{fullPrefix}{n:D6}")
                 .ToList();

@@ -1,9 +1,7 @@
-using EBI.ALAS.Api.Features.Loans;
+﻿using EBI.ALAS.Api.Features.Loans;
 using EBI.ALAS.Api.Features.SystemSettings;
 using Xunit;
-
 namespace EBI.ALAS.Tests;
-
 public class WorkflowActionResolverTests
 {
     private sealed class FakeWorkflowConfiguration : IWorkflowConfiguration
@@ -17,7 +15,6 @@ public class WorkflowActionResolverTests
         public string? UpdatedByName => null;
         public void Apply(SettingSnapshot snapshot) { }
     }
-
     [Fact]
     public void Recommend_FromForRecommendation_ReturnsForChecking()
     {
@@ -26,7 +23,6 @@ public class WorkflowActionResolverTests
         Assert.Equal("ForChecking", result.TargetStatus);
         Assert.Null(result.Verdict);
     }
-
     [Fact]
     public void Recommend_FromForChecking_ReturnsForApprovalWithRecommendedVerdict()
     {
@@ -35,7 +31,6 @@ public class WorkflowActionResolverTests
         Assert.Equal("ForApproval", result.TargetStatus);
         Assert.Equal("Recommended", result.Verdict);
     }
-
     [Fact]
     public void NotRecommend_FromForChecking_ReturnsForApprovalWithNotRecommendedVerdict()
     {
@@ -44,7 +39,6 @@ public class WorkflowActionResolverTests
         Assert.Equal("ForApproval", result.TargetStatus);
         Assert.Equal("NotRecommended", result.Verdict);
     }
-
     [Fact]
     public void UnsupportedAction_Throws()
     {

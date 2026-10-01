@@ -1,8 +1,6 @@
-using System;
+﻿using System;
 using Microsoft.EntityFrameworkCore.Migrations;
-
 #nullable disable
-
 namespace EBI.ALAS.Api.Migrations
 {
     public partial class InitialCreate : Migration
@@ -29,7 +27,6 @@ namespace EBI.ALAS.Api.Migrations
                 {
                     table.PrimaryKey("PK_Users", x => x.Id);
                 });
-
             migrationBuilder.CreateTable(
                 name: "LoanApplications",
                 columns: table => new
@@ -69,7 +66,6 @@ namespace EBI.ALAS.Api.Migrations
                         principalColumn: "Id",
                         onDelete: ReferentialAction.Restrict);
                 });
-
             migrationBuilder.CreateTable(
                 name: "BuyOuts",
                 columns: table => new
@@ -91,7 +87,6 @@ namespace EBI.ALAS.Api.Migrations
                         principalColumn: "Id",
                         onDelete: ReferentialAction.Cascade);
                 });
-
             migrationBuilder.CreateTable(
                 name: "LoanActions",
                 columns: table => new
@@ -122,7 +117,6 @@ namespace EBI.ALAS.Api.Migrations
                         principalColumn: "Id",
                         onDelete: ReferentialAction.Restrict);
                 });
-
             migrationBuilder.CreateTable(
                 name: "OutstandingLoans",
                 columns: table => new
@@ -144,38 +138,31 @@ namespace EBI.ALAS.Api.Migrations
                         principalColumn: "Id",
                         onDelete: ReferentialAction.Cascade);
                 });
-
             migrationBuilder.CreateIndex(
                 name: "IX_BuyOuts_LoanApplicationId",
                 table: "BuyOuts",
                 column: "LoanApplicationId");
-
             migrationBuilder.CreateIndex(
                 name: "IX_LoanActions_ActionByUserId",
                 table: "LoanActions",
                 column: "ActionByUserId");
-
             migrationBuilder.CreateIndex(
                 name: "IX_LoanActions_LoanApplicationId",
                 table: "LoanActions",
                 column: "LoanApplicationId");
-
             migrationBuilder.CreateIndex(
                 name: "IX_LoanApplications_CreatedById",
                 table: "LoanApplications",
                 column: "CreatedById");
-
             migrationBuilder.CreateIndex(
                 name: "IX_LoanApplications_FormNumber",
                 table: "LoanApplications",
                 column: "FormNumber",
                 unique: true);
-
             migrationBuilder.CreateIndex(
                 name: "IX_OutstandingLoans_LoanApplicationId",
                 table: "OutstandingLoans",
                 column: "LoanApplicationId");
-
             migrationBuilder.CreateIndex(
                 name: "IX_Users_Username",
                 table: "Users",
@@ -186,16 +173,12 @@ namespace EBI.ALAS.Api.Migrations
         {
             migrationBuilder.DropTable(
                 name: "BuyOuts");
-
             migrationBuilder.DropTable(
                 name: "LoanActions");
-
             migrationBuilder.DropTable(
                 name: "OutstandingLoans");
-
             migrationBuilder.DropTable(
                 name: "LoanApplications");
-
             migrationBuilder.DropTable(
                 name: "Users");
         }

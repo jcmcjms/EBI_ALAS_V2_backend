@@ -1,9 +1,8 @@
-using System;
-
+﻿using System;
 namespace EBI.ALAS.Api.Common.Time;
 public static class TimeProviderExtensions
 {
-    private static readonly TimeZoneInfo PhilippinesTimeZone = 
+    private static readonly TimeZoneInfo PhilippinesTimeZone =
         TimeZoneInfo.FindSystemTimeZoneById("Asia/Manila");
     public static DateTime ToPhilippinesTime(this DateTime utcDateTime)
     {

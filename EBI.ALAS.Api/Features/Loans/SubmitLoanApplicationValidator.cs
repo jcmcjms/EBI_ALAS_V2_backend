@@ -1,22 +1,12 @@
-using FluentValidation;
-
+﻿using FluentValidation;
 namespace EBI.ALAS.Api.Features.Loans;
-
-/// <summary>
-/// Server-side mirror of src/pages/loans/create/schema.ts. The Zod schema is
-/// UX; this is the enforcement point. Bounds that depend on the loan-product
-/// mirror (active flag, min/max amount, min/max term) are re-checked here per
-/// loan because the client can tamper with any number in the payload.
-/// </summary>
 public class SubmitLoanApplicationValidator : AbstractValidator<SubmitLoanApplicationRequest>
 {
     private const decimal FeeTolerance = 0.01m;
     private const int MinJustificationLength = 5;
     private static readonly int[] AllowedCreationTypes = [0, 1, 2, 6];
-
     public SubmitLoanApplicationValidator(ILoanProductRepository productRepository)
     {
-        // §1.2 branch & type
         RuleFor(x => x.BranchType.Lai)
             .NotEmpty().WithMessage("LAI is required.")
             .Matches(@"^\d{3}-\d{2}-\d{4,6}-\d{1,2}$")
@@ -25,8 +15,6 @@ public class SubmitLoanApplicationValidator : AbstractValidator<SubmitLoanApplic
             .Must(c => c is null || AllowedCreationTypes.Contains(c.Value))
             .WithMessage("Unknown creation type code.");
         RuleFor(x => x.BranchType.CreationTypeLabel).MaximumLength(50);
-
-        // §1.1 / §2 client snapshot (length caps = payload-bloat defense)
         RuleFor(x => x.Client.CisId).NotEmpty().MaximumLength(50);
         RuleFor(x => x.Client.FirstName).NotEmpty().MaximumLength(100);
         RuleFor(x => x.Client.MiddleName).MaximumLength(100);
@@ -45,8 +33,6 @@ public class SubmitLoanApplicationValidator : AbstractValidator<SubmitLoanApplic
         RuleFor(x => x.Client.MisAgency).MaximumLength(200);
         RuleFor(x => x.Client.School).MaximumLength(200);
         RuleFor(x => x.Client.Referrer).MaximumLength(100);
-
-        // §3 loans
         RuleFor(x => x.Loans).NotEmpty().WithMessage("Select at least one loan to process.")
             .Must(l => l.Count <= 10).WithMessage("An application cannot carry more than 10 loans.");
         RuleFor(x => x.Loans)
@@ -55,23 +41,17 @@ public class SubmitLoanApplicationValidator : AbstractValidator<SubmitLoanApplic
         RuleFor(x => x.Loans)
             .Must(l => l.Select(x => x.LoanNo).Distinct(StringComparer.Ordinal).Count() == l.Count)
             .WithMessage("Duplicate loan numbers in submission.");
-
         RuleForEach(x => x.Loans).SetValidator(new LoanSectionValidator(productRepository));
-
-        // §4 outstanding loans (borrower-level, unchanged)
         RuleForEach(x => x.OutstandingLoans).SetValidator(new OutstandingLoanSectionValidator());
     }
-
     private static bool BeValidIsoDateOrNull(string? value) =>
         string.IsNullOrWhiteSpace(value) || DateOnly.TryParseExact(value, "yyyy-MM-dd", out _);
 }
-
 public class LoanSectionValidator : AbstractValidator<LoanSection>
 {
     private const decimal FeeTolerance = 0.01m;
     private const int MinJustificationLength = 5;
-    private const int MaxObligationRows = 50; // payload-bloat defense, per loan
-
+    private const int MaxObligationRows = 50;
     public LoanSectionValidator(ILoanProductRepository productRepository)
     {
         RuleFor(x => x.LoanNo).NotEmpty().MaximumLength(50);
@@ -80,7 +60,6 @@ public class LoanSectionValidator : AbstractValidator<LoanSection>
         RuleFor(x => x.CreationTypeCode)
             .Must(c => c is null || new[] { 0, 1, 2, 6 }.Contains(c.Value))
             .WithMessage("Unknown creation type code.");
-
         RuleFor(x => x.Parameters.Product).NotEmpty().MaximumLength(100);
         RuleFor(x => x.Parameters.Purpose).NotEmpty().MaximumLength(500);
         RuleFor(x => x.Parameters.ProposedAmount)
@@ -96,8 +75,6 @@ public class LoanSectionValidator : AbstractValidator<LoanSection>
         RuleFor(x => x.Parameters.NotarialFee).InclusiveBetween(0, 50_000);
         RuleFor(x => x.Parameters.DocStamps).InclusiveBetween(0, 50_000);
         RuleFor(x => x.Parameters.Insurance).InclusiveBetween(0, 50_000);
-
-        // Product-mirror policy bounds, per loan (PK seeks; ≤10 loans per submit).
         RuleFor(x => x.ProductCode)
             .MustAsync(async (code, ct) => await productRepository.ExistsActiveByCodeAsync(code, ct))
             .WithMessage("Selected product is not currently offered.");
@@ -105,7 +82,7 @@ public class LoanSectionValidator : AbstractValidator<LoanSection>
             .MustAsync(async (loan, ct) =>
             {
                 var product = await productRepository.GetByCodeAsync(loan.ProductCode, ct);
-                if (product is null) return true; // previous rule owns this case
+                if (product is null) return true;
                 return loan.Parameters.ProposedAmount >= product.MinAmount
                     && loan.Parameters.ProposedAmount <= product.MaxAmount;
             })
@@ -121,8 +98,6 @@ public class LoanSectionValidator : AbstractValidator<LoanSection>
             })
             .WithMessage("Term must be within the product's allowed range.")
             .WithName("Parameters.Term");
-
-        // §5 obligations (per loan)
         RuleFor(x => x.EbiReloans).Must(l => l.Count <= MaxObligationRows)
             .WithMessage($"A loan cannot declare more than {MaxObligationRows} EBI reloans.");
         RuleFor(x => x.BuyOuts).Must(l => l.Count <= MaxObligationRows)
@@ -132,13 +107,9 @@ public class LoanSectionValidator : AbstractValidator<LoanSection>
         RuleForEach(x => x.EbiReloans).SetValidator(new EbiReloanSectionValidator());
         RuleForEach(x => x.BuyOuts).SetValidator(new BuyOutSectionValidator());
         RuleForEach(x => x.IncomingLoans).SetValidator(new IncomingLoanSectionValidator());
-
-        // §6 verification (per loan)
         RuleFor(x => x.Verification.Findings)
             .NotEmpty().WithMessage("Findings are required. Document what was verified.")
             .MaximumLength(2000);
-
-        // §7 deviations (per loan; relational rules mirror the Zod superRefine)
         RuleFor(x => x.Deviations.OtherRemarks)
             .NotEmpty().WithMessage("Other remarks are required.");
         RuleFor(x => x.Deviations)
@@ -151,11 +122,6 @@ public class LoanSectionValidator : AbstractValidator<LoanSection>
         RuleFor(x => x.Deviations.Remarks).MaximumLength(1000);
         RuleFor(x => x.Deviations.AoRecommendation).MaximumLength(1000);
         RuleFor(x => x.Deviations.FeeDeviationJustification).MaximumLength(1000);
-
-        // Remarks are printed verbatim on the approval form and persisted in
-        // the immutable audit snapshot — cap them like every other free-text
-        // field (payload-bloat + print-layout defense), and reject duplicate
-        // reasons so the snapshot and the LoanDeviation rows stay 1:1.
         RuleFor(x => x.Deviations.DeviationDetails)
             .Must(d => d.Distinct(StringComparer.Ordinal).Count() == d.Count)
             .WithMessage("Duplicate deviation reasons in submission.");
@@ -164,21 +130,17 @@ public class LoanSectionValidator : AbstractValidator<LoanSection>
             .WithMessage("A loan cannot carry more than 50 deviation remarks.")
             .Must(j => j.Values.All(v => (v ?? string.Empty).Trim().Length <= 1000))
             .WithMessage("Each deviation remark must be 1000 characters or fewer.");
-
-        // Fee-override rule scoped to THIS loan's fees vs THIS loan's snapshot.
         RuleFor(x => x)
             .Must((loan, _) => !HasFeeOverride(loan) ||
                                !string.IsNullOrWhiteSpace(loan.Deviations.FeeDeviationJustification))
             .WithMessage("Provide a justification — at least one fee on this loan deviates from the bank's standard rate.")
             .WithName("Deviations.FeeDeviationJustification");
     }
-
     private static bool HasFeeOverride(LoanSection loan) =>
         Math.Abs(loan.Parameters.NotarialFee - loan.Parameters.StandardFeesSnapshot.NotarialFee) > FeeTolerance ||
         Math.Abs(loan.Parameters.DocStamps - loan.Parameters.StandardFeesSnapshot.DocStamps) > FeeTolerance ||
         Math.Abs(loan.Parameters.Insurance - loan.Parameters.StandardFeesSnapshot.Insurance) > FeeTolerance;
 }
-
 public class OutstandingLoanSectionValidator : AbstractValidator<OutstandingLoanSection>
 {
     public OutstandingLoanSectionValidator()
@@ -192,7 +154,6 @@ public class OutstandingLoanSectionValidator : AbstractValidator<OutstandingLoan
         RuleFor(x => x.DateMaturity).Must(v => string.IsNullOrWhiteSpace(v) || DateOnly.TryParseExact(v, "yyyy-MM-dd", out _));
     }
 }
-
 public class EbiReloanSectionValidator : AbstractValidator<EbiReloanSection>
 {
     public EbiReloanSectionValidator()
@@ -205,7 +166,6 @@ public class EbiReloanSectionValidator : AbstractValidator<EbiReloanSection>
             .GreaterThanOrEqualTo(0);
     }
 }
-
 public class BuyOutSectionValidator : AbstractValidator<BuyOutSection>
 {
     public BuyOutSectionValidator()
@@ -216,7 +176,6 @@ public class BuyOutSectionValidator : AbstractValidator<BuyOutSection>
         RuleFor(x => x.OutstandingBalance).GreaterThanOrEqualTo(0);
     }
 }
-
 public class IncomingLoanSectionValidator : AbstractValidator<IncomingLoanSection>
 {
     public IncomingLoanSectionValidator()

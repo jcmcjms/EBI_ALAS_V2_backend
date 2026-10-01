@@ -1,29 +1,23 @@
-using EBI.ALAS.Api.Common.Models;
+﻿using EBI.ALAS.Api.Common.Models;
 using EBI.ALAS.Api.Common.Time;
 using EBI.ALAS.Api.Features.Auth;
 using EBI.ALAS.Api.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
-
 namespace EBI.ALAS.Api.Features.Account;
-
 public class AccountRepository : IAccountRepository
 {
     private readonly AppDbContext _context;
     private readonly ITimeProvider _timeProvider;
-
     public AccountRepository(AppDbContext context, ITimeProvider timeProvider)
     {
         _context = context;
         _timeProvider = timeProvider;
     }
-
     public async Task<AccountProfileResponse?> GetProfileAsync(int userId)
     {
         var user = await _context.Users.FindAsync(userId);
         if (user == null) return null;
-
         var stats = await GetStatsAsync(userId);
-
         return new AccountProfileResponse(
             user.Id,
             user.Username,
@@ -41,36 +35,23 @@ public class AccountRepository : IAccountRepository
             stats
         );
     }
-
     public async Task<bool> UpdateProfileAsync(int userId, UpdateProfileRequest request)
     {
         var user = await _context.Users.FindAsync(userId);
         if (user == null) return false;
-
         user.Email = request.Email;
         user.Phone = request.Phone;
         user.EmergencyContact = request.EmergencyContact;
-
         await _context.SaveChangesAsync();
         return true;
     }
-
     public async Task<PagedSessionsResponse> GetActiveSessionsAsync(int userId, int? currentSessionId, int pageNumber = 1, int pageSize = 10)
     {
         var query = _context.RefreshTokens
             .Where(t => t.UserId == userId && !t.IsRevoked && t.ExpiresAt > _timeProvider.UtcNow)
             .OrderByDescending(t => t.CreatedAt);
-
         var totalCount = await query.CountAsync();
         var totalPages = (int)Math.Ceiling(totalCount / (double)pageSize);
-        
-        // Project only raw columns in SQL — the DeviceInfo → "Browser on OS"
-        // label is computed in memory below via UserAgentParser.Describe.
-        // Calling the static parser inside the EF projection would throw
-        // "could not be translated" at runtime (Regex.IsMatch has no SQL
-        // equivalent), which surfaces to the UI as a generic 500 and was
-        // the root cause of the "Unable to load client profile" toast
-        // seen during the CIS lookup page load.
         var rows = await query
             .Skip((pageNumber - 1) * pageSize)
             .Take(pageSize)
@@ -83,21 +64,15 @@ public class AccountRepository : IAccountRepository
                 IsCurrent = currentSessionId.HasValue && t.Id == currentSessionId.Value
             })
             .ToListAsync();
-
         var items = rows
             .Select(r => new SessionResponse(
                 r.Id,
-                // Translate the raw User-Agent into a short "Browser on OS"
-                // label for the UI. We keep the raw UA in the DB for forensics,
-                // but display the parsed form. Falls back to "Unknown Device"
-                // for null UAs (legacy rows issued before capture was wired in).
                 UserAgentParser.Describe(r.DeviceInfo),
                 r.CreatedAt,
                 r.ExpiresAt,
                 r.IsCurrent
             ))
             .ToList();
-
         return new PagedSessionsResponse(
             items,
             pageNumber,
@@ -108,37 +83,26 @@ public class AccountRepository : IAccountRepository
             pageNumber < totalPages
         );
     }
-
     public async Task<SessionRevokeResult> RevokeSessionAsync(int userId, int sessionId, int? currentSessionId)
     {
-        // Guard: revoking your own live session orphans the caller mid-request-flow.
         if (currentSessionId == sessionId) return SessionRevokeResult.CurrentSession;
-
         var token = await _context.RefreshTokens
             .FirstOrDefaultAsync(t => t.Id == sessionId && t.UserId == userId && !t.IsRevoked);
-
         if (token == null) return SessionRevokeResult.NotFound;
-
         token.IsRevoked = true;
         token.RevokedAt = _timeProvider.UtcNow;
         await _context.SaveChangesAsync();
         return SessionRevokeResult.Revoked;
     }
-
     public async Task<int> RevokeOtherSessionsAsync(int userId, int? currentSessionId)
     {
         var now = _timeProvider.UtcNow;
         var query = _context.RefreshTokens
             .Where(t => t.UserId == userId && !t.IsRevoked && t.ExpiresAt > now);
-
-        // Deliberately conditional: `t.Id != null-param` translates to `Id <> NULL`
-        // in SQL (UNKNOWN → row filtered out), which would revoke nothing.
         if (currentSessionId.HasValue)
             query = query.Where(t => t.Id != currentSessionId.Value);
-
         var tokens = await query.ToListAsync();
         if (tokens.Count == 0) return 0;
-
         foreach (var token in tokens)
         {
             token.IsRevoked = true;
@@ -147,7 +111,6 @@ public class AccountRepository : IAccountRepository
         await _context.SaveChangesAsync();
         return tokens.Count;
     }
-
     public async Task<List<ActivityResponse>> GetRecentActivityAsync(int userId, int limit = 10)
     {
         return await _context.LoanActions
@@ -166,7 +129,6 @@ public class AccountRepository : IAccountRepository
             ))
             .ToListAsync();
     }
-
     public async Task<List<ProcessedLoanResponse>> GetProcessedLoansAsync(int userId, int limit = 10)
     {
         return await _context.LoanApplications
@@ -183,7 +145,6 @@ public class AccountRepository : IAccountRepository
             ))
             .ToListAsync();
     }
-
     public async Task<List<RecentClientResponse>> GetRecentClientsAsync(int userId, int limit = 5)
     {
         return await _context.LoanApplications
@@ -198,23 +159,18 @@ public class AccountRepository : IAccountRepository
             ))
             .ToListAsync();
     }
-
     public async Task<AccountStatsResponse> GetStatsAsync(int userId)
     {
         var totalLoans = await _context.LoanApplications
             .CountAsync(l => l.CreatedById == userId);
-
         var pendingLoans = await _context.LoanApplications
-            .CountAsync(l => l.CreatedById == userId && 
-                           (l.Status == "Draft" || l.Status == "ForRecommendation" || 
+            .CountAsync(l => l.CreatedById == userId &&
+                           (l.Status == "Draft" || l.Status == "ForRecommendation" ||
                             l.Status == "ForChecking" || l.Status == "ForApproval"));
-
         var approvedLoans = await _context.LoanApplications
-            .CountAsync(l => l.CreatedById == userId && 
+            .CountAsync(l => l.CreatedById == userId &&
                            (l.Status == "Approved" || l.Status == "Disbursed" || l.Status == "OnGoing"));
-
         var approvalRate = totalLoans > 0 ? (int)((double)approvedLoans / totalLoans * 100) : 0;
-
         return new AccountStatsResponse(totalLoans, pendingLoans, approvalRate);
     }
 }

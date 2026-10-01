@@ -1,31 +1,21 @@
 ﻿using System;
 using Microsoft.EntityFrameworkCore.Migrations;
-
 #nullable disable
-
 namespace EBI.ALAS.Api.Migrations
 {
-    /// <inheritdoc />
     public partial class DropLoanAttachments : Migration
     {
-        /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
-            // Guard: refuse to drop while rows exist so a mis-ordered deploy
-            // can never silently destroy uploaded files. Archive first if this
-            // ever throws.
             migrationBuilder.Sql(@"
                 IF OBJECT_ID(N'dbo.LoanAttachments', N'U') IS NOT NULL
                 BEGIN
                     IF EXISTS (SELECT 1 FROM dbo.LoanAttachments)
                         THROW 50001, 'LoanAttachments still contains rows - archive them before dropping the table.', 1;
-
                     DROP TABLE dbo.LoanAttachments;
                 END
             ");
         }
-
-        /// <inheritdoc />
         protected override void Down(MigrationBuilder migrationBuilder)
         {
             migrationBuilder.CreateTable(
@@ -59,12 +49,10 @@ namespace EBI.ALAS.Api.Migrations
                         principalColumn: "Id",
                         onDelete: ReferentialAction.Restrict);
                 });
-
             migrationBuilder.CreateIndex(
                 name: "IX_LoanAttachments_LoanApplicationId",
                 table: "LoanAttachments",
                 column: "LoanApplicationId");
-
             migrationBuilder.CreateIndex(
                 name: "IX_LoanAttachments_UploadedById",
                 table: "LoanAttachments",

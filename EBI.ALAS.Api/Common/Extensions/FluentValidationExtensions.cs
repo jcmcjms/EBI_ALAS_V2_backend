@@ -1,7 +1,6 @@
-using EBI.ALAS.Api.Common.Models;
+﻿using EBI.ALAS.Api.Common.Models;
 using FluentValidation;
 using FluentValidation.Results;
-
 namespace EBI.ALAS.Api.Common.Extensions;
 public static class FluentValidationExtensions
 {
@@ -12,11 +11,9 @@ public static class FluentValidationExtensions
             .ToDictionary(
                 g => g.Key,
                 g => g.Select(e => e.ErrorMessage).ToList());
-
         var flatErrors = errors
             .SelectMany(kvp => kvp.Value)
             .ToList();
-
         return ApiResponse.ErrorResponse(
             message ?? "Validation failed",
             flatErrors);

@@ -1,7 +1,4 @@
-# Q5 fix: CI pipeline for EBI.ALAS.V2
-# Runs build, test, lint, audit, and secret scan on every push and PR.
-# All jobs must pass before merge.
-
+﻿
 name: CI
 
 on:
@@ -14,7 +11,6 @@ permissions:
   contents: read
 
 jobs:
-  # ── Backend ──────────────────────────────────────────────────────
   backend:
     name: Backend (.NET 8)
     runs-on: ubuntu-latest
@@ -40,7 +36,6 @@ jobs:
         run: dotnet test --no-build -c Release --verbosity normal
         working-directory: .
 
-  # ── Frontend ─────────────────────────────────────────────────────
   frontend:
     name: Frontend (Node)
     runs-on: ubuntu-latest
@@ -73,7 +68,6 @@ jobs:
       - name: Audit dependencies (high severity)
         run: npm audit --audit-level=high
 
-  # ── Secret scan ──────────────────────────────────────────────────
   secrets:
     name: Secret scan (gitleaks)
     runs-on: ubuntu-latest
@@ -81,7 +75,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # Full history required for secret scanning
+          fetch-depth: 0
 
       - name: Run gitleaks
         uses: gitleaks/gitleaks-action@v2

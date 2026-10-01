@@ -1,14 +1,10 @@
 ﻿using System;
 using Microsoft.EntityFrameworkCore.Migrations;
-
 #nullable disable
-
 namespace EBI.ALAS.Api.Migrations
 {
-    /// <inheritdoc />
     public partial class AddLoanDeviationsAndRemarks : Migration
     {
-        /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
             migrationBuilder.CreateTable(
@@ -42,7 +38,6 @@ namespace EBI.ALAS.Api.Migrations
                         principalColumn: "Id",
                         onDelete: ReferentialAction.Restrict);
                 });
-
             migrationBuilder.CreateTable(
                 name: "LoanDeviations",
                 columns: table => new
@@ -65,7 +60,6 @@ namespace EBI.ALAS.Api.Migrations
                         principalColumn: "Id",
                         onDelete: ReferentialAction.Cascade);
                 });
-
             migrationBuilder.CreateTable(
                 name: "DeviationRemarks",
                 columns: table => new
@@ -101,47 +95,37 @@ namespace EBI.ALAS.Api.Migrations
                         principalColumn: "Id",
                         onDelete: ReferentialAction.Restrict);
                 });
-
             migrationBuilder.CreateIndex(
                 name: "IX_DeviationRemarks_AuthorId",
                 table: "DeviationRemarks",
                 column: "AuthorId");
-
             migrationBuilder.CreateIndex(
                 name: "IX_DeviationRemarks_LoanDeviationId_CreatedAt",
                 table: "DeviationRemarks",
                 columns: new[] { "LoanDeviationId", "CreatedAt" });
-
             migrationBuilder.CreateIndex(
                 name: "IX_DeviationRemarks_ParentRemarkId",
                 table: "DeviationRemarks",
                 column: "ParentRemarkId");
-
             migrationBuilder.CreateIndex(
                 name: "IX_LoanAttachments_LoanApplicationId",
                 table: "LoanAttachments",
                 column: "LoanApplicationId");
-
             migrationBuilder.CreateIndex(
                 name: "IX_LoanAttachments_UploadedById",
                 table: "LoanAttachments",
                 column: "UploadedById");
-
             migrationBuilder.CreateIndex(
                 name: "IX_LoanDeviations_LoanApplicationId_SortOrder",
                 table: "LoanDeviations",
                 columns: new[] { "LoanApplicationId", "SortOrder" });
         }
-
-        /// <inheritdoc />
         protected override void Down(MigrationBuilder migrationBuilder)
         {
             migrationBuilder.DropTable(
                 name: "DeviationRemarks");
-
             migrationBuilder.DropTable(
                 name: "LoanAttachments");
-
             migrationBuilder.DropTable(
                 name: "LoanDeviations");
         }

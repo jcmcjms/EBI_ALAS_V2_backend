@@ -1,7 +1,5 @@
-using EBI.ALAS.Api.Common.Models;
-
+﻿using EBI.ALAS.Api.Common.Models;
 namespace EBI.ALAS.Api.Features.Account;
-
 public record AccountProfileResponse(
     int Id,
     string Username,
@@ -18,19 +16,16 @@ public record AccountProfileResponse(
     DateTime? PasswordChangedAt,
     AccountStatsResponse Stats
 );
-
 public record AccountStatsResponse(
     int ProcessedLoans,
     int PendingLoans,
     int ApprovalRate
 );
-
 public record UpdateProfileRequest(
     string? Email,
     string? Phone,
     string? EmergencyContact
 );
-
 public record SessionResponse(
     int Id,
     string DeviceInfo,
@@ -38,7 +33,6 @@ public record SessionResponse(
     DateTime ExpiresAt,
     bool IsCurrent
 );
-
 public record PagedSessionsResponse(
     List<SessionResponse> Items,
     int CurrentPage,
@@ -48,7 +42,6 @@ public record PagedSessionsResponse(
     bool HasPreviousPage,
     bool HasNextPage
 );
-
 public record ActivityResponse(
     int Id,
     string LamId,
@@ -59,7 +52,6 @@ public record ActivityResponse(
     DateTime ActionDate,
     string LoanClientName
 );
-
 public record ProcessedLoanResponse(
     int Id,
     string LamId,
@@ -68,12 +60,10 @@ public record ProcessedLoanResponse(
     DateTime ApplicationDate,
     decimal ProposedAmount
 );
-
 public record RecentClientResponse(
     string CisId,
     string Name,
     string Agency,
     DateTime LastInteraction
 );
-
 public record RevokedSessionsResponse(int RevokedCount);

@@ -1,17 +1,14 @@
-using System.Security.Claims;
+﻿using System.Security.Claims;
 using EBI.ALAS.Api.Common.Extensions;
 using EBI.ALAS.Api.Common.Models;
 using FluentValidation;
 using Microsoft.AspNetCore.Mvc;
-
 namespace EBI.ALAS.Api.Features.Account;
-
 public static class AccountEndpoints
 {
     public static void MapAccountEndpoints(this WebApplication app)
     {
         var group = app.MapGroup("/api/account").WithTags("Account").RequireAuthorization();
-
         group.MapGet("/me", async (ClaimsPrincipal principal, IAccountService accountService) =>
         {
             var userId = principal.GetUserId();
@@ -23,7 +20,6 @@ public static class AccountEndpoints
         .WithName("GetAccountProfile")
         .Produces<ApiResponse<AccountProfileResponse>>(200)
         .Produces<ApiResponse>(404);
-
         group.MapPut("/me", async (ClaimsPrincipal principal, [FromBody] UpdateProfileRequest request, IValidator<UpdateProfileRequest> validator, IAccountService accountService) =>
         {
             var validationResult = await validator.ValidateAsync(request);
@@ -32,7 +28,6 @@ public static class AccountEndpoints
                 var errors = validationResult.Errors.GroupBy(e => e.PropertyName).ToDictionary(g => g.Key, g => g.Select(e => e.ErrorMessage).ToArray());
                 return Results.BadRequest(ApiResponse.ErrorResponse("Validation failed", errors.SelectMany(e => e.Value).ToList()));
             }
-
             var userId = principal.GetUserId();
             var success = await accountService.UpdateProfileAsync(userId, request);
             return success
@@ -43,7 +38,6 @@ public static class AccountEndpoints
         .Produces<ApiResponse>(200)
         .Produces<ApiResponse>(400)
         .Produces<ApiResponse>(404);
-
         group.MapGet("/me/sessions", async (ClaimsPrincipal principal, IAccountService accountService, [AsParameters] SessionsQueryParameters parameters) =>
         {
             var userId = principal.GetUserId();
@@ -53,7 +47,6 @@ public static class AccountEndpoints
         })
         .WithName("GetAccountSessions")
         .Produces<ApiResponse<PagedSessionsResponse>>(200);
-
         group.MapDelete("/me/sessions/others", async (ClaimsPrincipal principal, IAccountService accountService) =>
         {
             var userId = principal.GetUserId();
@@ -63,7 +56,6 @@ public static class AccountEndpoints
         })
         .WithName("RevokeOtherAccountSessions")
         .Produces<ApiResponse<RevokedSessionsResponse>>(200);
-
         group.MapDelete("/me/sessions/{id:int}", async (int id, ClaimsPrincipal principal, IAccountService accountService) =>
         {
             var userId = principal.GetUserId();
@@ -81,7 +73,6 @@ public static class AccountEndpoints
         .Produces<ApiResponse>(200)
         .Produces<ApiResponse>(400)
         .Produces<ApiResponse>(404);
-
         group.MapGet("/me/activity", async (ClaimsPrincipal principal, IAccountService accountService, [AsParameters] ActivityQueryParameters parameters) =>
         {
             var userId = principal.GetUserId();
@@ -90,7 +81,6 @@ public static class AccountEndpoints
         })
         .WithName("GetAccountActivity")
         .Produces<ApiResponse<List<ActivityResponse>>>(200);
-
         group.MapGet("/me/loans", async (ClaimsPrincipal principal, IAccountService accountService, [AsParameters] LoansQueryParameters parameters) =>
         {
             var userId = principal.GetUserId();
@@ -99,7 +89,6 @@ public static class AccountEndpoints
         })
         .WithName("GetAccountLoans")
         .Produces<ApiResponse<List<ProcessedLoanResponse>>>(200);
-
         group.MapGet("/me/clients", async (ClaimsPrincipal principal, IAccountService accountService, [AsParameters] ClientsQueryParameters parameters) =>
         {
             var userId = principal.GetUserId();
@@ -110,7 +99,6 @@ public static class AccountEndpoints
         .Produces<ApiResponse<List<RecentClientResponse>>>(200);
     }
 }
-
 public record ActivityQueryParameters(int Limit = 10);
 public record LoansQueryParameters(int Limit = 10);
 public record ClientsQueryParameters(int Limit = 5);

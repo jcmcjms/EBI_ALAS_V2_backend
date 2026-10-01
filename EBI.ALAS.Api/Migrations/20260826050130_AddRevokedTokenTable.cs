@@ -1,8 +1,6 @@
-using System;
+﻿using System;
 using Microsoft.EntityFrameworkCore.Migrations;
-
 #nullable disable
-
 namespace EBI.ALAS.Api.Migrations
 {
     public partial class AddRevokedTokenTable : Migration
@@ -24,7 +22,6 @@ namespace EBI.ALAS.Api.Migrations
                 {
                     table.PrimaryKey("PK_RevokedTokens", x => x.Id);
                 });
-
             migrationBuilder.CreateIndex(
                 name: "IX_RevokedTokens_TokenId",
                 table: "RevokedTokens",
