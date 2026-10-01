@@ -10,6 +10,7 @@ public sealed class DisbursementSyncHostedService : BackgroundService
 {
     private readonly IServiceScopeFactory _scopes;
     private readonly ILogger<DisbursementSyncHostedService> _logger;
+    private DateTime _lastSyncUtc = DateTime.MinValue;
     public DisbursementSyncHostedService(
         IServiceScopeFactory scopes,
         ILogger<DisbursementSyncHostedService> logger)
@@ -49,12 +50,13 @@ public sealed class DisbursementSyncHostedService : BackgroundService
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         var webLoanRepo = scope.ServiceProvider.GetRequiredService<IWebLoanRepository>();
         var workflowService = scope.ServiceProvider.GetRequiredService<ILoanWorkflowService>();
-        var auditLogger = scope.ServiceProvider.GetRequiredService<IAuditLogger>();
         var realtimeService = scope.ServiceProvider.GetRequiredService<IRealtimeNotificationService>();
         var timeProvider = scope.ServiceProvider.GetRequiredService<ITimeProvider>();
         var cache = scope.ServiceProvider.GetRequiredService<IMemoryCache>();
+        var cycleStart = timeProvider.UtcNow;
         var loans = await db.LoanApplications
-            .Where(l => l.Status == "Approved" || l.Status == "ForDisbursement")
+            .Where(l => (l.Status == "Approved" || l.Status == "ForDisbursement")
+                     && l.LastActionDate >= _lastSyncUtc)
             .ToListAsync(ct);
         if (loans.Count == 0)
             return;
@@ -70,57 +72,90 @@ public sealed class DisbursementSyncHostedService : BackgroundService
         _logger.LogDebug("Checking {Count} loan(s) for disbursement sync.", loans.Count);
         var systemUserId = await ResolveSystemUserIdAsync(db, cache, ct);
         var synced = 0;
+        var branchesNotified = new HashSet<string>(StringComparer.Ordinal);
+
+        // Collect all changes
+        var changes = new List<(LoanApplication Loan, string TargetStatus, string Reason, string FromStatus)>();
         foreach (var loan in loans)
         {
             if (string.IsNullOrWhiteSpace(loan.LoanNo))
                 continue;
             if (!preLoanData.TryGetValue(loan.LoanNo, out var preLoan))
                 continue;
-            try
+
+            string? targetStatus = null;
+            string? reason = null;
+            if (preLoan.ReleasedDate is not null && !string.IsNullOrWhiteSpace(preLoan.ReleasedBy)
+                && loan.Status == "ForDisbursement")
             {
-                string? targetStatus = null;
-                string? reason = null;
-                if (preLoan.ReleasedDate is not null && !string.IsNullOrWhiteSpace(preLoan.ReleasedBy)
-                    && loan.Status == "ForDisbursement")
-                {
-                    targetStatus = "Disbursed";
-                    reason = $"Auto-synced: released on {preLoan.ReleasedDate:yyyy-MM-dd} by {preLoan.ReleasedBy}.";
-                }
-                else if (preLoan.ApprovedDate is not null && !string.IsNullOrWhiteSpace(preLoan.ApprovedBy)
-                    && loan.Status == "Approved")
-                {
-                    targetStatus = "ForDisbursement";
-                    reason = $"Auto-synced: approved on {preLoan.ApprovedDate:yyyy-MM-dd} by {preLoan.ApprovedBy}.";
-                }
-                if (targetStatus is null)
-                    continue;
-                if (!workflowService.IsValidTransition(loan.Status, targetStatus, Roles.Admin))
-                    continue;
-                var fromStatus = loan.Status;
-                var strategy = db.Database.CreateExecutionStrategy();
-                await strategy.ExecuteAsync(async () =>
-                {
-                    await using var tx = await db.Database.BeginTransactionAsync(ct);
-                    loan.Status = targetStatus!;
-                    loan.LastActionDate = timeProvider.UtcNow;
-                    await db.SaveChangesAsync(ct);
-                    await auditLogger.LogActionAsync(
-                        loan.Id, systemUserId, "StatusChanged", fromStatus, targetStatus, reason);
-                    await tx.CommitAsync(ct);
-                });
-                await realtimeService.NotifyDashboardUpdateAsync(loan.BranchCode);
-                synced++;
-                _logger.LogInformation(
-                    "Auto-synced loan {LamId} ({LoanNo}): {From} → {To}",
-                    loan.LamId, loan.LoanNo, fromStatus, targetStatus);
+                targetStatus = "Disbursed";
+                reason = $"Auto-synced: released on {preLoan.ReleasedDate:yyyy-MM-dd} by {preLoan.ReleasedBy}.";
             }
-            catch (Exception ex)
+            else if (preLoan.ApprovedDate is not null && !string.IsNullOrWhiteSpace(preLoan.ApprovedBy)
+                && loan.Status == "Approved")
             {
-                _logger.LogWarning(ex,
-                    "Failed to sync loan {LamId} ({LoanNo}). Skipping.",
-                    loan.LamId, loan.LoanNo);
+                targetStatus = "ForDisbursement";
+                reason = $"Auto-synced: approved on {preLoan.ApprovedDate:yyyy-MM-dd} by {preLoan.ApprovedBy}.";
+            }
+
+            if (targetStatus is not null && workflowService.IsValidTransition(loan.Status, targetStatus, Roles.Admin))
+            {
+                changes.Add((loan, targetStatus, reason!, loan.Status));
             }
         }
+
+        // Apply all changes in a single transaction
+        if (changes.Count > 0)
+        {
+            var strategy = db.Database.CreateExecutionStrategy();
+            await strategy.ExecuteAsync(async () =>
+            {
+                await using var tx = await db.Database.BeginTransactionAsync(ct);
+                var now = timeProvider.UtcNow;
+
+                foreach (var (loan, targetStatus, _, _) in changes)
+                {
+                    loan.Status = targetStatus;
+                    loan.LastActionDate = now;
+                }
+                await db.SaveChangesAsync(ct);
+
+                // Batch audit records
+                var auditActions = changes.Select(c => new LoanAction
+                {
+                    LoanApplicationId = c.Loan.Id,
+                    ActionByUserId = systemUserId,
+                    Action = "StatusChanged",
+                    FromStatus = c.FromStatus,
+                    ToStatus = c.TargetStatus,
+                    Comments = c.Reason,
+                    ActionDate = now,
+                }).ToList();
+                db.LoanActions.AddRange(auditActions);
+                await db.SaveChangesAsync(ct);
+
+                await tx.CommitAsync(ct);
+            });
+
+            foreach (var (loan, targetStatus, _, fromStatus) in changes)
+            {
+                branchesNotified.Add(loan.BranchCode);
+                _logger.LogInformation(
+                    "Auto-synced loan {LamId} ({LoanNo}): {From} \u2192 {To}",
+                    loan.LamId, loan.LoanNo, fromStatus, targetStatus);
+            }
+            synced = changes.Count;
+        }
+
+        // Deduplicate branch notifications
+        foreach (var branch in branchesNotified)
+        {
+            await realtimeService.NotifyDashboardUpdateAsync(branch);
+        }
+
+        // Update watermark
+        _lastSyncUtc = cycleStart;
+
         if (synced > 0)
             _logger.LogInformation("Disbursement sync complete: {Synced}/{Total} loan(s) updated.", synced, loans.Count);
     }
