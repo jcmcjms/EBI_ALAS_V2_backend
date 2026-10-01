@@ -1,4 +1,4 @@
-﻿using System.Globalization;
+using System.Globalization;
 using EBI.ALAS.Api.Common.Constants;
 using EBI.ALAS.Api.Common.Time;
 using EBI.ALAS.Api.Features.Loans;
@@ -66,12 +66,12 @@ public class DashboardService : IDashboardService
         if (scoped)
             aggLoans = aggLoans.Where(l => l.BranchCode == branchCode);
         var aggregatesTask = aggLoans
-            .Where(l => l.Status == "ForChecking" || l.Status == "ForApproval"
+            .Where(l => pendingStatuses.Contains(l.Status)
                 || (l.ApplicationDate >= yesterdayStartUtc && l.ApplicationDate < tomorrowStartUtc))
             .GroupBy(_ => 1)
             .Select(g => new
             {
-                PendingCount = g.Count(l => l.Status == "ForChecking" || l.Status == "ForApproval"),
+                PendingCount = g.Count(l => pendingStatuses.Contains(l.Status)),
                 SubmittedToday = g.Count(l => l.ApplicationDate >= todayStartUtc && l.ApplicationDate < tomorrowStartUtc),
                 SubmittedYesterday = g.Count(l => l.ApplicationDate >= yesterdayStartUtc && l.ApplicationDate < todayStartUtc),
             })
@@ -166,40 +166,24 @@ public class DashboardService : IDashboardService
             })
             .Take(QueueSize)
             .ToListAsync(ct);
-        var weekActionGroupsTask = scoped
-            ? ctxWeek.Database.SqlQuery<WeekActionGroupRow>($"""
-                SELECT
-                    CAST(DATEADD(hour, 8, a.ActionDate) AS date) AS DayLabel,
-                    a.ToStatus,
-                    COUNT(*) AS [Count]
-                FROM LoanActions a
-                INNER JOIN LoanApplications la ON la.Id = a.LoanApplicationId
-                WHERE a.ActionDate >= {weekStartUtc}
-                  AND (a.ToStatus = 'Approved' OR a.ToStatus = 'ForRevision')
-                  AND la.BranchCode = {branchCode}
-                GROUP BY CAST(DATEADD(hour, 8, a.ActionDate) AS date), a.ToStatus
-                """).ToListAsync(ct)
-            : ctxWeek.Database.SqlQuery<WeekActionGroupRow>($"""
-                SELECT
-                    CAST(DATEADD(hour, 8, a.ActionDate) AS date) AS DayLabel,
-                    a.ToStatus,
-                    COUNT(*) AS [Count]
-                FROM LoanActions a
-                INNER JOIN LoanApplications la ON la.Id = a.LoanApplicationId
-                WHERE a.ActionDate >= {weekStartUtc}
-                  AND (a.ToStatus = 'Approved' OR a.ToStatus = 'ForRevision')
-                GROUP BY CAST(DATEADD(hour, 8, a.ActionDate) AS date), a.ToStatus
-                """).ToListAsync(ct);
         await Task.WhenAll(
             aggregatesTask, weekDataTask, pendingTask,
-            nowServingTask, activeTask, docQueueTask, weekActionGroupsTask);
+            nowServingTask, activeTask, docQueueTask);
         var aggregates = aggregatesTask.Result;
         var weekData = weekDataTask.Result;
         var pendingRows = pendingTask.Result;
         var nowServingItems = nowServingTask.Result;
         var activeRows = activeTask.Result;
         var docQueueRows = docQueueTask.Result;
-        var weekActionGroups = weekActionGroupsTask.Result;
+        var weekActionGroups = weekData
+            .GroupBy(a => new { Day = a.ActionDate.Add(PhOffset).Date, a.ToStatus })
+            .Select(g => new WeekActionGroupRow
+            {
+                DayLabel = g.Key.Day,
+                ToStatus = g.Key.ToStatus,
+                Count = g.Count()
+            })
+            .ToList();
         var pendingTotal = aggregates?.PendingCount ?? 0;
         var submittedToday = aggregates?.SubmittedToday ?? 0;
         var submittedYesterday = aggregates?.SubmittedYesterday ?? 0;
