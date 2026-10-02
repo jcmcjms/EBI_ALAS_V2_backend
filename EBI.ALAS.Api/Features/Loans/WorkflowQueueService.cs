@@ -154,7 +154,11 @@ public class WorkflowQueueService : IWorkflowQueueService
             {
                 keys = await _db.ApprovalAuthorities
                     .Where(a => a.Tier == tier).Select(a => a.Key).ToListAsync(ct);
-                _cache.Set(tierCacheKey, keys, TimeSpan.FromMinutes(5));
+                _cache.Set(tierCacheKey, keys, new MemoryCacheEntryOptions
+                {
+                    AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(5),
+                    Size = 1,
+                });
             }
             candidates = candidates
                 .Where(u => u.ApprovalAuthorityKey != null && keys.Contains(u.ApprovalAuthorityKey))
@@ -331,7 +335,11 @@ public class WorkflowQueueService : IWorkflowQueueService
             authority = await _db.ApprovalAuthorities.AsNoTracking()
                 .FirstOrDefaultAsync(a => a.Key == authorityKey, ct);
             if (authority is not null)
-                _cache.Set(cacheKey, authority, TimeSpan.FromMinutes(5));
+                _cache.Set(cacheKey, authority, new MemoryCacheEntryOptions
+                {
+                    AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(5),
+                    Size = 1,
+                });
         }
         if (authority is null) return ([], "No authority assigned");
         var branches = authority.ScopeType switch
@@ -356,7 +364,11 @@ public class WorkflowQueueService : IWorkflowQueueService
         codes = await _db.Branches.AsNoTracking()
             .Select(b => b.Code)
             .ToListAsync(ct);
-        _cache.Set(cacheKey, codes, TimeSpan.FromMinutes(5));
+        _cache.Set(cacheKey, codes, new MemoryCacheEntryOptions
+        {
+            AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(5),
+            Size = 1,
+        });
         return codes;
     }
     private static string DeskLabelFor(string role) => role switch
@@ -384,6 +396,22 @@ public class WorkflowQueueService : IWorkflowQueueService
                 .OrderBy(i => i.EnqueuedAt).ThenBy(i => i.Id)
                 .Select(i => new { i.Id, i.LoanApplicationId, i.PartitionKey })
                 .FirstOrDefaultAsync(ct);
+            if (candidate is null)
+            {
+                // Items can sit in Queued when enqueue skipped promotion (e.g. TrackEnqueue).
+                // Promote stuck heads so they become claimable.
+                foreach (var prefix in prefixes)
+                    await PromoteHeadAsync(prefix, ct);
+                candidate = await _db.WorkflowQueueItems.AsNoTracking()
+                    .Where(i => i.State == QueueItemState.Active
+                                && prefixes.Contains(i.PartitionKey)
+                                && (i.OwnerUserId == null
+                                    || i.OwnerUserId == userId
+                                    || i.LeasedAt <= stealBefore))
+                    .OrderBy(i => i.EnqueuedAt).ThenBy(i => i.Id)
+                    .Select(i => new { i.Id, i.LoanApplicationId, i.PartitionKey })
+                    .FirstOrDefaultAsync(ct);
+            }
             if (candidate is null) return null;
             var won = await TryLeaseItemAsync(candidate.Id, userId, ct);
             if (!won) continue;
@@ -461,7 +489,7 @@ public class WorkflowQueueService : IWorkflowQueueService
                        la.TermDays,
                        la.ApplicationDate,
                        la.HasDeviations,
-                       ROW_NUMBER() OVER (ORDER BY wi.EnqueuedAt, wi.Id) AS Rank
+                       CAST(ROW_NUMBER() OVER (ORDER BY wi.EnqueuedAt, wi.Id) AS INT) AS Rank
                 FROM WorkflowQueueItems wi
                 INNER JOIN LoanApplications la ON la.Id = wi.LoanApplicationId
                 LEFT JOIN Users u ON u.Id = wi.OwnerUserId

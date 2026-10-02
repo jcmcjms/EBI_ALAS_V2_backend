@@ -130,6 +130,7 @@ public static class UpdateLoanStatus
                 _                                                => "StatusChanged",
             };
             var strategy = db.Database.CreateExecutionStrategy();
+            QueueStage? newStageForPromo = null;
             await strategy.ExecuteAsync(async () =>
             {
                 await using var tx = await db.Database.BeginTransactionAsync(ct);
@@ -141,12 +142,20 @@ public static class UpdateLoanStatus
                 if (oldStage != null)
                     await queueService.DequeueAndPromoteWithoutSaveAsync(loan, fromStatus, ct);
                 if (newStage != null && !skipQueue)
+                {
                     queueService.TrackEnqueue(loan, targetStatus);
+                    newStageForPromo = newStage;
+                }
                 auditLogger.TrackAction(
                     id, userId, actionName, fromStatus, targetStatus, comments);
                 await db.SaveChangesAsync(ct);
                 await tx.CommitAsync(ct);
             });
+            if (newStageForPromo is { } stageToPromote)
+            {
+                var partitionKey = queueService.GetPartitionKey(loan, stageToPromote);
+                await queueService.PromoteHeadAsync(partitionKey, ct);
+            }
             await eventPublisher.PublishAsync(new LoanStatusChangedEvent(
                 LoanId: loan.Id,
                 LamId: loan.LamId,
