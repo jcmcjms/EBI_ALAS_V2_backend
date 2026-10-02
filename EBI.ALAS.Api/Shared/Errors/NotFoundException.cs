@@ -1,4 +1,4 @@
-﻿namespace EBI.ALAS.Api.Common.Exceptions;
+namespace EBI.ALAS.Api.Shared.Errors;
 public sealed class NotFoundException : Exception
 {
     public string ResourceName { get; }

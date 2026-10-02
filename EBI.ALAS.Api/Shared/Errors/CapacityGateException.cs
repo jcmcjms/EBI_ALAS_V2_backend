@@ -1,4 +1,4 @@
-﻿namespace EBI.ALAS.Api.Common.Exceptions;
+namespace EBI.ALAS.Api.Shared.Errors;
 public sealed class CapacityGateException : Exception
 {
     public Dictionary<string, string[]> Errors { get; }

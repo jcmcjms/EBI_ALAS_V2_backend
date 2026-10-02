@@ -1,5 +1,5 @@
-﻿using System.Security.Claims;
-using EBI.ALAS.Api.Common.Exceptions;
+using System.Security.Claims;
+using EBI.ALAS.Api.Shared.Errors;
 using EBI.ALAS.Api.Common.Models;
 using FluentValidation;
 using Microsoft.AspNetCore.Mvc;
