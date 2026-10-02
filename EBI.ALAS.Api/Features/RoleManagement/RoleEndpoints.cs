@@ -1,5 +1,5 @@
 ﻿using EBI.ALAS.Api.Common.Constants;
-using EBI.ALAS.Api.Common.Models;
+using EBI.ALAS.Api.Shared.Models;
 namespace EBI.ALAS.Api.Features.RoleManagement;
 public static class RoleEndpoints
 {

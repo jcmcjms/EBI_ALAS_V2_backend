@@ -1,4 +1,4 @@
-﻿using EBI.ALAS.Api.Common.Models;
+﻿using EBI.ALAS.Api.Shared.Models;
 using EBI.ALAS.Api.Common.Time;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;

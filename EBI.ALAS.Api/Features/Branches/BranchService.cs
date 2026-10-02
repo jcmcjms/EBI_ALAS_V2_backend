@@ -1,4 +1,4 @@
-﻿using EBI.ALAS.Api.Common.Models;
+﻿using EBI.ALAS.Api.Shared.Models;
 using Microsoft.Extensions.Caching.Memory;
 namespace EBI.ALAS.Api.Features.Branches;
 public class BranchService : IBranchService

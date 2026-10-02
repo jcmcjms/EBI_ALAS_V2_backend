@@ -1,4 +1,4 @@
-﻿namespace EBI.ALAS.Api.Common.Models;
+﻿namespace EBI.ALAS.Api.Shared.Models;
 public record PaginationRequest(int Page = 1, int PageSize = 20)
 {
     public const int DefaultPageSize = 20;
