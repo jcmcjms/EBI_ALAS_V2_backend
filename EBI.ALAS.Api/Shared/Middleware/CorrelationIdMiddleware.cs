@@ -1,4 +1,4 @@
-﻿namespace EBI.ALAS.Api.Common.Middleware;
+﻿namespace EBI.ALAS.Api.Shared.Middleware;
 public sealed class CorrelationIdMiddleware(RequestDelegate next)
 {
     public const string CorrelationHeader = "X-Correlation-Id";

@@ -1,5 +1,5 @@
 ﻿using System.Diagnostics;
-namespace EBI.ALAS.Api.Common.Middleware;
+namespace EBI.ALAS.Api.Shared.Middleware;
 public sealed class RequestLoggingMiddleware(
     RequestDelegate next,
     ILogger<RequestLoggingMiddleware> logger)

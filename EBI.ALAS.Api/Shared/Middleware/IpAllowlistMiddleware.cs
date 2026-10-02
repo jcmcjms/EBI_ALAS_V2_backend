@@ -1,6 +1,6 @@
 ﻿using System.Net;
 using EBI.ALAS.Api.Common.Models;
-namespace EBI.ALAS.Api.Common.Middleware;
+namespace EBI.ALAS.Api.Shared.Middleware;
 public sealed class IpAllowlistMiddleware
 {
     private readonly RequestDelegate _next;
