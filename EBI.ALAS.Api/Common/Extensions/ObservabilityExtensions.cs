@@ -1,4 +1,4 @@
-﻿using EBI.ALAS.Api.Infrastructure.Caching;
+using EBI.ALAS.Api.Infrastructure.Caching;
 using OpenTelemetry.Resources;
 using OpenTelemetry.Trace;
 using Serilog;
