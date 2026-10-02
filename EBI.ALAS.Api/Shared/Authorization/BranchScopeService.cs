@@ -2,7 +2,7 @@ using EBI.ALAS.Api.Common.Constants;
 using EBI.ALAS.Api.Common.Extensions;
 using EBI.ALAS.Api.Features.ApprovalMatrix;
 using EBI.ALAS.Api.Infrastructure.Data;
-namespace EBI.ALAS.Api.Common.Authorization;
+namespace EBI.ALAS.Api.Shared.Authorization;
 public interface IBranchScopeService
 {
     Task<IReadOnlySet<string>?> GetReadableBranchesAsync(
@@ -79,4 +79,3 @@ public sealed class BranchScopeService(AppDbContext db) : IBranchScopeService
         return set;
     }
 }
-

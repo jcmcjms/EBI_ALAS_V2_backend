@@ -1,5 +1,5 @@
-﻿using System.Security.Claims;
-using EBI.ALAS.Api.Common.Authorization;
+using System.Security.Claims;
+using EBI.ALAS.Api.Shared.Authorization;
 using EBI.ALAS.Api.Common.Extensions;
 using EBI.ALAS.Api.Common.Models;
 using Microsoft.Extensions.Caching.Memory;

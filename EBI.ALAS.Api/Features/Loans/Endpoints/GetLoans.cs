@@ -1,4 +1,5 @@
-﻿using System.Security.Claims;
+using System.Security.Claims;
+using EBI.ALAS.Api.Shared.Authorization;
 using EBI.ALAS.Api.Common.Constants;
 using EBI.ALAS.Api.Common.Extensions;
 using EBI.ALAS.Api.Common.Models;
@@ -16,6 +17,7 @@ public static class GetLoans
         group.MapGet("/", async (
             HttpContext ctx,
             AppDbContext db,
+            IBranchScopeService branchScope,
             int? page,
             int? pageSize,
             string? search,
@@ -36,13 +38,11 @@ public static class GetLoans
                 .Include(l => l.AssignedApprover)
                 .Include(l => l.DocumentsFlaggedBy)
                 .Include(l => l.DocumentChecklists);
-            var userRole = ctx.User.GetRole();
-            var userBranchCode = ctx.User.GetBranchCode();
             var userId = ctx.User.GetUserId();
-            if (!string.IsNullOrEmpty(userBranchCode)
-                && !string.Equals(userRole, Roles.Admin, StringComparison.Ordinal))
+            var readableBranches = await branchScope.GetReadableBranchesAsync(ctx.User, ct);
+            if (readableBranches is not null)
             {
-                query = query.Where(l => l.BranchCode == userBranchCode);
+                query = query.Where(l => readableBranches.Contains(l.BranchCode));
             }
             if (!string.IsNullOrWhiteSpace(search))
             {
@@ -62,8 +62,7 @@ public static class GetLoans
                     query = query.Where(l => statuses.Contains(l.Status));
                 }
             }
-            if (string.Equals(userRole, Roles.Admin, StringComparison.Ordinal)
-                && !string.IsNullOrWhiteSpace(branchCode)
+            if (!string.IsNullOrWhiteSpace(branchCode)
                 && !string.Equals(branchCode, "all", StringComparison.OrdinalIgnoreCase))
             {
                 query = query.Where(l => l.BranchCode == branchCode);

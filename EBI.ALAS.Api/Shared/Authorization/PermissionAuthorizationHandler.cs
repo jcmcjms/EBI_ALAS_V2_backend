@@ -1,6 +1,6 @@
 ﻿using EBI.ALAS.Api.Common.Extensions;
 using Microsoft.AspNetCore.Authorization;
-namespace EBI.ALAS.Api.Common.Authorization;
+namespace EBI.ALAS.Api.Shared.Authorization;
 public sealed class PermissionAuthorizationHandler : AuthorizationHandler<PermissionRequirement>
 {
     protected override Task HandleRequirementAsync(

@@ -1,4 +1,4 @@
-﻿using EBI.ALAS.Api.Common.Authorization;
+using EBI.ALAS.Api.Shared.Authorization;
 using EBI.ALAS.Api.Common.Constants;
 namespace EBI.ALAS.Api.Common.Extensions;
 public static class AuthorizationExtensions
