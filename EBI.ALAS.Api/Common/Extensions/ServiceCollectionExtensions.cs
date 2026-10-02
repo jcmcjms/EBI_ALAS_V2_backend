@@ -1,5 +1,5 @@
 using EBI.ALAS.Api.Shared.Authorization;
-using EBI.ALAS.Api.Common.Time;
+using EBI.ALAS.Api.Shared.Time;
 using EBI.ALAS.Api.Features.Account;
 using EBI.ALAS.Api.Features.ApprovalMatrix;
 using EBI.ALAS.Api.Features.Auth;

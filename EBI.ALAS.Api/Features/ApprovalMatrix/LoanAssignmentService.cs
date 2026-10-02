@@ -1,4 +1,4 @@
-﻿using EBI.ALAS.Api.Common.Constants;
+using EBI.ALAS.Api.Common.Constants;
 using EBI.ALAS.Api.Features.Auth;
 using EBI.ALAS.Api.Features.Loans;
 using EBI.ALAS.Api.Features.Notifications;
@@ -19,12 +19,12 @@ public sealed class LoanAssignmentService : ILoanAssignmentService
     private readonly AppDbContext _db;
     private readonly IPresenceService _presence;
     private readonly IHubContext<NotificationHub> _hub;
-    private readonly Common.Time.ITimeProvider _time;
+    private readonly Shared.Time.ITimeProvider _time;
     public LoanAssignmentService(
         AppDbContext db,
         IPresenceService presence,
         IHubContext<NotificationHub> hub,
-        Common.Time.ITimeProvider time)
+        Shared.Time.ITimeProvider time)
     {
         _db = db;
         _presence = presence;

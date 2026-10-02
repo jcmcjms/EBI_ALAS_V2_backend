@@ -1,5 +1,5 @@
-﻿using System.IdentityModel.Tokens.Jwt;
-using EBI.ALAS.Api.Common.Time;
+using System.IdentityModel.Tokens.Jwt;
+using EBI.ALAS.Api.Shared.Time;
 namespace EBI.ALAS.Api.Features.Auth;
 public sealed class AuthService(
     IAuthRepository authRepository,

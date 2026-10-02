@@ -1,5 +1,5 @@
 ﻿using System;
-namespace EBI.ALAS.Api.Common.Time;
+namespace EBI.ALAS.Api.Shared.Time;
 public sealed class PhilippinesTimeProvider : ITimeProvider
 {
     private static readonly TimeZoneInfo s_philippinesTimeZone =

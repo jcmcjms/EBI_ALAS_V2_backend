@@ -1,4 +1,4 @@
-﻿namespace EBI.ALAS.Api.Common.Time;
+﻿namespace EBI.ALAS.Api.Shared.Time;
 public interface ITimeProvider
 {
     DateTime UtcNow { get; }

@@ -1,7 +1,7 @@
-﻿using System.Security.Claims;
+using System.Security.Claims;
 using EBI.ALAS.Api.Common.Constants;
 using EBI.ALAS.Api.Common.Extensions;
-using EBI.ALAS.Api.Common.Time;
+using EBI.ALAS.Api.Shared.Time;
 using EBI.ALAS.Api.Features.ApprovalMatrix;
 using EBI.ALAS.Api.Features.Notifications;
 using EBI.ALAS.Api.Features.Presence;

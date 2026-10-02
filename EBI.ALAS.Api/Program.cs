@@ -1,5 +1,5 @@
-﻿using EBI.ALAS.Api.Common.Extensions;
-using EBI.ALAS.Api.Common.Time;
+using EBI.ALAS.Api.Common.Extensions;
+using EBI.ALAS.Api.Shared.Time;
 using EBI.ALAS.Api.Features.Loans;
 using EBI.ALAS.Api.Infrastructure.Data;
 using EBI.ALAS.Api.Infrastructure.Security;
