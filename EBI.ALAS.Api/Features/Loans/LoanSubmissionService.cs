@@ -3,7 +3,7 @@ using System.Text.Json;
 using EBI.ALAS.Api.Common.Constants;
 using EBI.ALAS.Api.Shared.Errors;
 using EBI.ALAS.Api.Common.Extensions;
-using EBI.ALAS.Api.Common.Time;
+using EBI.ALAS.Api.Shared.Time;
 using EBI.ALAS.Api.Features.Loans.Computation;
 using EBI.ALAS.Api.Features.Notifications;
 using Microsoft.Data.SqlClient;

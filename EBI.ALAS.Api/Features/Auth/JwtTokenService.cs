@@ -1,10 +1,10 @@
-﻿using System.Globalization;
+using System.Globalization;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text;
 using EBI.ALAS.Api.Common.Constants;
-using EBI.ALAS.Api.Common.Time;
+using EBI.ALAS.Api.Shared.Time;
 using Microsoft.IdentityModel.Tokens;
 namespace EBI.ALAS.Api.Features.Auth;
 public class JwtTokenService : IJwtTokenService

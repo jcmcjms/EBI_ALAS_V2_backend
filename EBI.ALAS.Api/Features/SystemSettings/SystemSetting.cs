@@ -1,4 +1,4 @@
-﻿using EBI.ALAS.Api.Features.Auth;
+using EBI.ALAS.Api.Features.Auth;
 using EBI.ALAS.Api.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
@@ -26,8 +26,8 @@ public sealed class SystemSettingsStore : ISystemSettingsStore
     private static readonly TimeSpan CacheTtl = TimeSpan.FromSeconds(30);
     private readonly AppDbContext _db;
     private readonly IMemoryCache _cache;
-    private readonly Common.Time.ITimeProvider _time;
-    public SystemSettingsStore(AppDbContext db, IMemoryCache cache, Common.Time.ITimeProvider time)
+    private readonly Shared.Time.ITimeProvider _time;
+    public SystemSettingsStore(AppDbContext db, IMemoryCache cache, Shared.Time.ITimeProvider time)
     {
         _db = db;
         _cache = cache;

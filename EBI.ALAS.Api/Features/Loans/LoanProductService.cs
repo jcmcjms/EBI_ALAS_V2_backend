@@ -1,4 +1,4 @@
-﻿using EBI.ALAS.Api.Common.Time;
+using EBI.ALAS.Api.Shared.Time;
 namespace EBI.ALAS.Api.Features.Loans;
 public class LoanProductService(
     ILoanProductRepository repository,

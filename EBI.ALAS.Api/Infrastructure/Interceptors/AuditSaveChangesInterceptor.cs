@@ -1,5 +1,5 @@
-﻿using EBI.ALAS.Api.Shared.Models;
-using EBI.ALAS.Api.Common.Time;
+using EBI.ALAS.Api.Shared.Models;
+using EBI.ALAS.Api.Shared.Time;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 namespace EBI.ALAS.Api.Infrastructure.Interceptors;
