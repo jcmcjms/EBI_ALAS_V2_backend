@@ -1,7 +1,8 @@
-﻿using System.Security.Claims;
+using System.Security.Claims;
 using EBI.ALAS.Api.Common.Constants;
 using EBI.ALAS.Api.Common.Extensions;
 using EBI.ALAS.Api.Common.Models;
+using EBI.ALAS.Api.Features.Notifications;
 using EBI.ALAS.Api.Infrastructure.Data;
 using FluentValidation;
 using Microsoft.EntityFrameworkCore;
@@ -55,6 +56,7 @@ public static class LoanDeviationEndpoints
             int id, int deviationId, AddDeviationRemarkRequest request,
             IValidator<AddDeviationRemarkRequest> validator,
             ClaimsPrincipal user, AppDbContext db, IAuditLogger auditLogger,
+            IRemarkNotificationService remarkNotifier,
             CancellationToken ct) =>
         {
             var validation = await validator.ValidateAsync(request, ct);
@@ -103,6 +105,31 @@ public static class LoanDeviationEndpoints
             await db.SaveChangesAsync(ct);
             await auditLogger.LogActionAsync(id, userId, "DeviationRemarkAdded",
                 null, null, $"Remark on deviation '{deviation.ReasonText}'");
+            var actorName = $"{user.GetFirstName()} {user.GetLastName()}";
+            var link = $"/loans/approval/{id}";
+            var deviationLabel = deviation.ReasonText;
+            if (request.ParentRemarkId is { } replyToId)
+            {
+                var parentAuthorId = await db.DeviationRemarks.AsNoTracking()
+                    .Where(r => r.Id == replyToId)
+                    .Select(r => r.AuthorId)
+                    .FirstOrDefaultAsync(ct);
+                await remarkNotifier.NotifyAsync(new RemarkNotifyRequest(
+                    id, userId,
+                    "New reply to your remark",
+                    $"{actorName} replied to your remark on '{deviationLabel}' ({loan.LamId}).",
+                    link,
+                    parentAuthorId == default ? null : parentAuthorId), ct);
+            }
+            else
+            {
+                await remarkNotifier.NotifyAsync(new RemarkNotifyRequest(
+                    id, userId,
+                    "New deviation remark",
+                    $"{actorName} remarked on '{deviationLabel}' of your application {loan.LamId}.",
+                    link,
+                    loan.CreatedById), ct);
+            }
             return Results.Created($"/api/loans/{id}/deviations",
                 ApiResponse<DeviationRemarkResponse>.SuccessResponse(new(
                     remark.Id, remark.LoanDeviationId, remark.ParentRemarkId,

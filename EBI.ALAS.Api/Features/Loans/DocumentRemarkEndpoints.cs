@@ -1,4 +1,4 @@
-﻿using System.Security.Claims;
+using System.Security.Claims;
 using EBI.ALAS.Api.Common.Constants;
 using EBI.ALAS.Api.Common.Extensions;
 using EBI.ALAS.Api.Common.Models;
@@ -48,7 +48,7 @@ public static class DocumentRemarkEndpoints
             ClaimsPrincipal user, AppDbContext db,
             IChecklistDocumentRepository checklistRepo,
             IAuditLogger auditLogger,
-            INotificationService notificationService, CancellationToken ct) =>
+            IRemarkNotificationService remarkNotifier, CancellationToken ct) =>
         {
             var validation = await validator.ValidateAsync(request, ct);
             if (!validation.IsValid)
@@ -112,18 +112,21 @@ public static class DocumentRemarkEndpoints
                     .Where(r => r.Id == replyToId)
                     .Select(r => r.AuthorId)
                     .FirstOrDefaultAsync(ct);
-                if (parentAuthorId != default && parentAuthorId != userId)
-                    await notificationService.CreateAsync(parentAuthorId,
-                        "New reply to your remark",
-                        $"{actorName} replied to your remark on '{docLabel}' ({loan.LamId}).",
-                        link);
+                await remarkNotifier.NotifyAsync(new RemarkNotifyRequest(
+                    id, userId,
+                    "New reply to your remark",
+                    $"{actorName} replied to your remark on '{docLabel}' ({loan.LamId}).",
+                    link,
+                    parentAuthorId == default ? null : parentAuthorId), ct);
             }
-            else if (loan.CreatedById != userId)
+            else
             {
-                await notificationService.CreateAsync(loan.CreatedById,
+                await remarkNotifier.NotifyAsync(new RemarkNotifyRequest(
+                    id, userId,
                     "New document remark",
                     $"{actorName} remarked on '{docLabel}' of your application {loan.LamId}.",
-                    link);
+                    link,
+                    loan.CreatedById), ct);
             }
             return Results.Created($"/api/loans/{id}/document-remarks",
                 ApiResponse<DocumentRemarkResponse>.SuccessResponse(new(

@@ -1,4 +1,4 @@
-﻿using EBI.ALAS.Api.Common.Constants;
+using EBI.ALAS.Api.Common.Constants;
 using EBI.ALAS.Api.Common.Time;
 using EBI.ALAS.Api.Features.ApprovalMatrix;
 using EBI.ALAS.Api.Features.Notifications;
@@ -23,7 +23,11 @@ public sealed class SystemPrincipal(AppDbContext db, IMemoryCache cache) : ISyst
         if (id == 0)
             throw new InvalidOperationException(
                 "System user not found. Ensure DbInitializer has seeded a user with Username == 'system'.");
-        cache.Set("system:userId", id, TimeSpan.FromHours(1));
+        cache.Set("system:userId", id, new MemoryCacheEntryOptions
+        {
+            AbsoluteExpirationRelativeToNow = TimeSpan.FromHours(1),
+            Size = 1,
+        });
         return id;
     }
 }
@@ -79,6 +83,9 @@ public sealed class DocumentFlagService(
                    $"Upload the missing documents; the flag clears automatically when complete.";
         await notifications.CreateAsync(loan.CreatedById, title, body, link);
         await realtime.NotifyUserAsync(loan.CreatedById, title, body, link);
+        await realtime.NotifyEntityWatchersAsync(
+            loan.Id, title, body, link,
+            [actorUserId, loan.CreatedById]);
         await realtime.NotifyDashboardUpdateAsync(loan.BranchCode);
     }
     public async Task<bool> ClearAsync(
@@ -104,6 +111,9 @@ public sealed class DocumentFlagService(
             await notifications.CreateAsync(loan.DocumentsFlaggedById.Value, title, body, link);
             await realtime.NotifyUserAsync(loan.DocumentsFlaggedById.Value, title, body, link);
         }
+        await realtime.NotifyEntityWatchersAsync(
+            loan.Id, title, body, link,
+            [actor, loan.CreatedById, loan.DocumentsFlaggedById ?? actor]);
         await realtime.NotifyDashboardUpdateAsync(loan.BranchCode);
         return true;
     }

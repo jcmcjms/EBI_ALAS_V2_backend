@@ -91,6 +91,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IAuditLogService, AuditLogService>();
         services.AddScoped<INotificationService, NotificationService>();
         services.AddScoped<IRealtimeNotificationService, RealtimeNotificationService>();
+        services.AddScoped<IRemarkNotificationService, RemarkNotificationService>();
         services.AddSingleton<IPresenceService, PresenceService>();
         services.AddSingleton<IEntityWatchService, EntityWatchService>();
         services.AddScoped<IApprovalRoutingService, ApprovalRoutingService>();
