@@ -1,4 +1,4 @@
-﻿using EBI.ALAS.Api.Common.Constants;
+using EBI.ALAS.Api.Common.Constants;
 using EBI.ALAS.Api.Common.Models;
 using EBI.ALAS.Api.Common.Time;
 using EBI.ALAS.Api.Features.Notifications;
@@ -150,7 +150,11 @@ public static class SyncDisbursementStatus
         if (id == 0)
             throw new InvalidOperationException(
                 "System user not found. Ensure DbInitializer has seeded a user with Username == 'system'.");
-        cache.Set(cacheKey, id, TimeSpan.FromHours(1));
+        cache.Set(cacheKey, id, new MemoryCacheEntryOptions
+        {
+            AbsoluteExpirationRelativeToNow = TimeSpan.FromHours(1),
+            Size = 1,
+        });
         return id;
     }
 }
