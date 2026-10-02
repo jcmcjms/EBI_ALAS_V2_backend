@@ -1,6 +1,6 @@
 ﻿using System.Security.Claims;
 using EBI.ALAS.Api.Common.Extensions;
-using EBI.ALAS.Api.Common.Models;
+using EBI.ALAS.Api.Shared.Models;
 using FluentValidation;
 using Microsoft.AspNetCore.Mvc;
 namespace EBI.ALAS.Api.Features.Account;

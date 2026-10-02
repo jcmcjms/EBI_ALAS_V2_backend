@@ -1,7 +1,7 @@
 ﻿using System.Security.Claims;
 using EBI.ALAS.Api.Common.Constants;
 using EBI.ALAS.Api.Common.Extensions;
-using EBI.ALAS.Api.Common.Models;
+using EBI.ALAS.Api.Shared.Models;
 namespace EBI.ALAS.Api.Features.Loans.Endpoints;
 public static class GetQueueDefault
 {

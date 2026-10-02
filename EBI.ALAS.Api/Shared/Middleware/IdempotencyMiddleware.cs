@@ -1,7 +1,7 @@
 ﻿using System.Security.Claims;
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using EBI.ALAS.Api.Common.Models;
+using EBI.ALAS.Api.Shared.Models;
 using Microsoft.Extensions.Caching.Memory;
 namespace EBI.ALAS.Api.Shared.Middleware;
 public sealed class IdempotencyMiddleware(

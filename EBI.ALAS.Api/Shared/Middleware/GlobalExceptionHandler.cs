@@ -1,8 +1,8 @@
-using System.Net;
+﻿using System.Net;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using EBI.ALAS.Api.Shared.Errors;
-using EBI.ALAS.Api.Common.Models;
+using EBI.ALAS.Api.Shared.Models;
 using Microsoft.EntityFrameworkCore;
 namespace EBI.ALAS.Api.Shared.Middleware;
 public sealed class GlobalExceptionHandler(

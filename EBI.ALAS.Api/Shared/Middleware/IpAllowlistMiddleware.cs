@@ -1,5 +1,5 @@
 ﻿using System.Net;
-using EBI.ALAS.Api.Common.Models;
+using EBI.ALAS.Api.Shared.Models;
 namespace EBI.ALAS.Api.Shared.Middleware;
 public sealed class IpAllowlistMiddleware
 {

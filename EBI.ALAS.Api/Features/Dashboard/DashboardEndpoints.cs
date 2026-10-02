@@ -1,6 +1,6 @@
 ﻿using System.Security.Claims;
 using EBI.ALAS.Api.Common.Extensions;
-using EBI.ALAS.Api.Common.Models;
+using EBI.ALAS.Api.Shared.Models;
 namespace EBI.ALAS.Api.Features.Dashboard;
 public static class DashboardEndpoints
 {

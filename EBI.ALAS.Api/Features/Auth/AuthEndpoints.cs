@@ -1,4 +1,4 @@
-﻿using EBI.ALAS.Api.Common.Models;
+﻿using EBI.ALAS.Api.Shared.Models;
 namespace EBI.ALAS.Api.Features.Auth;
 public static class AuthEndpoints
 {

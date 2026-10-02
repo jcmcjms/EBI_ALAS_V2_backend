@@ -1,5 +1,5 @@
 ﻿using System.Threading.RateLimiting;
-using EBI.ALAS.Api.Common.Models;
+using EBI.ALAS.Api.Shared.Models;
 using Microsoft.AspNetCore.RateLimiting;
 namespace EBI.ALAS.Api.Common.Extensions;
 public static class RateLimitingExtensions

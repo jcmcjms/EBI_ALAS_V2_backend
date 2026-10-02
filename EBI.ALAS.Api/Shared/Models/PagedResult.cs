@@ -1,4 +1,4 @@
-﻿namespace EBI.ALAS.Api.Common.Models;
+﻿namespace EBI.ALAS.Api.Shared.Models;
 public sealed record PagedResult<T>
 {
     public List<T> Items { get; init; } = [];

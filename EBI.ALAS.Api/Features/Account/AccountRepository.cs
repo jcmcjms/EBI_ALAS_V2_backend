@@ -1,4 +1,4 @@
-﻿using EBI.ALAS.Api.Common.Models;
+﻿using EBI.ALAS.Api.Shared.Models;
 using EBI.ALAS.Api.Common.Time;
 using EBI.ALAS.Api.Features.Auth;
 using EBI.ALAS.Api.Infrastructure.Data;

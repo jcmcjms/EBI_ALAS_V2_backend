@@ -1,4 +1,4 @@
-﻿using EBI.ALAS.Api.Common.Models;
+﻿using EBI.ALAS.Api.Shared.Models;
 using FluentValidation;
 using FluentValidation.Results;
 namespace EBI.ALAS.Api.Common.Extensions;
