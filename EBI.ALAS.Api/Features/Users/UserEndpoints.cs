@@ -1,4 +1,4 @@
-﻿using EBI.ALAS.Api.Common.Exceptions;
+using EBI.ALAS.Api.Shared.Errors;
 using EBI.ALAS.Api.Common.Extensions;
 using EBI.ALAS.Api.Common.Models;
 using EBI.ALAS.Api.Features.AuditLogs;
