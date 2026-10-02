@@ -492,3 +492,6 @@ EBI.ALAS.Api/appsettings.Development.json
 .claude/
 .mimocode/
 docs/
+APPLY.md
+repo-root/
+patch/
