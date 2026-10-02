@@ -361,4 +361,87 @@ public class ApproverPartitionsTests : IDisposable
         Assert.Equal("006", desk.Items[1].BranchCode);
         Assert.Equal(386_000, desk.Items[1].ProposedAmount);
     }
+    [Fact]
+    public async Task ClaimHeadAsync_QueuedItem_PromotesBeforeClaiming()
+    {
+        // Reproduces: item stuck in Queued (never promoted) was visible in desk
+        // but Serve next returned "queue is clear". Claim must promote it first.
+        _db.WorkflowQueueItems.Add(new WorkflowQueueItem
+        {
+            LoanApplicationId = 701, Stage = QueueStage.Evaluation,
+            PartitionKey = "EVA:006", State = QueueItemState.Queued,
+            EnqueuedAt = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+            LoanApplication = new LoanApplication
+            {
+                Id = 701, BranchCode = "006", LamId = "LAM-701",
+                Status = "ForChecking", FirstName = "Eval", LastName = "Three",
+            }
+        });
+        await _db.SaveChangesAsync();
+        // ClaimHeadAsync promotes Queued→Active then leases; InMemory can't
+        // ExecuteUpdateAsync so the lease throws — but promotion must have run.
+        try
+        {
+            await _sut.ClaimHeadAsync(99, Roles.Evaluator, "006", CancellationToken.None);
+        }
+        catch (InvalidOperationException)
+        {
+            // ExecuteUpdateAsync unsupported by InMemory provider
+        }
+        var item = await _db.WorkflowQueueItems.SingleAsync(i => i.LoanApplicationId == 701);
+        Assert.Equal(QueueItemState.Active, item.State);
+    }
+    [Fact]
+    public async Task PromoteHeadAsync_QueuedItem_BecomesActive()
+    {
+        _db.WorkflowQueueItems.Add(new WorkflowQueueItem
+        {
+            LoanApplicationId = 702, Stage = QueueStage.Evaluation,
+            PartitionKey = "EVA:006", State = QueueItemState.Queued,
+            EnqueuedAt = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+            LoanApplication = new LoanApplication
+            {
+                Id = 702, BranchCode = "006", LamId = "LAM-702",
+                Status = "ForChecking", FirstName = "Eval", LastName = "Three",
+            }
+        });
+        await _db.SaveChangesAsync();
+        await _sut.PromoteHeadAsync("EVA:006", CancellationToken.None);
+        var item = await _db.WorkflowQueueItems.SingleAsync(i => i.LoanApplicationId == 702);
+        Assert.Equal(QueueItemState.Active, item.State);
+    }
+    [Fact]
+    public async Task PromoteHeadAsync_DoesNotStealExistingActive()
+    {
+        _db.WorkflowQueueItems.AddRange(
+            new WorkflowQueueItem
+            {
+                LoanApplicationId = 703, Stage = QueueStage.Evaluation,
+                PartitionKey = "EVA:006", State = QueueItemState.Active,
+                EnqueuedAt = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+                LoanApplication = new LoanApplication
+                {
+                    Id = 703, BranchCode = "006", LamId = "LAM-703",
+                    Status = "ForChecking", FirstName = "A", LastName = "One",
+                }
+            },
+            new WorkflowQueueItem
+            {
+                LoanApplicationId = 704, Stage = QueueStage.Evaluation,
+                PartitionKey = "EVA:006", State = QueueItemState.Queued,
+                EnqueuedAt = new DateTime(2026, 1, 1, 0, 5, 0, DateTimeKind.Utc),
+                LoanApplication = new LoanApplication
+                {
+                    Id = 704, BranchCode = "006", LamId = "LAM-704",
+                    Status = "ForChecking", FirstName = "B", LastName = "Two",
+                }
+            });
+        await _db.SaveChangesAsync();
+        await _sut.PromoteHeadAsync("EVA:006", CancellationToken.None);
+        var active = await _db.WorkflowQueueItems
+            .Where(i => i.PartitionKey == "EVA:006" && i.State == QueueItemState.Active)
+            .ToListAsync();
+        Assert.Single(active);
+        Assert.Equal(703, active[0].LoanApplicationId);
+    }
 }
