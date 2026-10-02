@@ -103,7 +103,7 @@ public class UserImportService : IUserImportService
         var headers = new[] {
             "Username *", "First Name *", "Middle Name", "Last Name *",
             "Branch Code *", "Role *", "Job Title", "Covered Branches",
-            "Email", "Phone"
+            "Email", "Phone", "MustChangePassword", "Password"
         };
         for (int i = 0; i < headers.Length; i++)
         {
@@ -120,6 +120,8 @@ public class UserImportService : IUserImportService
         worksheet.Cells[2, 8].Value = "";
         worksheet.Cells[2, 9].Value = "jdoe@enterprisebank.ph";
         worksheet.Cells[2, 10].Value = "+639123456789";
+        worksheet.Cells[2, 11].Value = 0;
+        worksheet.Cells[2, 12].Value = "@Temp123!";
         var instructions = package.Workbook.Worksheets.Add("Instructions");
         instructions.Cells[1, 1].Value = "User Import Instructions";
         instructions.Cells[1, 1].Style.Font.Size = 14;
@@ -132,10 +134,9 @@ public class UserImportService : IUserImportService
             "Role must be one of: Encoder, Recommender, Evaluator, Approver, Admin",
             "Job Title is required for Approvers (must match an approval authority key)",
             "Covered Branches: comma-separated branch codes for Branch-scope approvers",
-            "Passwords will be auto-generated; users must change on first login",
             "Email and Phone are optional but recommended for contact tracing",
-            "",
-            "Security: All imported users will be created with MustChangePassword = true",
+            "MustChangePassword: 0 = false (user won't be forced to change), 1 or blank = true",
+            "Password: custom password per user; if blank, a temporary password is auto-generated",
             "",
             "Row numbers in validation errors are the Excel row numbers (header = row 1).",
             "Completely empty rows are ignored — clear a row's contents to exclude it."
@@ -188,6 +189,8 @@ public class UserImportService : IUserImportService
             var coveredBranchesStr = GetCellString(worksheet, excelRow, 8);
             var email = GetCellString(worksheet, excelRow, 9);
             var phone = GetCellString(worksheet, excelRow, 10);
+            var mustChangePasswordStr = GetCellString(worksheet, excelRow, 11);
+            var customPassword = GetCellString(worksheet, excelRow, 12);
             if (string.IsNullOrWhiteSpace(username))
                 errors.Add(new UserImportValidationError(rowNumber, "Username", "Username is required"));
             else if (username.Length < 3 || username.Length > 50)
@@ -220,18 +223,22 @@ public class UserImportService : IUserImportService
             }
             if (errors.Any(e => e.RowNumber == rowNumber))
                 continue;
-            var tempPassword = _tempPasswordGenerator.Generate();
+            var password = string.IsNullOrWhiteSpace(customPassword)
+                ? _tempPasswordGenerator.Generate()
+                : customPassword;
+            var mustChangePassword = string.IsNullOrWhiteSpace(mustChangePasswordStr)
+                || mustChangePasswordStr != "0";
             var user = new User
             {
                 Username = username!,
-                PasswordHash = _passwordHasher.HashPassword(tempPassword),
+                PasswordHash = _passwordHasher.HashPassword(password),
                 FirstName = firstName!,
                 MiddleName = string.IsNullOrWhiteSpace(middleName) ? null : middleName,
                 LastName = lastName!,
                 BranchId = branchCode!,
                 Role = role!,
                 IsActive = true,
-                MustChangePassword = true,
+                MustChangePassword = mustChangePassword,
                 CreatedAt = _timeProvider.UtcNow,
                 Email = string.IsNullOrWhiteSpace(email) ? null : email,
                 Phone = string.IsNullOrWhiteSpace(phone) ? null : phone,
