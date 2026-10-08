@@ -406,9 +406,6 @@ FodyWeavers.xsd
 *.sln.iml
 .idea/
 
-# Claude Code session metadata
-.claude/
-
 ##
 ## Visual studio for Mac
 ##
@@ -483,15 +480,9 @@ $RECYCLE.BIN/
 
 # Vim temporary swap files
 *.swp
-
-# Local developer configuration (contains environment-specific credentials)
-EBI.ALAS.Api/appsettings.Development.json
-/AGENT.md
-/CLEAN-CODE-PRINCIPLES.md
-/AGENTS.md
-.claude/
-.mimocode/
+AGENTS.md
 docs/
-APPLY.md
-repo-root/
-patch/
+api-err.txt
+api-out.txt
+smoke-err.txt
+smoke-out.txt
