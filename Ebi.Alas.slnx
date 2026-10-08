@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="src/Ebi.Alas.Api/Ebi.Alas.Api.csproj" />
+  <Project Path="tests/Ebi.Alas.Api.Tests/Ebi.Alas.Api.Tests.csproj" />
+</Solution>

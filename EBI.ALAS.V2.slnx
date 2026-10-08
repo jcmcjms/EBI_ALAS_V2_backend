@@ -1,4 +1,0 @@
-<Solution>
-  <Project Path="EBI.ALAS.Api/EBI.ALAS.Api.csproj" />
-  <Project Path="EBI.ALAS.Tests/EBI.ALAS.Tests.csproj" />
-</Solution>

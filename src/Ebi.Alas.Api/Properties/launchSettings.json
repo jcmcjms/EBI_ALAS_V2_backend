@@ -1,0 +1,13 @@
+{
+  "profiles": {
+    "Ebi.Alas.Api": {
+      "commandName": "Project",
+      "launchBrowser": true,
+      "launchUrl": "scalar",
+      "environmentVariables": {
+        "ASPNETCORE_ENVIRONMENT": "Development"
+      },
+      "applicationUrl": "https://localhost:7220"
+    }
+  }
+}
