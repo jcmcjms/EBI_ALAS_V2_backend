@@ -39,7 +39,8 @@ public sealed class LoginHandlerTests
         new JwtTokenService(ApiOptions.Jwt),
         new TokenStore(db, TimeProvider.System),
         Options.Create(ApiOptions),
-        TimeProvider.System);
+        TimeProvider.System,
+        Microsoft.Extensions.Logging.Abstractions.NullLogger<LoginHandler>.Instance);
 
     private static async Task SeedAdminAsync(AlasDbContext db, string password)
     {
