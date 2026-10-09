@@ -165,6 +165,15 @@ public static class ServiceRegistration
                     ValidateLifetime = true,
                     ClockSkew = TimeSpan.FromSeconds(30)
                 };
+                options.Events = new JwtBearerEvents
+                {
+                    OnMessageReceived = context =>
+                    {
+                        var path = context.HttpContext.Request.Path.Value ?? "/";
+                        context.Token = Auth.HubAccessToken.Resolve(path, context.Request.Query["access_token"]);
+                        return Task.CompletedTask;
+                    }
+                };
             });
         services.AddAuthorization();
 
