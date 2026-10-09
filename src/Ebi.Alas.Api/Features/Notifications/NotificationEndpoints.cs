@@ -52,5 +52,44 @@ public static class NotificationEndpoints
         })
         .RequireAuthorization()
         .WithTags("Notifications");
+
+        endpoints.MapPost("/api/notifications/read-all", async (
+            AlasDbContext db,
+            System.Security.Claims.ClaimsPrincipal user,
+            TimeProvider timeProvider,
+            CancellationToken cancellationToken) =>
+        {
+            var caller = CallerContext.Require(user);
+            var changedCount = await NotificationReadAll.MarkOwnUnreadAsync(
+                db,
+                caller.UserId,
+                timeProvider.GetUtcNow(),
+                cancellationToken);
+            return Results.Ok(new { changedCount });
+        })
+        .RequireAuthorization()
+        .WithTags("Notifications");
+    }
+}
+
+public static class NotificationReadAll
+{
+    public static async Task<int> MarkOwnUnreadAsync(
+        AlasDbContext db,
+        Guid userId,
+        DateTimeOffset now,
+        CancellationToken cancellationToken)
+    {
+        var unread = await db.Notifications
+            .Where(n => n.UserId == userId && n.ReadAt == null)
+            .Take(500)
+            .ToListAsync(cancellationToken);
+        foreach (var notification in unread)
+        {
+            notification.MarkRead(now);
+        }
+
+        await db.SaveChangesAsync(cancellationToken);
+        return unread.Count;
     }
 }
