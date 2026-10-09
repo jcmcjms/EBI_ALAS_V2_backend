@@ -1,3 +1,4 @@
+using Ebi.Alas.Api.Features.Users.Domain;
 using Ebi.Alas.Api.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 
@@ -30,26 +31,53 @@ public sealed class PresenceService(AlasDbContext db, TimeProvider timeProvider)
     {
         var now = timeProvider.GetUtcNow();
         var existing = await db.UserPresences.FirstOrDefaultAsync(p => p.UserId == userId, cancellationToken);
-        if (existing is null)
-        {
-            db.UserPresences.Add(UserPresence.Touch(userId, now));
-        }
-        else
+        if (existing is not null)
         {
             existing.Heartbeat(now);
+            await db.SaveChangesAsync(cancellationToken);
+            return;
         }
 
-        await db.SaveChangesAsync(cancellationToken);
+        db.UserPresences.Add(UserPresence.Touch(userId, now));
+        try
+        {
+            await db.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateException)
+        {
+            // Concurrent heartbeat inserted first (PK_UserPresences). Detach the failed insert and update the winner.
+            foreach (var entry in db.ChangeTracker.Entries<UserPresence>())
+            {
+                entry.State = EntityState.Detached;
+            }
+
+            existing = await db.UserPresences.FirstOrDefaultAsync(p => p.UserId == userId, cancellationToken);
+            if (existing is null)
+            {
+                throw;
+            }
+
+            existing.Heartbeat(now);
+            await db.SaveChangesAsync(cancellationToken);
+        }
     }
 
-    public async Task<IReadOnlyList<Guid>> GetOnlineUserIdsAsync(CancellationToken cancellationToken)
+    public async Task<IReadOnlyList<PresenceUserResponse>> GetOnlineUsersAsync(CancellationToken cancellationToken)
     {
         var cutoff = timeProvider.GetUtcNow() - OnlineWindow;
-        return await db.UserPresences.AsNoTracking()
-            .Where(p => p.LastSeenAt >= cutoff)
-            .OrderBy(p => p.LastSeenAt)
-            .Take(200)
-            .Select(p => p.UserId)
-            .ToListAsync(cancellationToken);
+        return await (
+            from p in db.UserPresences.AsNoTracking()
+            where p.LastSeenAt >= cutoff
+            join u in db.Users.AsNoTracking() on p.UserId equals u.Id
+            where u.Status == UserStatus.Active
+            orderby u.FullName
+            select new PresenceUserResponse(
+                u.Id,
+                u.FullName,
+                u.Role.ToString(),
+                u.BranchId,
+                null,
+                1)
+        ).Take(200).ToListAsync(cancellationToken);
     }
 }

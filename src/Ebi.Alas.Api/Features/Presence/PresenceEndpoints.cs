@@ -23,8 +23,8 @@ public static class PresenceEndpoints
             PresenceService presence,
             CancellationToken cancellationToken) =>
         {
-            var ids = await presence.GetOnlineUserIdsAsync(cancellationToken);
-            return Results.Ok(ids);
+            var users = await presence.GetOnlineUsersAsync(cancellationToken);
+            return Results.Ok(users);
         })
         .RequireAuthorization()
         .WithTags("Presence");
