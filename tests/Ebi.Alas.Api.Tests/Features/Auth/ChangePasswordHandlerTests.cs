@@ -34,7 +34,8 @@ public sealed class ChangePasswordHandlerTests
     private static ChangePasswordHandler Handler(AlasDbContext db) => new(
         db,
         new PasswordHasher(),
-        TimeProvider.System);
+        TimeProvider.System,
+        Microsoft.Extensions.Logging.Abstractions.NullLogger<ChangePasswordHandler>.Instance);
 
     private static async Task<User> SeedUserAsync(AlasDbContext db, string password, bool mustChange = true)
     {

@@ -13,7 +13,8 @@ public sealed class LoginHandler(
     JwtTokenService tokenService,
     TokenStore tokenStore,
     IOptions<ApiOptions> options,
-    TimeProvider timeProvider)
+    TimeProvider timeProvider,
+    ILogger<LoginHandler> logger)
 {
     public async Task<LoginOutcome> HandleAsync(LoginRequest request, CancellationToken cancellationToken)
     {
@@ -25,11 +26,13 @@ public sealed class LoginHandler(
             .FirstOrDefaultAsync(u => u.UserName == request.UserName.Trim(), cancellationToken);
         if (user is null || !passwordHasher.Verify(request.Password, user.PasswordHash))
         {
+            logger.LogWarning("{Event} user={UserName}", AuthEvents.LoginFailed, request.UserName.Trim());
             return LoginOutcome.InvalidCredentials();
         }
 
         if (user.Status != UserStatus.Active)
         {
+            logger.LogWarning("{Event} user={UserName} reason=suspended", AuthEvents.LoginFailed, request.UserName.Trim());
             return LoginOutcome.Suspended();
         }
 
@@ -43,6 +46,7 @@ public sealed class LoginHandler(
             TimeSpan.FromDays(jwt.RefreshTokenAbsoluteDays),
             cancellationToken);
 
+        logger.LogInformation("{Event} user={UserName} userId={UserId}", AuthEvents.LoginSucceeded, user.UserName, user.Id);
         return new LoginOutcome.Success(new LoginResponse(
             access.Token,
             rawRefresh,

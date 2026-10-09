@@ -12,7 +12,8 @@ public sealed class RefreshHandler(
     JwtTokenService tokenService,
     TokenStore tokenStore,
     IOptions<ApiOptions> options,
-    TimeProvider timeProvider)
+    TimeProvider timeProvider,
+    ILogger<RefreshHandler> logger)
 {
     public async Task<RefreshOutcome> HandleAsync(RefreshRequest request, CancellationToken cancellationToken)
     {
@@ -25,6 +26,7 @@ public sealed class RefreshHandler(
         var existing = await tokenStore.FindUsableAsync(request.RefreshToken, cancellationToken);
         if (existing is null)
         {
+            logger.LogWarning("{Event} reason=invalid_token", AuthEvents.RefreshFailed);
             return RefreshOutcome.InvalidToken();
         }
 
@@ -32,21 +34,21 @@ public sealed class RefreshHandler(
             .FirstOrDefaultAsync(u => u.Id == existing.UserId, cancellationToken);
         if (user is null || user.Status != UserStatus.Active)
         {
+            logger.LogWarning("{Event} reason=inactive_user userId={UserId}", AuthEvents.RefreshFailed, existing.UserId);
             return RefreshOutcome.InvalidToken();
         }
 
         var jwt = options.Value.Jwt;
         var now = timeProvider.GetUtcNow();
-        var (newToken, rawRefresh) = await tokenStore.IssueRefreshTokenAsync(
-            user.Id,
+        var (_, rawRefresh) = await tokenStore.RotateAsync(
+            existing,
             TimeSpan.FromDays(jwt.RefreshTokenDays),
             TimeSpan.FromDays(jwt.RefreshTokenAbsoluteDays),
             cancellationToken);
 
-        await tokenStore.RevokeAsync(existing, newToken.Id, cancellationToken);
-
         var jti = Guid.NewGuid().ToString("N");
         var access = tokenService.CreateAccessToken(user, jti, now);
+        logger.LogInformation("{Event} userId={UserId}", AuthEvents.RefreshSucceeded, user.Id);
         return new RefreshOutcome.Success(
             new LoginResponse(access.Token, rawRefresh, access.ExpiresAt, user.MustChangePassword));
     }

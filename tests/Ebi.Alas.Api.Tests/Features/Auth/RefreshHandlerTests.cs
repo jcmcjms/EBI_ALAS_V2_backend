@@ -37,7 +37,8 @@ public sealed class RefreshHandlerTests
         new JwtTokenService(ApiOptions.Jwt),
         new TokenStore(db, TimeProvider.System),
         Options.Create(ApiOptions),
-        TimeProvider.System);
+        TimeProvider.System,
+        Microsoft.Extensions.Logging.Abstractions.NullLogger<RefreshHandler>.Instance);
 
     private static async Task<(User User, string Raw)> SeedAsync(AlasDbContext db)
     {

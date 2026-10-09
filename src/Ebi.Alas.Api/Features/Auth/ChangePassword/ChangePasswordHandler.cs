@@ -7,7 +7,8 @@ namespace Ebi.Alas.Api.Features.Auth.ChangePassword;
 public sealed class ChangePasswordHandler(
     AlasDbContext db,
     PasswordHasher passwordHasher,
-    TimeProvider timeProvider)
+    TimeProvider timeProvider,
+    ILogger<ChangePasswordHandler> logger)
 {
     public async Task<ChangePasswordOutcome> HandleAsync(
         Guid userId,
@@ -56,6 +57,7 @@ public sealed class ChangePasswordHandler(
         }
 
         await db.SaveChangesAsync(cancellationToken);
+        logger.LogInformation("{Event} userId={UserId}", AuthEvents.PasswordChanged, userId);
         return new ChangePasswordOutcome.Success();
     }
 }
