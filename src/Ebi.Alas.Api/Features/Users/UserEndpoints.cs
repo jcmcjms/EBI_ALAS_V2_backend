@@ -1,3 +1,4 @@
+using Ebi.Alas.Api.Features.AuditLogs;
 using Ebi.Alas.Api.Features.Pagination;
 using Ebi.Alas.Api.Features.Users.ChangeUserStatus;
 using Ebi.Alas.Api.Features.Users.CreateUser;
@@ -107,27 +108,60 @@ public static class UserEndpoints
             Guid id,
             UpdateUserRequest request,
             UpdateUserHandler handler,
+            AuditLogs.IAuditLogService audit,
+            System.Security.Claims.ClaimsPrincipal user,
             CancellationToken cancellationToken) =>
         {
             var result = await handler.HandleAsync(id, request, cancellationToken);
+            await audit.LogAsync(
+                user.GetUserId(),
+                user.GetUsername(),
+                "Update",
+                "User",
+                id.ToString(),
+                result.UserName,
+                $"Updated user {result.UserName}",
+                cancellationToken: cancellationToken);
             return Results.Ok(result);
         });
 
         group.MapPost("/{id:guid}/suspend", async (
             Guid id,
             ChangeUserStatusHandler handler,
+            AuditLogs.IAuditLogService audit,
+            System.Security.Claims.ClaimsPrincipal user,
             CancellationToken cancellationToken) =>
         {
             var result = await handler.HandleAsync(id, UserStatus.Suspended, cancellationToken);
+            await audit.LogAsync(
+                user.GetUserId(),
+                user.GetUsername(),
+                "StatusChange",
+                "User",
+                id.ToString(),
+                result.UserName,
+                $"Suspended user {result.UserName}",
+                cancellationToken: cancellationToken);
             return Results.Ok(result);
         });
 
         group.MapPost("/{id:guid}/activate", async (
             Guid id,
             ChangeUserStatusHandler handler,
+            AuditLogs.IAuditLogService audit,
+            System.Security.Claims.ClaimsPrincipal user,
             CancellationToken cancellationToken) =>
         {
             var result = await handler.HandleAsync(id, UserStatus.Active, cancellationToken);
+            await audit.LogAsync(
+                user.GetUserId(),
+                user.GetUsername(),
+                "StatusChange",
+                "User",
+                id.ToString(),
+                result.UserName,
+                $"Activated user {result.UserName}",
+                cancellationToken: cancellationToken);
             return Results.Ok(result);
         });
     }
