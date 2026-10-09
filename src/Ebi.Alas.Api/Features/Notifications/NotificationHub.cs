@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using Ebi.Alas.Api.Features.Presence;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.SignalR;
 
@@ -15,7 +16,7 @@ public sealed record ReceiveNotificationPayload(
     string? Link,
     DateTimeOffset Timestamp);
 
-public sealed class NotificationHub : Hub
+public sealed class NotificationHub(PresenceService presence) : Hub
 {
     public const string Route = "/hubs/notifications";
     public const string ReceiveNotificationEvent = "ReceiveNotification";
@@ -35,6 +36,9 @@ public sealed class NotificationHub : Hub
         if (Guid.TryParse(sub, out var userId) && userId != Guid.Empty)
         {
             await Groups.AddToGroupAsync(Context.ConnectionId, UserGroup(userId));
+            await Groups.AddToGroupAsync(Context.ConnectionId, PresenceEvents.Group);
+            var online = await presence.GetOnlineUsersAsync(Context.ConnectionAborted);
+            await Clients.Caller.SendAsync(PresenceEvents.Snapshot, online, Context.ConnectionAborted);
         }
 
         await base.OnConnectedAsync();
