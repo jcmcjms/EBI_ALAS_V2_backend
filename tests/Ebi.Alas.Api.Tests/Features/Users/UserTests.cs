@@ -18,6 +18,21 @@ public sealed class UserTests
     }
 
     [Fact]
+    public void Create_NullEmail_StoresEmptyEmail()
+    {
+        var user = User.Create(
+            userName: "ada",
+            passwordHash: "hash",
+            fullName: "Ada",
+            email: null,
+            branchId: "011",
+            role: UserRole.Encoder,
+            now: DateTimeOffset.UtcNow);
+
+        Assert.Equal(string.Empty, user.Email);
+    }
+
+    [Fact]
     public void Suspend_ActiveUser_SetsSuspended()
     {
         var user = User.Create("ada", "hash", "Ada", "ada@example.com", "011", UserRole.Encoder, DateTimeOffset.UtcNow);
@@ -47,5 +62,15 @@ public sealed class UserTests
         user.Activate(now);
 
         Assert.Equal(UserStatus.Active, user.Status);
+    }
+
+    [Fact]
+    public void UpdateProfile_NullEmail_StoresEmptyEmail()
+    {
+        var user = User.Create("ada", "hash", "Ada", "ada@example.com", "011", UserRole.Encoder, DateTimeOffset.UtcNow);
+
+        user.UpdateProfile("Ada", null, DateTimeOffset.UtcNow);
+
+        Assert.Equal(string.Empty, user.Email);
     }
 }
