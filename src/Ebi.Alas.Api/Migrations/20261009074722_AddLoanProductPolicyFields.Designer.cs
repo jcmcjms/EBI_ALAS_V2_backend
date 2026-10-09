@@ -4,6 +4,7 @@ using Ebi.Alas.Api.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -11,9 +12,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace Ebi.Alas.Api.Migrations
 {
     [DbContext(typeof(AlasDbContext))]
-    partial class AlasDbContextModelSnapshot : ModelSnapshot
+    [Migration("20261009074722_AddLoanProductPolicyFields")]
+    partial class AddLoanProductPolicyFields
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -66,55 +69,24 @@ namespace Ebi.Alas.Api.Migrations
                         .HasMaxLength(100)
                         .HasColumnType("nvarchar(100)");
 
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
+
                     b.Property<string>("EntityId")
-                        .IsRequired()
                         .HasMaxLength(64)
                         .HasColumnType("nvarchar(64)");
-
-                    b.Property<string>("EntityLabel")
-                        .IsRequired()
-                        .HasMaxLength(200)
-                        .HasColumnType("nvarchar(200)");
 
                     b.Property<string>("EntityType")
                         .IsRequired()
                         .HasMaxLength(100)
                         .HasColumnType("nvarchar(100)");
 
-                    b.Property<string>("IpAddress")
-                        .HasMaxLength(64)
-                        .HasColumnType("nvarchar(64)");
-
-                    b.Property<string>("RawChanges")
-                        .HasColumnType("nvarchar(max)");
-
-                    b.Property<string>("Summary")
-                        .IsRequired()
-                        .HasMaxLength(1000)
-                        .HasColumnType("nvarchar(1000)");
-
-                    b.Property<DateTimeOffset>("Timestamp")
-                        .HasColumnType("datetimeoffset");
-
-                    b.Property<string>("UserAgent")
-                        .HasMaxLength(500)
-                        .HasColumnType("nvarchar(500)");
-
                     b.Property<Guid?>("UserId")
                         .HasColumnType("uniqueidentifier");
 
-                    b.Property<string>("UserName")
-                        .IsRequired()
-                        .HasMaxLength(200)
-                        .HasColumnType("nvarchar(200)");
-
                     b.HasKey("Id");
 
-                    b.HasIndex("Action");
-
-                    b.HasIndex("EntityType");
-
-                    b.HasIndex("Timestamp");
+                    b.HasIndex("CreatedAt");
 
                     b.ToTable("AuditLogs", (string)null);
                 });

@@ -94,10 +94,18 @@ public sealed class AlasDbContext(DbContextOptions<AlasDbContext> options) : DbC
         {
             b.ToTable("AuditLogs");
             b.HasKey(x => x.Id);
+            b.Property(x => x.UserName).HasMaxLength(200).IsRequired();
             b.Property(x => x.Action).HasMaxLength(100).IsRequired();
             b.Property(x => x.EntityType).HasMaxLength(100).IsRequired();
             b.Property(x => x.EntityId).HasMaxLength(64);
-            b.HasIndex(x => x.CreatedAt);
+            b.Property(x => x.EntityLabel).HasMaxLength(200);
+            b.Property(x => x.Summary).HasMaxLength(1000);
+            b.Property(x => x.RawChanges);
+            b.Property(x => x.IpAddress).HasMaxLength(64);
+            b.Property(x => x.UserAgent).HasMaxLength(500);
+            b.HasIndex(x => x.Timestamp);
+            b.HasIndex(x => x.Action);
+            b.HasIndex(x => x.EntityType);
         });
 
         modelBuilder.Entity<SignatureChainEntry>(b =>
@@ -117,6 +125,14 @@ public sealed class AlasDbContext(DbContextOptions<AlasDbContext> options) : DbC
             b.HasIndex(x => x.Code).IsUnique();
             b.Property(x => x.Name).HasMaxLength(200).IsRequired();
             b.Property(x => x.InterestRatePerMonth).HasPrecision(9, 4);
+            b.Property(x => x.MinAmount).HasPrecision(18, 2);
+            b.Property(x => x.MaxAmount).HasPrecision(18, 2);
+            b.Property(x => x.NotarialFee).HasPrecision(18, 2);
+            b.Property(x => x.DocStampFee).HasPrecision(18, 2);
+            b.Property(x => x.InsuranceFee).HasPrecision(18, 2);
+            b.Property(x => x.AdvanceInterestRate).HasPrecision(9, 6);
+            b.Property(x => x.ApplicationChargeRate).HasPrecision(9, 6);
+            b.Property(x => x.AmortizationMode).HasMaxLength(8).IsRequired();
         });
 
         modelBuilder.Entity<UserPresence>(b =>
