@@ -69,7 +69,7 @@ public sealed class UserTests
     {
         var user = User.Create("ada", "hash", "Ada", "ada@example.com", "011", UserRole.Encoder, DateTimeOffset.UtcNow);
 
-        user.UpdateProfile("Ada", null, DateTimeOffset.UtcNow);
+        user.UpdateProfile("Ada", null, "011", UserRole.Encoder, DateTimeOffset.UtcNow);
 
         Assert.Equal(string.Empty, user.Email);
     }

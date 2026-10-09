@@ -24,7 +24,8 @@ public sealed record CreateUserRequest(
 public sealed record UpdateUserRequest(
     string FullName,
     string? Email,
-    string BranchId);
+    string BranchId,
+    UserRole Role);
 
 public sealed record CreateUserResponse(UserResponse User);
 
