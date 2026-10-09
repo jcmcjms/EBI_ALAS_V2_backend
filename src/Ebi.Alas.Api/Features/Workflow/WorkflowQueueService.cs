@@ -7,6 +7,7 @@ namespace Ebi.Alas.Api.Features.Workflow;
 public sealed class WorkflowQueueService(AlasDbContext db, TimeProvider timeProvider)
 {
     public static readonly TimeSpan DefaultLease = TimeSpan.FromMinutes(30);
+    public const int ReapBatchSize = 100;
 
     public async Task<WorkflowQueueItem> EnqueueAsync(
         Guid loanApplicationId,
@@ -97,6 +98,7 @@ public sealed class WorkflowQueueService(AlasDbContext db, TimeProvider timeProv
         var now = timeProvider.GetUtcNow();
         var items = await db.WorkflowQueueItems
             .Where(q => q.Stage == stage && q.PartitionKey == partitionKey)
+            .Take(ReapBatchSize)
             .ToListAsync(cancellationToken);
         var count = 0;
         foreach (var item in items)

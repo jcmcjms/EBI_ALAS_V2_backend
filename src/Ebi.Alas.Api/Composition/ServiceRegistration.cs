@@ -138,6 +138,7 @@ public static class ServiceRegistration
         services.AddScoped<GetLoanByLamIdHandler>();
         services.AddScoped<ListLoansHandler>();
         services.AddScoped<WorkflowQueueService>();
+        services.AddScoped<Features.Workflow.DeskQueueService>();
         services.AddScoped<LoanWorkflowService>();
         services.AddScoped<DashboardService>();
         services.AddScoped<Features.Presence.PresenceService>();
