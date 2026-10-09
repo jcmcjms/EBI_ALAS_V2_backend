@@ -1,3 +1,5 @@
+using Ebi.Alas.Api.Composition.Errors;
+using Ebi.Alas.Api.Features.AuditLogs;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.EntityFrameworkCore;
 
@@ -7,54 +9,172 @@ public static class LoanProductEndpoints
 {
     public static void MapLoanProductEndpoints(this IEndpointRouteBuilder endpoints)
     {
-        endpoints.MapGet("/api/loan-products", async (
-            Infrastructure.Persistence.AlasDbContext db,
-            CancellationToken cancellationToken) =>
-        {
-            var items = await Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions.ToListAsync(
-                db.LoanProducts.AsNoTracking().OrderBy(p => p.Name)
-                    .Select(p => new { p.Code, p.Name, p.InterestRatePerMonth, p.MinTermDays, p.MaxTermDays, p.IsActive }),
-                cancellationToken);
-            return Results.Ok(items);
-        })
-        .RequireAuthorization()
-        .WithTags("LoanProducts");
+        var group = endpoints.MapGroup("/api/loan-products").WithTags("LoanProducts");
 
-        endpoints.MapPost("/api/loan-products/import", async (
-            HttpRequest request,
+        group.MapGet("/", async (
             Infrastructure.Persistence.AlasDbContext db,
-            TimeProvider timeProvider,
             CancellationToken cancellationToken) =>
         {
-            const int maxImportRows = 1000;
-            using var reader = new StreamReader(request.Body);
-            var csv = await reader.ReadToEndAsync(cancellationToken);
-            var rows = LoanProductCsv.Parse(csv);
-            if (rows.Count > maxImportRows)
+            var products = await db.LoanProducts
+                .AsNoTracking()
+                .OrderBy(p => p.Name)
+                .ToListAsync(cancellationToken);
+            return Results.Ok(products.Select(p => p.ToResponse()).ToList());
+        })
+        .RequireAuthorization();
+
+        group.MapPost("/sync", async (
+            SyncLoanProductsHandler handler,
+            AuditLogs.IAuditLogService audit,
+            System.Security.Claims.ClaimsPrincipal user,
+            CancellationToken cancellationToken) =>
+        {
+            var result = await handler.HandleAsync(cancellationToken);
+            await audit.LogAsync(
+                user.GetUserId(),
+                user.GetUsername(),
+                "Sync",
+                "LoanProduct",
+                "catalog",
+                "webloan catalog",
+                $"Synced loan products: {result.Added} added, {result.Updated} updated, {result.Preserved} preserved",
+                cancellationToken: cancellationToken);
+            return Results.Ok(result);
+        })
+        .RequireAuthorization(new AuthorizeAttribute { Roles = "Admin" })
+        .RequireRateLimiting("write");
+
+        group.MapGet("/export", async (
+            bool? includeRetired,
+            Infrastructure.Persistence.AlasDbContext db,
+            CancellationToken cancellationToken) =>
+        {
+            var query = db.LoanProducts.AsNoTracking();
+            if (includeRetired == false)
+            {
+                query = query.Where(p => p.IsActive);
+            }
+
+            var products = await query.OrderBy(p => p.Code).ToListAsync(cancellationToken);
+            var bytes = LoanProductExcel.BuildExport(products.Select(p => p.ToResponse()).ToList());
+            return Results.File(
+                bytes,
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                $"loan-products-{DateTime.UtcNow:yyyyMMdd}.xlsx");
+        })
+        .RequireAuthorization();
+
+        group.MapGet("/import/template", () =>
+            Results.File(
+                LoanProductExcel.BuildTemplate(),
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                "loan-product-import-template.xlsx"))
+            .RequireAuthorization(new AuthorizeAttribute { Roles = "Admin" });
+
+        group.MapPost("/import", async (
+            HttpRequest request,
+            ImportLoanProductsHandler handler,
+            AuditLogs.IAuditLogService audit,
+            System.Security.Claims.ClaimsPrincipal user,
+            CancellationToken cancellationToken) =>
+        {
+            if (!request.HasFormContentType)
+            {
+                return Results.Problem(
+                    statusCode: StatusCodes.Status415UnsupportedMediaType,
+                    title: "Unsupported Media Type",
+                    detail: "Upload the spreadsheet as multipart/form-data with a 'file' field.");
+            }
+
+            var form = await request.ReadFormAsync(cancellationToken);
+            var file = form.Files.GetFile("file");
+            if (file is null || file.Length == 0)
+            {
+                return Results.Problem(
+                    statusCode: StatusCodes.Status400BadRequest,
+                    title: "Bad Request",
+                    detail: "A non-empty 'file' upload is required.");
+            }
+
+            if (file.Length > 10 * 1024 * 1024)
             {
                 return Results.Problem(
                     statusCode: StatusCodes.Status413PayloadTooLarge,
-                    title: "Too many rows",
-                    detail: $"Import is limited to {maxImportRows} rows.");
+                    title: "Payload Too Large",
+                    detail: "Import file must be at most 10 MB.");
             }
 
-            foreach (var row in rows)
+            if (!file.FileName.EndsWith(".xlsx", StringComparison.OrdinalIgnoreCase))
             {
-                if (!await db.LoanProducts.AnyAsync(p => p.Code == row.Code, cancellationToken))
-                {
-                    db.LoanProducts.Add(LoanProduct.Create(
-                        row.Code, row.Name, row.Rate, row.MinTerm, row.MaxTerm, timeProvider.GetUtcNow()));
-                }
+                return Results.Problem(
+                    statusCode: StatusCodes.Status400BadRequest,
+                    title: "Bad Request",
+                    detail: "Only .xlsx files are supported.");
             }
 
-            await db.SaveChangesAsync(cancellationToken);
-            return Results.Ok(new ImportLoanProductsResponse(rows.Count));
+            await using var stream = file.OpenReadStream();
+            var result = await handler.ImportAsync(stream, cancellationToken);
+            await audit.LogAsync(
+                user.GetUserId(),
+                user.GetUsername(),
+                "Import",
+                "LoanProduct",
+                "batch",
+                file.FileName,
+                $"Imported loan products: {result.Created} created, {result.Updated} updated, {result.Failed} failed",
+                cancellationToken: cancellationToken);
+            return Results.Ok(result);
         })
         .RequireAuthorization(new AuthorizeAttribute { Roles = "Admin" })
-        .RequireRateLimiting("write")
-        .WithMetadata(new Microsoft.AspNetCore.Mvc.RequestSizeLimitAttribute(1_048_576))
-        .WithTags("LoanProducts");
+        .RequireRateLimiting("write");
+
+        group.MapGet("/{code}", async (
+            string code,
+            Infrastructure.Persistence.AlasDbContext db,
+            CancellationToken cancellationToken) =>
+        {
+            var product = await db.LoanProducts
+                .AsNoTracking()
+                .FirstOrDefaultAsync(p => p.Code == code, cancellationToken);
+            if (product is null)
+            {
+                throw new NotFoundException("Loan product", code);
+            }
+
+            return Results.Ok(product.ToResponse());
+        })
+        .RequireAuthorization();
+
+        group.MapPut("/{code}", async (
+            string code,
+            UpdateLoanProductPolicyRequest request,
+            UpdateLoanProductPolicyHandler handler,
+            AuditLogs.IAuditLogService audit,
+            System.Security.Claims.ClaimsPrincipal user,
+            CancellationToken cancellationToken) =>
+        {
+            try
+            {
+                var updated = await handler.HandleAsync(code, request, cancellationToken);
+                await audit.LogAsync(
+                    user.GetUserId(),
+                    user.GetUsername(),
+                    "Update",
+                    "LoanProduct",
+                    code,
+                    updated.Description,
+                    $"Updated policy for loan product {code}",
+                    cancellationToken: cancellationToken);
+                return Results.Ok(updated);
+            }
+            catch (ArgumentOutOfRangeException ex)
+            {
+                return Results.Problem(
+                    statusCode: StatusCodes.Status400BadRequest,
+                    title: "Bad Request",
+                    detail: ex.Message);
+            }
+        })
+        .RequireAuthorization(new AuthorizeAttribute { Roles = "Admin" });
     }
 }
-
-public sealed record ImportLoanProductsResponse(int Imported);
