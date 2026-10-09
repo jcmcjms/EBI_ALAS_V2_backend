@@ -17,13 +17,13 @@ public sealed record CreateUserRequest(
     string UserName,
     string Password,
     string FullName,
-    string Email,
+    string? Email,
     string BranchId,
     UserRole Role);
 
 public sealed record UpdateUserRequest(
     string FullName,
-    string Email,
+    string? Email,
     string BranchId);
 
 public sealed record CreateUserResponse(UserResponse User);

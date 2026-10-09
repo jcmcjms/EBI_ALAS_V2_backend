@@ -37,7 +37,7 @@ public sealed class User
         string userName,
         string passwordHash,
         string fullName,
-        string email,
+        string? email,
         string branchId,
         UserRole role,
         DateTimeOffset now)
@@ -53,7 +53,7 @@ public sealed class User
             UserName = userName.Trim(),
             PasswordHash = passwordHash,
             FullName = fullName.Trim(),
-            Email = email.Trim(),
+            Email = email?.Trim() ?? string.Empty,
             BranchId = branchId.Trim(),
             Role = role,
             Status = UserStatus.Active,
@@ -99,11 +99,11 @@ public sealed class User
         UpdatedAt = now;
     }
 
-    public void UpdateProfile(string fullName, string email, DateTimeOffset now)
+    public void UpdateProfile(string fullName, string? email, DateTimeOffset now)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(fullName);
         FullName = fullName.Trim();
-        Email = email.Trim();
+        Email = email?.Trim() ?? string.Empty;
         UpdatedAt = now;
     }
 }
