@@ -99,11 +99,14 @@ public sealed class User
         UpdatedAt = now;
     }
 
-    public void UpdateProfile(string fullName, string? email, DateTimeOffset now)
+    public void UpdateProfile(string fullName, string? email, string branchId, UserRole role, DateTimeOffset now)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(fullName);
+        ArgumentException.ThrowIfNullOrWhiteSpace(branchId);
         FullName = fullName.Trim();
         Email = email?.Trim() ?? string.Empty;
+        BranchId = branchId.Trim();
+        Role = role;
         UpdatedAt = now;
     }
 }
