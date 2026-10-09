@@ -31,9 +31,14 @@ public sealed record LoanComputationResult(
     bool PassesNthpCheck,
     bool PassesDisposableIncomeCheck);
 
+/// <summary>
+/// Monthly amortization and capacity math shared with the approval form
+/// (annuity PMT over termMonths = floor(termDays / 30)).
+/// </summary>
 public sealed class LoanComputationService
 {
     public const decimal NthpThresholdRatio = 0.40m;
+    public const int DaysPerMonth = 30;
 
     public LoanComputationResult Compute(LoanComputationInput input)
     {
@@ -42,27 +47,32 @@ public sealed class LoanComputationService
         ArgumentOutOfRangeException.ThrowIfLessThan(input.TermDays, 1);
         ArgumentOutOfRangeException.ThrowIfNegative(input.InterestRatePerMonth);
 
-        var months = input.TermDays / 30.0m;
-        var totalInterest = ComputeInterest(input.Principal, input.InterestRatePerMonth, months, input.AmortizationType);
+        var termMonths = Math.Max(1, input.TermDays / DaysPerMonth);
+        var monthlyAmortization = ComputeMonthlyAmortization(
+            input.Principal,
+            input.InterestRatePerMonth,
+            input.TermDays,
+            input.AmortizationType);
+
+        var totalPayable = decimal.Round(monthlyAmortization * termMonths, 2, MidpointRounding.AwayFromZero);
+        var totalInterest = Math.Max(0, totalPayable - input.Principal);
         var totalDeductions = input.ServiceFee + input.InsuranceFee + input.OtherDeductions;
         var netProceeds = input.Principal - totalDeductions;
-        var totalPayable = input.Principal + totalInterest;
-        var periods = Math.Max(1, (int)Math.Ceiling(input.TermDays / 7.0m));
-        var amortization = input.AmortizationType == AmortizationType.AdoLump
-            ? totalPayable
-            : decimal.Round(totalPayable / periods, 2, MidpointRounding.AwayFromZero);
 
         var nthp = ComputeNthp(input.GrossMonthlyIncome, input.MonthlyLivingExpense);
-        var monthlyAmortization = decimal.Round(amortization * 4.3333m, 2, MidpointRounding.AwayFromZero);
         var disposable = nthp - input.ExistingMonthlyAmortization - monthlyAmortization;
-        var maxLoanable = ComputeMaxLoanable(nthp, input.InterestRatePerMonth, months, input.AmortizationType);
+        var maxLoanable = ComputeMaxLoanable(
+            nthp - input.ExistingMonthlyAmortization,
+            input.InterestRatePerMonth,
+            input.TermDays,
+            input.AmortizationType);
 
         return new LoanComputationResult(
             input.Principal,
             totalInterest,
             totalDeductions,
             netProceeds,
-            amortization,
+            monthlyAmortization,
             nthp,
             disposable,
             maxLoanable,
@@ -70,26 +80,39 @@ public sealed class LoanComputationService
             disposable >= 0);
     }
 
-    private static decimal ComputeInterest(
+    public static decimal ComputeMonthlyAmortization(
         decimal principal,
-        decimal ratePerMonth,
-        decimal months,
-        AmortizationType type) => type switch
+        decimal annualRatePercent,
+        int termDays,
+        AmortizationType type = AmortizationType.Diminishing)
     {
-        AmortizationType.Diminishing => decimal.Round(
-            principal * (ratePerMonth / 100m) * months,
-            2,
-            MidpointRounding.AwayFromZero),
-        AmortizationType.Mic => decimal.Round(
-            principal * (ratePerMonth / 100m) * months * 0.5m,
-            2,
-            MidpointRounding.AwayFromZero),
-        AmortizationType.AdoLump => decimal.Round(
-            principal * (ratePerMonth / 100m) * months,
-            2,
-            MidpointRounding.AwayFromZero),
-        _ => throw new ArgumentOutOfRangeException(nameof(type))
-    };
+        if (principal <= 0 || termDays <= 0)
+        {
+            return 0;
+        }
+
+        var termMonths = termDays / DaysPerMonth;
+        if (termMonths <= 0)
+        {
+            return 0;
+        }
+
+        if (type == AmortizationType.AdoLump)
+        {
+            return decimal.Round(principal * (1 + (annualRatePercent / 100m) * (termDays / 360m)), 2, MidpointRounding.AwayFromZero);
+        }
+
+        if (annualRatePercent == 0)
+        {
+            return decimal.Round(principal / termMonths, 2, MidpointRounding.AwayFromZero);
+        }
+
+        // Same annuity as the approval form: pmt = P·r / (1 − (1+r)^−n), rounded up.
+        var r = Math.Round(annualRatePercent / 100m / 12m, 6, MidpointRounding.AwayFromZero);
+        var n = termMonths;
+        var pmt = (principal * r) / (1m - (decimal)Math.Pow((double)(1 + r), -n));
+        return decimal.Ceiling(pmt);
+    }
 
     private static decimal ComputeNthp(decimal grossMonthlyIncome, decimal livingExpense) =>
         grossMonthlyIncome <= 0
@@ -97,24 +120,35 @@ public sealed class LoanComputationService
             : Math.Max(0, grossMonthlyIncome - livingExpense);
 
     private static decimal ComputeMaxLoanable(
-        decimal nthp,
-        decimal ratePerMonth,
-        decimal months,
+        decimal monthlyCapacity,
+        decimal annualRatePercent,
+        int termDays,
         AmortizationType type)
     {
-        if (nthp <= 0 || months <= 0)
+        if (monthlyCapacity == 0 || termDays <= 0)
         {
             return 0;
         }
 
-        var allowedMonthly = decimal.Round(nthp * NthpThresholdRatio, 2, MidpointRounding.AwayFromZero);
-        var periods = Math.Max(1, months * 4.3333m);
-        var factor = 1 + (ratePerMonth / 100m) * months;
-        if (type == AmortizationType.Mic)
+        var termMonths = termDays / DaysPerMonth;
+        if (termMonths <= 0)
         {
-            factor = 1 + (ratePerMonth / 100m) * months * 0.5m;
+            return 0;
         }
 
-        return decimal.Round((allowedMonthly * periods) / factor, 2, MidpointRounding.AwayFromZero);
+        if (type == AmortizationType.AdoLump)
+        {
+            var factor = 1 + (annualRatePercent / 100m) * (termDays / 360m);
+            return decimal.Round(Math.Abs(monthlyCapacity) / factor, 2, MidpointRounding.AwayFromZero);
+        }
+
+        var r = Math.Round(annualRatePercent / 100m / 12m, 6, MidpointRounding.AwayFromZero);
+        var abs = Math.Abs(monthlyCapacity);
+        var pv = r == 0
+            ? abs * termMonths
+            : (abs * (1m - (decimal)Math.Pow((double)(1 + r), -termMonths))) / r;
+
+        var floored = decimal.Floor(pv / 100m) * 100m;
+        return Math.Sign(monthlyCapacity) * floored;
     }
 }
