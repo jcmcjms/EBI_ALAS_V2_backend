@@ -27,6 +27,7 @@ public static class PipelineConfiguration
         app.UseRateLimiter();
         app.UseAuthentication();
         app.UseAuthorization();
+        app.UseAuthSecurity();
         app.MapOpenApi();
         app.MapScalarApiReference("scalar");
         app.MapGet("/health/live", () => Results.Ok(new { status = "live" })).AllowAnonymous();
