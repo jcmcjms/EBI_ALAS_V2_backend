@@ -13,11 +13,11 @@ public sealed class AdminSeedHostedService(
         var created = await seeder.SeedAsync(cancellationToken);
         if (created)
         {
-            logger.LogInformation("Admin seed user created or password synchronized with user-secrets.");
+            logger.LogInformation("Admin seed user created from user-secrets.");
         }
         else
         {
-            logger.LogInformation("Admin seed user already present; password already matches user-secrets.");
+            logger.LogInformation("Admin seed user already present; existing credentials left unchanged.");
         }
     }
 
