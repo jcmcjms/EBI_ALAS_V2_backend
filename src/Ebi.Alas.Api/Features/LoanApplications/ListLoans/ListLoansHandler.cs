@@ -8,11 +8,26 @@ namespace Ebi.Alas.Api.Features.LoanApplications.ListLoans;
 
 public sealed class ListLoansHandler(AlasDbContext db)
 {
+    public static IReadOnlyList<LoanStatus> ParseStatuses(string? status)
+    {
+        if (string.IsNullOrWhiteSpace(status))
+        {
+            return [];
+        }
+
+        return status
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(s => Enum.TryParse<LoanStatus>(s, ignoreCase: true, out var v) ? (LoanStatus?)v : null)
+            .Where(v => v is not null)
+            .Select(v => v!.Value)
+            .ToList();
+    }
+
     public async Task<PageResult<LoanResponse>> HandleAsync(
         PageRequest page,
         int maxPageSize,
         int defaultPageSize,
-        LoanStatus? status,
+        IReadOnlyList<LoanStatus> statuses,
         string? branchId,
         CallerContext caller,
         CancellationToken cancellationToken)
@@ -29,9 +44,9 @@ public sealed class ListLoansHandler(AlasDbContext db)
             query = query.Where(l => l.BranchId == branchId);
         }
 
-        if (status is not null)
+        if (statuses.Count > 0)
         {
-            query = query.Where(l => l.Status == status);
+            query = query.Where(l => statuses.Contains(l.Status));
         }
 
         var ordered = query.OrderByDescending(l => l.CreatedAt).ThenBy(l => l.LamId);
