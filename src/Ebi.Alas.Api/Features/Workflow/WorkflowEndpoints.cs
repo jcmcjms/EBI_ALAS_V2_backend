@@ -7,6 +7,47 @@ public static class WorkflowEndpoints
 {
     public static void MapWorkflow(this IEndpointRouteBuilder endpoints)
     {
+        var desk = endpoints.MapGroup("/api/loans/queue").WithTags("Workflow").RequireAuthorization();
+
+        desk.MapGet("/my", async (
+            DeskQueueService service,
+            System.Security.Claims.ClaimsPrincipal user,
+            CancellationToken cancellationToken) =>
+        {
+            var caller = CallerContext.Require(user);
+            return Results.Ok(await service.GetMyDeskAsync(caller, cancellationToken));
+        });
+
+        desk.MapPost("/claim", async (
+            DeskQueueService service,
+            System.Security.Claims.ClaimsPrincipal user,
+            CancellationToken cancellationToken) =>
+        {
+            var caller = CallerContext.Require(user);
+            return Results.Ok(await service.ClaimHeadAsync(caller, cancellationToken));
+        });
+
+        desk.MapPost("/release", async (
+            DeskQueueService service,
+            System.Security.Claims.ClaimsPrincipal user,
+            CancellationToken cancellationToken) =>
+        {
+            var caller = CallerContext.Require(user);
+            await service.ReleaseClaimAsync(caller, cancellationToken);
+            return Results.NoContent();
+        });
+
+        desk.MapPost("/{loanId:guid}/claim", async (
+            Guid loanId,
+            DeskQueueService service,
+            System.Security.Claims.ClaimsPrincipal user,
+            CancellationToken cancellationToken) =>
+        {
+            var caller = CallerContext.Require(user);
+            var result = await service.ClaimByIdAsync(loanId, caller, cancellationToken);
+            return result is null ? Results.NotFound() : Results.Ok(result);
+        });
+
         var group = endpoints.MapGroup("/api/workflow").WithTags("Workflow").RequireAuthorization();
 
         group.MapGet("/queue", async (

@@ -31,7 +31,11 @@ public sealed class SubmitLoanBranchTests
     public async Task SubmitLoan_NonAdmin_UsesCallerBranch_IgnoresRequestBranch()
     {
         await using var db = Db();
-        var handler = new SubmitLoanHandler(db, new Ebi.Alas.Api.Features.LoanComputation.LoanComputationService(), TimeProvider.System);
+        var handler = new SubmitLoanHandler(
+            db,
+            new Ebi.Alas.Api.Features.LoanComputation.LoanComputationService(),
+            new Ebi.Alas.Api.Features.Workflow.WorkflowQueueService(db, TimeProvider.System),
+            TimeProvider.System);
         var caller = new CallerContext(Guid.NewGuid(), UserRole.Encoder, "BR-A");
 
         var result = await handler.HandleAsync(Request("BR-HACK"), caller, CancellationToken.None);
@@ -43,7 +47,11 @@ public sealed class SubmitLoanBranchTests
     public async Task SubmitLoan_Admin_MayUseRequestBranch()
     {
         await using var db = Db();
-        var handler = new SubmitLoanHandler(db, new Ebi.Alas.Api.Features.LoanComputation.LoanComputationService(), TimeProvider.System);
+        var handler = new SubmitLoanHandler(
+            db,
+            new Ebi.Alas.Api.Features.LoanComputation.LoanComputationService(),
+            new Ebi.Alas.Api.Features.Workflow.WorkflowQueueService(db, TimeProvider.System),
+            TimeProvider.System);
         var caller = new CallerContext(Guid.NewGuid(), UserRole.Admin, "BR-HQ");
 
         var result = await handler.HandleAsync(Request("BR-OTHER"), caller, CancellationToken.None);
@@ -55,7 +63,11 @@ public sealed class SubmitLoanBranchTests
     public async Task SubmitLoan_AdminWithoutRequestBranch_UsesCallerBranch()
     {
         await using var db = Db();
-        var handler = new SubmitLoanHandler(db, new Ebi.Alas.Api.Features.LoanComputation.LoanComputationService(), TimeProvider.System);
+        var handler = new SubmitLoanHandler(
+            db,
+            new Ebi.Alas.Api.Features.LoanComputation.LoanComputationService(),
+            new Ebi.Alas.Api.Features.Workflow.WorkflowQueueService(db, TimeProvider.System),
+            TimeProvider.System);
         var caller = new CallerContext(Guid.NewGuid(), UserRole.Admin, "BR-HQ");
 
         var result = await handler.HandleAsync(Request("  "), caller, CancellationToken.None);
