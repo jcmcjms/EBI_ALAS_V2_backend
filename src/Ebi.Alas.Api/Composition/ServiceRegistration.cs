@@ -149,7 +149,11 @@ public static class ServiceRegistration
         services.AddHostedService<DisbursementSyncHostedService>();
 
         services.AddHealthChecks()
-            .AddCheck<Infrastructure.Persistence.DbReadyHealthCheck>("db", tags: ["ready"]);
+            .AddCheck<Infrastructure.Persistence.DbReadyHealthCheck>(
+                "db",
+                failureStatus: Microsoft.Extensions.Diagnostics.HealthChecks.HealthStatus.Unhealthy,
+                tags: ["ready"],
+                timeout: TimeSpan.FromSeconds(5));
 
         var jwtOptions = configuration.GetSection($"{ApiOptions.SectionName}:Jwt").Get<JwtOptions>()
             ?? new JwtOptions();
