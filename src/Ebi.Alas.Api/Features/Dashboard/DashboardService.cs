@@ -16,11 +16,23 @@ public sealed class DashboardService(AlasDbContext db, TimeProvider timeProvider
     public async Task<DashboardOverview> GetOverviewAsync(CancellationToken cancellationToken)
     {
         var today = timeProvider.GetUtcNow().Date;
+        var counts = await db.LoanApplications
+            .GroupBy(_ => 1)
+            .Select(g => new
+            {
+                PendingRecommendation = g.Count(l => l.Status == LoanStatus.ForRecommendation),
+                PendingEvaluation = g.Count(l => l.Status == LoanStatus.ForChecking),
+                PendingApproval = g.Count(l => l.Status == LoanStatus.ForApproval),
+                ApprovedToday = g.Count(l => l.Status == LoanStatus.Approved && l.UpdatedAt >= today),
+                Pushbacks = g.Count(l => l.Status == LoanStatus.ForRevision),
+            })
+            .FirstOrDefaultAsync(cancellationToken);
+
         return new DashboardOverview(
-            await db.LoanApplications.CountAsync(l => l.Status == LoanStatus.ForRecommendation, cancellationToken),
-            await db.LoanApplications.CountAsync(l => l.Status == LoanStatus.ForChecking, cancellationToken),
-            await db.LoanApplications.CountAsync(l => l.Status == LoanStatus.ForApproval, cancellationToken),
-            await db.LoanApplications.CountAsync(l => l.Status == LoanStatus.Approved && l.UpdatedAt >= today, cancellationToken),
-            await db.LoanApplications.CountAsync(l => l.Status == LoanStatus.ForRevision, cancellationToken));
+            counts?.PendingRecommendation ?? 0,
+            counts?.PendingEvaluation ?? 0,
+            counts?.PendingApproval ?? 0,
+            counts?.ApprovedToday ?? 0,
+            counts?.Pushbacks ?? 0);
     }
 }
