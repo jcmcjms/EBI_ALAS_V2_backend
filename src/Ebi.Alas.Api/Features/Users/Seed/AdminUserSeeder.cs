@@ -20,7 +20,7 @@ public sealed class AdminUserSeeder(
         var existing = await db.Users.FirstOrDefaultAsync(u => u.UserName == userName, cancellationToken);
         if (existing is not null)
         {
-            return await SyncPasswordAsync(existing, seed, cancellationToken);
+            return false;
         }
 
         var fullName = BuildFullName(seed);
@@ -35,21 +35,6 @@ public sealed class AdminUserSeeder(
             now: timeProvider.GetUtcNow());
 
         db.Users.Add(user);
-        await db.SaveChangesAsync(cancellationToken);
-        return true;
-    }
-
-    private async Task<bool> SyncPasswordAsync(User existing, AdminSeedOptions seed, CancellationToken cancellationToken)
-    {
-        if (passwordHasher.Verify(seed.AdminPassword, existing.PasswordHash))
-        {
-            return false;
-        }
-
-        existing.SetPasswordHash(
-            passwordHasher.Hash(seed.AdminPassword),
-            mustChangePassword: true,
-            now: timeProvider.GetUtcNow());
         await db.SaveChangesAsync(cancellationToken);
         return true;
     }

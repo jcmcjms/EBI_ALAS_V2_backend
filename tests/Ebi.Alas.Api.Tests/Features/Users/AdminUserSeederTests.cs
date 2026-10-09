@@ -64,22 +64,23 @@ public sealed class AdminUserSeederTests
     }
 
     [Fact]
-    public async Task SeedAsync_ExistingUserWithStalePassword_UpdatesHashToMatchSecrets()
+    public async Task SeedAsync_ExistingUserWithChangedPassword_LeavesAccountUnchanged()
     {
         await using var db = Db();
         var seeder = Seeder(db);
         await seeder.SeedAsync(CancellationToken.None);
 
         var user = await db.Users.SingleAsync(u => u.UserName == "seed-admin");
-        user.SetPasswordHash(new PasswordHasher().Hash("OldPassword!234"), mustChangePassword: false, DateTimeOffset.UtcNow);
+        var changedHash = new PasswordHasher().Hash("UserChanged!23456");
+        user.SetPasswordHash(changedHash, mustChangePassword: false, DateTimeOffset.UtcNow);
         await db.SaveChangesAsync();
 
-        var updated = await seeder.SeedAsync(CancellationToken.None);
+        var createdAgain = await seeder.SeedAsync(CancellationToken.None);
 
-        Assert.True(updated);
+        Assert.False(createdAgain);
         var reloaded = await db.Users.AsNoTracking().SingleAsync(u => u.UserName == "seed-admin");
         Assert.Equal(1, await db.Users.CountAsync(u => u.UserName == "seed-admin"));
-        Assert.True(new PasswordHasher().Verify("SeedPass!23456", reloaded.PasswordHash));
-        Assert.True(reloaded.MustChangePassword);
+        Assert.Equal(changedHash, reloaded.PasswordHash);
+        Assert.False(reloaded.MustChangePassword);
     }
 }
