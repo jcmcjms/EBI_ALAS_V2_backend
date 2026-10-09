@@ -107,6 +107,7 @@ public static class ServiceRegistration
         services.AddScoped<RefreshHandler>();
         services.AddScoped<ChangePasswordHandler>();
         services.AddScoped<CreateUserHandler>();
+        services.AddScoped<Features.Users.ImportUsers.ImportUsersHandler>();
         services.AddScoped<ListUsersHandler>();
         services.AddScoped<GetUserHandler>();
         services.AddScoped<UpdateUserHandler>();

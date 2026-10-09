@@ -35,6 +35,51 @@ public static class UserEndpoints
             };
         });
 
+        group.MapGet("/import-template", () =>
+            Results.File(
+                ImportUsers.UserExcel.BuildTemplate(),
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                "user-import-template.xlsx"))
+            .RequireRateLimiting("write");
+
+        group.MapPost("/import", async (
+            HttpRequest request,
+            ImportUsers.ImportUsersHandler handler,
+            CancellationToken cancellationToken) =>
+        {
+            if (!request.HasFormContentType)
+            {
+                return Results.Problem(
+                    statusCode: StatusCodes.Status415UnsupportedMediaType,
+                    title: "Unsupported Media Type",
+                    detail: "Upload the spreadsheet as multipart/form-data with a 'file' field.");
+            }
+
+            var form = await request.ReadFormAsync(cancellationToken);
+            var file = form.Files.GetFile("file");
+            if (file is null || file.Length == 0)
+            {
+                return Results.Problem(
+                    statusCode: StatusCodes.Status400BadRequest,
+                    title: "Bad Request",
+                    detail: "A non-empty 'file' upload is required.");
+            }
+
+            if (file.Length > 10 * 1024 * 1024)
+            {
+                return Results.Problem(
+                    statusCode: StatusCodes.Status413PayloadTooLarge,
+                    title: "Payload Too Large",
+                    detail: "Import file must be at most 10 MB.");
+            }
+
+            await using var stream = file.OpenReadStream();
+            var result = await handler.ImportAsync(stream, cancellationToken);
+            return Results.Ok(result);
+        })
+        .RequireRateLimiting("write")
+        .WithMetadata(new Microsoft.AspNetCore.Mvc.RequestSizeLimitAttribute(11 * 1024 * 1024));
+
         group.MapGet("/", async (
             int? page,
             int? pageSize,
