@@ -114,7 +114,7 @@ public sealed class LoanAccessTests
             new PageRequest { Page = 1, PageSize = 20 },
             maxPageSize: 100,
             defaultPageSize: 20,
-            status: null,
+            statuses: [],
             branchId: "BR-B",
             caller,
             CancellationToken.None);
@@ -137,7 +137,7 @@ public sealed class LoanAccessTests
             new PageRequest { Page = 1, PageSize = 20 },
             maxPageSize: 100,
             defaultPageSize: 20,
-            status: null,
+            statuses: [],
             branchId: "BR-B",
             caller,
             CancellationToken.None);

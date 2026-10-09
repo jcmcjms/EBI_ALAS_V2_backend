@@ -15,6 +15,8 @@ public static class LoanEndpoints
     {
         var group = endpoints.MapGroup("/api/loans").WithTags("Loans").RequireAuthorization();
 
+        group.MapGet("/queue-default", () => Results.Ok(QueueDefaults.Statuses));
+
         group.MapPost("/", async (
             SubmitLoanRequest request,
             SubmitLoanHandler handler,
@@ -29,8 +31,9 @@ public static class LoanEndpoints
         group.MapGet("/", async (
             int? page,
             int? pageSize,
-            LoanStatus? status,
+            string? status,
             string? branchId,
+            string? branchCode,
             ListLoansHandler handler,
             ClaimsPrincipal user,
             Microsoft.Extensions.Options.IOptions<Composition.ApiOptions> options,
@@ -38,12 +41,13 @@ public static class LoanEndpoints
         {
             var caller = CallerContext.Require(user);
             var opt = options.Value;
+            var statuses = ListLoans.ListLoansHandler.ParseStatuses(status);
             var result = await handler.HandleAsync(
                 new PageRequest { Page = page ?? 1, PageSize = pageSize ?? opt.DefaultPageSize },
                 opt.MaxPageSize,
                 opt.DefaultPageSize,
-                status,
-                branchId,
+                statuses,
+                string.IsNullOrWhiteSpace(branchId) ? branchCode : branchId,
                 caller,
                 cancellationToken);
             return Results.Ok(result);
