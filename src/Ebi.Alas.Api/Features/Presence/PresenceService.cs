@@ -23,18 +23,29 @@ public sealed class UserPresence
     public void Heartbeat(DateTimeOffset now) => LastSeenAt = now;
 }
 
-public sealed class PresenceService(AlasDbContext db, TimeProvider timeProvider)
+public sealed class PresenceService(
+    AlasDbContext db,
+    TimeProvider timeProvider,
+    IPresenceNotifier notifier)
 {
     public static readonly TimeSpan OnlineWindow = TimeSpan.FromMinutes(5);
 
     public async Task HeartbeatAsync(Guid userId, CancellationToken cancellationToken)
     {
         var now = timeProvider.GetUtcNow();
+        var cutoff = now - OnlineWindow;
         var existing = await db.UserPresences.FirstOrDefaultAsync(p => p.UserId == userId, cancellationToken);
+
         if (existing is not null)
         {
+            var wasOnline = existing.LastSeenAt >= cutoff;
             existing.Heartbeat(now);
             await db.SaveChangesAsync(cancellationToken);
+            if (!wasOnline)
+            {
+                await NotifyAsync(userId, online: true, cancellationToken);
+            }
+
             return;
         }
 
@@ -59,7 +70,38 @@ public sealed class PresenceService(AlasDbContext db, TimeProvider timeProvider)
 
             existing.Heartbeat(now);
             await db.SaveChangesAsync(cancellationToken);
+            await NotifyAsync(userId, online: true, cancellationToken);
+            return;
         }
+
+        await NotifyAsync(userId, online: true, cancellationToken);
+    }
+
+    public async Task<int> SweepExpiredAsync(CancellationToken cancellationToken)
+    {
+        var cutoff = timeProvider.GetUtcNow() - OnlineWindow;
+        var expired = await db.UserPresences.AsNoTracking()
+            .Where(p => p.LastSeenAt < cutoff)
+            .Select(p => p.UserId)
+            .ToListAsync(cancellationToken);
+
+        if (expired.Count == 0)
+        {
+            return 0;
+        }
+
+        var rows = await db.UserPresences
+            .Where(p => expired.Contains(p.UserId))
+            .ToListAsync(cancellationToken);
+        db.UserPresences.RemoveRange(rows);
+        await db.SaveChangesAsync(cancellationToken);
+
+        foreach (var userId in expired)
+        {
+            await NotifyAsync(userId, online: false, cancellationToken);
+        }
+
+        return expired.Count;
     }
 
     public async Task<IReadOnlyList<PresenceUserResponse>> GetOnlineUsersAsync(CancellationToken cancellationToken)
@@ -79,5 +121,27 @@ public sealed class PresenceService(AlasDbContext db, TimeProvider timeProvider)
                 null,
                 1)
         ).Take(200).ToListAsync(cancellationToken);
+    }
+
+    private async Task NotifyAsync(Guid userId, bool online, CancellationToken cancellationToken)
+    {
+        var row = await (
+            from u in db.Users.AsNoTracking()
+            where u.Id == userId
+            select new PresenceUserResponse(
+                u.Id,
+                u.FullName,
+                u.Role.ToString(),
+                u.BranchId,
+                null,
+                online ? 1 : 0)
+        ).FirstOrDefaultAsync(cancellationToken);
+
+        if (row is null)
+        {
+            return;
+        }
+
+        await notifier.BroadcastChangedAsync(row, online, cancellationToken);
     }
 }
