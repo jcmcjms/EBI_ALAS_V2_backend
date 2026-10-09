@@ -1,4 +1,5 @@
 using System.Text;
+using System.Text.Json.Serialization;
 using Ebi.Alas.Api.Composition;
 using Ebi.Alas.Api.Composition.Errors;
 using Ebi.Alas.Api.Features.Auth;
@@ -57,6 +58,10 @@ public static class ServiceRegistration
         services.AddTransient<IExceptionHandler>(serviceProvider =>
             ApiProblemHandler.CreateHandler(serviceProvider.GetRequiredService<IProblemDetailsService>()));
         services.AddOpenApi();
+        services.ConfigureHttpJsonOptions(options =>
+        {
+            options.SerializerOptions.Converters.Add(new JsonStringEnumConverter());
+        });
 
         services.AddRateLimiter(options =>
         {
@@ -112,6 +117,10 @@ public static class ServiceRegistration
         services.AddScoped<GetUserHandler>();
         services.AddScoped<UpdateUserHandler>();
         services.AddScoped<ChangeUserStatusHandler>();
+        services.AddScoped<Features.LoanProducts.UpdateLoanProductPolicyHandler>();
+        services.AddScoped<Features.LoanProducts.SyncLoanProductsHandler>();
+        services.AddScoped<Features.LoanProducts.ImportLoanProductsHandler>();
+        services.AddScoped<Features.AuditLogs.IAuditLogService, Features.AuditLogs.AuditLogService>();
         services.AddScoped<Features.Users.Seed.AdminUserSeeder>();
         services.AddHostedService<AdminSeedHostedService>();
 
@@ -143,7 +152,9 @@ public static class ServiceRegistration
         services.AddScoped<DashboardService>();
         services.AddScoped<Features.Presence.PresenceService>();
         services.AddSignalR();
+        services.AddSingleton<Features.Presence.IPresenceNotifier, Features.Presence.SignalRPresenceNotifier>();
         services.AddSingleton<Features.Notifications.IRealtimeNotifier, Features.Notifications.SignalRRealtimeNotifier>();
+        services.AddHostedService<Infrastructure.Background.PresenceSweepHostedService>();
         services.AddHostedService<QueueReconciliationHostedService>();
         services.AddHostedService<TokenCleanupHostedService>();
         services.AddHostedService<DisbursementSyncHostedService>();
