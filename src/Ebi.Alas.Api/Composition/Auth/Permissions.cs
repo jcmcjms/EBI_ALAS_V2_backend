@@ -1,6 +1,4 @@
-using System;
-
-namespace Ebi.Alas.Api.Common.Constants;
+namespace Ebi.Alas.Api.Composition.Auth;
 
 public static class Permissions
 {

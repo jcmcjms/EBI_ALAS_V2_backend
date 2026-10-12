@@ -1,6 +1,6 @@
-using Ebi.Alas.Api.Features.Pagination;
+using Ebi.Alas.Api.Composition.Pagination;
 
-namespace Ebi.Alas.Api.Tests.Features.Pagination;
+namespace Ebi.Alas.Api.Tests.Composition.Pagination;
 
 public sealed class PageRequestTests
 {

@@ -1,4 +1,4 @@
-namespace Ebi.Alas.Api.Features.Pagination;
+namespace Ebi.Alas.Api.Composition.Pagination;
 
 public sealed record PageResult<T>(IReadOnlyList<T> Items, int TotalCount, int Page, int PageSize)
 {

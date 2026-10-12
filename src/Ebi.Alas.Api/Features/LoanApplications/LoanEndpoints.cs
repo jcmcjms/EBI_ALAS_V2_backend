@@ -5,7 +5,7 @@ using Ebi.Alas.Api.Features.LoanApplications.ListLoans;
 using Ebi.Alas.Api.Features.LoanApplications.Submit;
 using Ebi.Alas.Api.Features.LoanApplications.Domain;
 using Ebi.Alas.Api.Features.LoanComputation;
-using Ebi.Alas.Api.Features.Pagination;
+using Ebi.Alas.Api.Composition.Pagination;
 
 namespace Ebi.Alas.Api.Features.LoanApplications;
 

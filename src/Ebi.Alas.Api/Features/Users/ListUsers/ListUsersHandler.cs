@@ -1,4 +1,4 @@
-using Ebi.Alas.Api.Features.Pagination;
+using Ebi.Alas.Api.Composition.Pagination;
 using Ebi.Alas.Api.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 

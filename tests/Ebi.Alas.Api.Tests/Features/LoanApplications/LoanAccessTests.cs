@@ -3,7 +3,7 @@ using Ebi.Alas.Api.Composition.Errors;
 using Ebi.Alas.Api.Features.LoanApplications.Domain;
 using Ebi.Alas.Api.Features.LoanApplications.GetLoan;
 using Ebi.Alas.Api.Features.LoanApplications.ListLoans;
-using Ebi.Alas.Api.Features.Pagination;
+using Ebi.Alas.Api.Composition.Pagination;
 using Ebi.Alas.Api.Features.Users.Domain;
 using Ebi.Alas.Api.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
