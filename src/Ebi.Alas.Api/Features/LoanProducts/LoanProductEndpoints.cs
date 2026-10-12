@@ -1,5 +1,4 @@
 using Ebi.Alas.Api.Composition.Errors;
-using Ebi.Alas.Api.Features.AuditLogs;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.EntityFrameworkCore;
 
@@ -25,20 +24,9 @@ public static class LoanProductEndpoints
 
         group.MapPost("/sync", async (
             SyncLoanProductsHandler handler,
-            AuditLogs.IAuditLogService audit,
-            System.Security.Claims.ClaimsPrincipal user,
             CancellationToken cancellationToken) =>
         {
             var result = await handler.HandleAsync(cancellationToken);
-            await audit.LogAsync(
-                user.GetUserId(),
-                user.GetUsername(),
-                "Sync",
-                "LoanProduct",
-                "catalog",
-                "webloan catalog",
-                $"Synced loan products: {result.Added} added, {result.Updated} updated, {result.Preserved} preserved",
-                cancellationToken: cancellationToken);
             return Results.Ok(result);
         })
         .RequireAuthorization(new AuthorizeAttribute { Roles = "Admin" })
@@ -74,8 +62,6 @@ public static class LoanProductEndpoints
         group.MapPost("/import", async (
             HttpRequest request,
             ImportLoanProductsHandler handler,
-            AuditLogs.IAuditLogService audit,
-            System.Security.Claims.ClaimsPrincipal user,
             CancellationToken cancellationToken) =>
         {
             if (!request.HasFormContentType)
@@ -114,15 +100,6 @@ public static class LoanProductEndpoints
 
             await using var stream = file.OpenReadStream();
             var result = await handler.ImportAsync(stream, cancellationToken);
-            await audit.LogAsync(
-                user.GetUserId(),
-                user.GetUsername(),
-                "Import",
-                "LoanProduct",
-                "batch",
-                file.FileName,
-                $"Imported loan products: {result.Created} created, {result.Updated} updated, {result.Failed} failed",
-                cancellationToken: cancellationToken);
             return Results.Ok(result);
         })
         .RequireAuthorization(new AuthorizeAttribute { Roles = "Admin" })
@@ -149,22 +126,11 @@ public static class LoanProductEndpoints
             string code,
             UpdateLoanProductPolicyRequest request,
             UpdateLoanProductPolicyHandler handler,
-            AuditLogs.IAuditLogService audit,
-            System.Security.Claims.ClaimsPrincipal user,
             CancellationToken cancellationToken) =>
         {
             try
             {
                 var updated = await handler.HandleAsync(code, request, cancellationToken);
-                await audit.LogAsync(
-                    user.GetUserId(),
-                    user.GetUsername(),
-                    "Update",
-                    "LoanProduct",
-                    code,
-                    updated.Description,
-                    $"Updated policy for loan product {code}",
-                    cancellationToken: cancellationToken);
                 return Results.Ok(updated);
             }
             catch (ArgumentOutOfRangeException ex)
