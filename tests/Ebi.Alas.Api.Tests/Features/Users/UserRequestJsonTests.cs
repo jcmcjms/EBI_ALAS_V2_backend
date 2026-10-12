@@ -25,12 +25,13 @@ public sealed class UserRequestJsonTests : IClassFixture<WebApplicationFactory<P
     [Fact]
     public void UpdateUserRequest_ParsesRoleAsString()
     {
-        const string json = """{"fullName":"Jane Smith","email":null,"branchId":"020","role":"Approver"}""";
+        const string json = """{"firstName":"Jane","lastName":"Smith","middleName":"","email":null,"branchId":"020","role":"Approver"}""";
 
         var request = JsonSerializer.Deserialize<UpdateUserRequest>(json, _json);
 
         Assert.NotNull(request);
-        Assert.Equal("Jane Smith", request.FullName);
+        Assert.Equal("Jane", request.FirstName);
+        Assert.Equal("Smith", request.LastName);
         Assert.Null(request.Email);
         Assert.Equal("020", request.BranchId);
         Assert.Equal(UserRole.Approver, request.Role);
@@ -39,7 +40,7 @@ public sealed class UserRequestJsonTests : IClassFixture<WebApplicationFactory<P
     [Fact]
     public void CreateUserRequest_ParsesRoleAsString()
     {
-        const string json = """{"userName":"jdoe","password":"StrongPass!234","fullName":"Jane Doe","email":null,"branchId":"020","role":"Encoder"}""";
+        const string json = """{"userName":"jdoe","password":"StrongPass!234","firstName":"Jane","lastName":"Doe","middleName":"","email":null,"branchId":"020","role":"Encoder"}""";
 
         var request = JsonSerializer.Deserialize<CreateUserRequest>(json, _json);
 

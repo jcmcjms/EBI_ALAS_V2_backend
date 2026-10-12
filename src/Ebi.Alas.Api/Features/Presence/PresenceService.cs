@@ -104,7 +104,7 @@ public sealed class PresenceService(
             where expired.Contains(u.Id)
             select new PresenceUserResponse(
                 u.Id,
-                u.FullName,
+                u.FirstName + " " + u.LastName,
                 u.Role.ToString(),
                 u.BranchId,
                 null,
@@ -127,10 +127,10 @@ public sealed class PresenceService(
             where p.LastSeenAt >= cutoff
             join u in db.Users.AsNoTracking() on p.UserId equals u.Id
             where u.Status == UserStatus.Active
-            orderby u.FullName
+            orderby u.LastName, u.FirstName
             select new PresenceUserResponse(
                 u.Id,
-                u.FullName,
+                u.FirstName + " " + u.LastName,
                 u.Role.ToString(),
                 u.BranchId,
                 null,
@@ -145,7 +145,7 @@ public sealed class PresenceService(
             where u.Id == userId
             select new PresenceUserResponse(
                 u.Id,
-                u.FullName,
+                u.FirstName + " " + u.LastName,
                 u.Role.ToString(),
                 u.BranchId,
                 null,

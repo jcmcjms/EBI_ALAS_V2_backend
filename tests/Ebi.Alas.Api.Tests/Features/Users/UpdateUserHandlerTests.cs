@@ -26,23 +26,25 @@ public sealed class UpdateUserHandlerTests
     {
         await using var db = Db();
         var now = DateTimeOffset.UtcNow;
-        var user = User.Create("jdoe", "hash", "John Doe", "old@x.com", "011", UserRole.Encoder, now);
+        var user = User.Create("jdoe", "hash", "John", "Doe", "", "old@x.com", "011", UserRole.Encoder, now);
         db.Users.Add(user);
         await db.SaveChangesAsync();
 
         var handler = new UpdateUserHandler(db, new FixedTimeProvider(now));
         var result = await handler.HandleAsync(
             user.Id,
-            new UpdateUserRequest("Jane Smith", "jane@x.com", "020", UserRole.Approver),
+            new UpdateUserRequest("Jane", "Smith", "", "jane@x.com", "020", UserRole.Approver),
             CancellationToken.None);
 
-        Assert.Equal("Jane Smith", result.FullName);
+        Assert.Equal("Jane", result.FirstName);
+        Assert.Equal("Smith", result.LastName);
         Assert.Equal("jane@x.com", result.Email);
         Assert.Equal("020", result.BranchId);
         Assert.Equal(nameof(UserRole.Approver), result.Role);
 
         var reloaded = await db.Users.AsNoTracking().SingleAsync(u => u.Id == user.Id);
-        Assert.Equal("Jane Smith", reloaded.FullName);
+        Assert.Equal("Jane", reloaded.FirstName);
+        Assert.Equal("Smith", reloaded.LastName);
         Assert.Equal("020", reloaded.BranchId);
         Assert.Equal(UserRole.Approver, reloaded.Role);
     }
@@ -52,14 +54,14 @@ public sealed class UpdateUserHandlerTests
     {
         await using var db = Db();
         var now = DateTimeOffset.UtcNow;
-        var user = User.Create("jdoe", "hash", "John Doe", "old@x.com", "011", UserRole.Encoder, now);
+        var user = User.Create("jdoe", "hash", "John", "Doe", "", "old@x.com", "011", UserRole.Encoder, now);
         db.Users.Add(user);
         await db.SaveChangesAsync();
 
         var handler = new UpdateUserHandler(db, new FixedTimeProvider(now));
         var result = await handler.HandleAsync(
             user.Id,
-            new UpdateUserRequest("John Doe", null, "011", UserRole.Encoder),
+            new UpdateUserRequest("John", "Doe", "", null, "011", UserRole.Encoder),
             CancellationToken.None);
 
         Assert.Equal(string.Empty, result.Email);

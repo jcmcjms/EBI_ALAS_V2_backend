@@ -20,7 +20,6 @@ public sealed class CsrfApiTests : IClassFixture<WebApplicationFactory<Program>>
 
     private sealed record LoginBody(
         [property: System.Text.Json.Serialization.JsonPropertyName("accessToken")] string AccessToken,
-        [property: System.Text.Json.Serialization.JsonPropertyName("refreshToken")] string RefreshToken,
         [property: System.Text.Json.Serialization.JsonPropertyName("mustChangePassword")] bool MustChangePassword);
 
     private static string? ExtractXsrfClaim(string accessToken)

@@ -23,12 +23,15 @@ public sealed class AdminUserSeeder(
             return false;
         }
 
-        var fullName = BuildFullName(seed);
+        var firstName = seed.AdminFirstName?.Trim() ?? "System";
+        var lastName = seed.AdminLastName?.Trim() ?? "Administrator";
         var hash = passwordHasher.Hash(seed.AdminPassword);
         var user = User.Create(
             userName,
             hash,
-            fullName: fullName,
+            firstName: firstName,
+            lastName: lastName,
+            middleName: string.Empty,
             email: seed.AdminEmail?.Trim() ?? string.Empty,
             branchId: seed.AdminBranchId.Trim(),
             role: UserRole.Admin,
@@ -37,13 +40,5 @@ public sealed class AdminUserSeeder(
         db.Users.Add(user);
         await db.SaveChangesAsync(cancellationToken);
         return true;
-    }
-
-    private static string BuildFullName(AdminSeedOptions seed)
-    {
-        var first = seed.AdminFirstName?.Trim();
-        var last = seed.AdminLastName?.Trim();
-        var combined = string.Join(' ', new[] { first, last }.Where(s => !string.IsNullOrWhiteSpace(s)));
-        return string.IsNullOrWhiteSpace(combined) ? "System Administrator" : combined;
     }
 }

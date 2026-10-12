@@ -10,7 +10,9 @@ public sealed class UserTests
         Assert.ThrowsAny<ArgumentException>(() => User.Create(
             userName: "  ",
             passwordHash: "hash",
-            fullName: "Ada",
+            firstName: "Ada",
+            lastName: "Lovelace",
+            middleName: "",
             email: "ada@example.com",
             branchId: "011",
             role: UserRole.Encoder,
@@ -23,7 +25,9 @@ public sealed class UserTests
         var user = User.Create(
             userName: "ada",
             passwordHash: "hash",
-            fullName: "Ada",
+            firstName: "Ada",
+            lastName: "Lovelace",
+            middleName: "",
             email: null,
             branchId: "011",
             role: UserRole.Encoder,
@@ -35,7 +39,7 @@ public sealed class UserTests
     [Fact]
     public void Suspend_ActiveUser_SetsSuspended()
     {
-        var user = User.Create("ada", "hash", "Ada", "ada@example.com", "011", UserRole.Encoder, DateTimeOffset.UtcNow);
+        var user = User.Create("ada", "hash", "Ada", "Ada", "", "ada@example.com", "011", UserRole.Encoder, DateTimeOffset.UtcNow);
 
         user.Suspend(DateTimeOffset.UtcNow);
 
@@ -46,7 +50,7 @@ public sealed class UserTests
     public void Suspend_AlreadySuspended_Throws()
     {
         var now = DateTimeOffset.UtcNow;
-        var user = User.Create("ada", "hash", "Ada", "ada@example.com", "011", UserRole.Encoder, now);
+        var user = User.Create("ada", "hash", "Ada", "Ada", "", "ada@example.com", "011", UserRole.Encoder, now);
         user.Suspend(now);
 
         Assert.Throws<InvalidOperationException>(() => user.Suspend(now));
@@ -56,7 +60,7 @@ public sealed class UserTests
     public void Activate_SuspendedUser_SetsActive()
     {
         var now = DateTimeOffset.UtcNow;
-        var user = User.Create("ada", "hash", "Ada", "ada@example.com", "011", UserRole.Encoder, now);
+        var user = User.Create("ada", "hash", "Ada", "Ada", "", "ada@example.com", "011", UserRole.Encoder, now);
         user.Suspend(now);
 
         user.Activate(now);
@@ -67,9 +71,9 @@ public sealed class UserTests
     [Fact]
     public void UpdateProfile_NullEmail_StoresEmptyEmail()
     {
-        var user = User.Create("ada", "hash", "Ada", "ada@example.com", "011", UserRole.Encoder, DateTimeOffset.UtcNow);
+        var user = User.Create("ada", "hash", "Ada", "Ada", "", "ada@example.com", "011", UserRole.Encoder, DateTimeOffset.UtcNow);
 
-        user.UpdateProfile("Ada", null, "011", UserRole.Encoder, DateTimeOffset.UtcNow);
+        user.UpdateProfile("Ada", "Lovelace", "", null, "011", UserRole.Encoder, DateTimeOffset.UtcNow);
 
         Assert.Equal(string.Empty, user.Email);
     }

@@ -12,7 +12,9 @@ public sealed class UpdateUserHandler(AlasDbContext db, TimeProvider timeProvide
         var user = await db.Users.FirstOrDefaultAsync(u => u.Id == id, cancellationToken)
             ?? throw new NotFoundException("User", id.ToString());
         user.UpdateProfile(
-            request.FullName,
+            request.FirstName,
+            request.LastName,
+            request.MiddleName,
             request.Email,
             request.BranchId,
             request.Role,

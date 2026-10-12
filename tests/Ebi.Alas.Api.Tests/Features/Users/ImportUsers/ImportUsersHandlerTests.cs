@@ -91,7 +91,7 @@ public sealed class ImportUsersHandlerTests
     public async Task ImportAsync_DuplicateUsername_SkipsRow()
     {
         await using var db = Db();
-        db.Users.Add(User.Create("jdoe", "hash", "Existing", "e@x.com", "011", UserRole.Encoder, DateTimeOffset.UtcNow));
+        db.Users.Add(User.Create("jdoe", "hash", "Existing", "Existing", "", "e@x.com", "011", UserRole.Encoder, DateTimeOffset.UtcNow));
         await db.SaveChangesAsync();
 
         var result = await Handler(db).ImportAsync(
@@ -106,8 +106,8 @@ public sealed class ImportUsersHandlerTests
     public async Task ImportAsync_Prefetch_DetectsEveryExistingUsername()
     {
         await using var db = Db();
-        db.Users.Add(User.Create("jdoe", "hash", "Existing One", "e1@x.com", "011", UserRole.Encoder, DateTimeOffset.UtcNow));
-        db.Users.Add(User.Create("asmith", "hash", "Existing Two", "e2@x.com", "011", UserRole.Encoder, DateTimeOffset.UtcNow));
+        db.Users.Add(User.Create("jdoe", "hash", "Existing", "One", "", "e1@x.com", "011", UserRole.Encoder, DateTimeOffset.UtcNow));
+        db.Users.Add(User.Create("asmith", "hash", "Existing", "Two", "", "e2@x.com", "011", UserRole.Encoder, DateTimeOffset.UtcNow));
         await db.SaveChangesAsync();
 
         var result = await Handler(db).ImportAsync(

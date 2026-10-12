@@ -7,7 +7,9 @@ public static class UserMapping
     public static UserResponse ToResponse(this User user) => new(
         user.Id,
         user.UserName,
-        user.FullName,
+        user.FirstName,
+        user.LastName,
+        user.MiddleName,
         user.Email,
         user.BranchId,
         user.Role.ToString(),
