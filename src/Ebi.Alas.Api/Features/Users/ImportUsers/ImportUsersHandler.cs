@@ -28,7 +28,7 @@ public sealed class ImportUsersHandler(
         {
             rows = UserExcel.Parse(xlsx);
         }
-        catch (Exception)
+        catch (Exception ex) when (ex is IOException or InvalidDataException or UnauthorizedAccessException or InvalidOperationException)
         {
             errors.Add(new ImportUsersValidationError(0, "File", "Excel file is empty or corrupted."));
             return new ImportUsersResult(0, 0, 1, errors, createdUsernames, createdCredentials);
@@ -67,13 +67,13 @@ public sealed class ImportUsersHandler(
             var temporaryPassword = string.IsNullOrWhiteSpace(row.Password)
                 ? GenerateTemporaryPassword()
                 : row.Password!;
-            var fullName = string.Join(' ', new[] { row.FirstName, row.MiddleName, row.LastName }
-                .Where(s => !string.IsNullOrWhiteSpace(s)));
 
             var user = User.Create(
                 username,
                 passwordHasher.Hash(temporaryPassword),
-                fullName,
+                row.FirstName!.Trim(),
+                row.LastName!.Trim(),
+                row.MiddleName?.Trim() ?? string.Empty,
                 row.Email ?? string.Empty,
                 row.BranchCode!.Trim(),
                 TryParseRole(row.Role, out var parsedRole) ? parsedRole : throw new InvalidOperationException("Role was validated."),
