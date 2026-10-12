@@ -12,7 +12,7 @@ public static class RoleCatalog
         new(nameof(UserRole.Recommender), ["loans.view", "loans.recommend", "loans.pushback"]),
         new(nameof(UserRole.Evaluator), ["loans.view", "loans.evaluate", "loans.pushback", "documents.manage"]),
         new(nameof(UserRole.Approver), ["loans.view", "loans.approve", "loans.reject", "loans.pushback"]),
-        new(nameof(UserRole.Admin), ["users.manage", "roles.view", "loans.view", "loans.manage", "workflow.manage", "auditLogs.view", "loan_product.manage"]),
+        new(nameof(UserRole.Admin), ["users.manage", "roles.view", "loans.view", "loans.manage", "workflow.manage", "loan_product.manage"]),
         new(nameof(UserRole.System), [])
     ];
 }

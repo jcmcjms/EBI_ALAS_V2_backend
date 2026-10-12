@@ -1,4 +1,3 @@
-using Ebi.Alas.Api.Features.AuditLogs;
 using Ebi.Alas.Api.Features.Auth.Domain;
 using Ebi.Alas.Api.Features.Auth.Persistence;
 using Ebi.Alas.Api.Features.Approvals;
@@ -37,8 +36,6 @@ public sealed class AlasDbContext(DbContextOptions<AlasDbContext> options) : DbC
     public DbSet<RevisionRequest> RevisionRequests => Set<RevisionRequest>();
 
     public DbSet<Notification> Notifications => Set<Notification>();
-
-    public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
 
     public DbSet<SignatureChainEntry> SignatureChainEntries => Set<SignatureChainEntry>();
 
@@ -88,24 +85,6 @@ public sealed class AlasDbContext(DbContextOptions<AlasDbContext> options) : DbC
             b.Property(x => x.Body).HasMaxLength(2000).IsRequired();
             b.Property(x => x.Type).HasConversion<int>();
             b.HasIndex(x => x.UserId);
-        });
-
-        modelBuilder.Entity<AuditLog>(b =>
-        {
-            b.ToTable("AuditLogs");
-            b.HasKey(x => x.Id);
-            b.Property(x => x.UserName).HasMaxLength(200).IsRequired();
-            b.Property(x => x.Action).HasMaxLength(100).IsRequired();
-            b.Property(x => x.EntityType).HasMaxLength(100).IsRequired();
-            b.Property(x => x.EntityId).HasMaxLength(64);
-            b.Property(x => x.EntityLabel).HasMaxLength(200);
-            b.Property(x => x.Summary).HasMaxLength(1000);
-            b.Property(x => x.RawChanges);
-            b.Property(x => x.IpAddress).HasMaxLength(64);
-            b.Property(x => x.UserAgent).HasMaxLength(500);
-            b.HasIndex(x => x.Timestamp);
-            b.HasIndex(x => x.Action);
-            b.HasIndex(x => x.EntityType);
         });
 
         modelBuilder.Entity<SignatureChainEntry>(b =>

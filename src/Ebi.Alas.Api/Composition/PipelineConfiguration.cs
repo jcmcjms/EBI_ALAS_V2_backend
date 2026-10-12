@@ -1,5 +1,4 @@
 using Ebi.Alas.Api.Features.Approvals;
-using Ebi.Alas.Api.Features.AuditLogs;
 using Ebi.Alas.Api.Features.Auth.Logout;
 using Ebi.Alas.Api.Features.Auth.ChangePassword;
 using Ebi.Alas.Api.Features.Auth.Login;
@@ -48,7 +47,6 @@ public static class PipelineConfiguration
         app.MapWorkflow();
         app.MapDashboardEndpoints();
         app.MapNotificationEndpoints();
-        app.MapAuditLogEndpoints();
         app.MapWebLoans();
         app.MapPresenceEndpoints();
         app.MapLoanProductEndpoints();
