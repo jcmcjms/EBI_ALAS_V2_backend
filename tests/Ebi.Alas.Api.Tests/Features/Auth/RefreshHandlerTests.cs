@@ -46,6 +46,8 @@ public sealed class RefreshHandlerTests
             "ada",
             new PasswordHasher().Hash("Str0ngPass!"),
             "Ada",
+            "Lovelace",
+            "",
             "ada@example.com",
             "011",
             UserRole.Encoder,
@@ -74,8 +76,9 @@ public sealed class RefreshHandlerTests
 
         var success = Assert.IsType<RefreshOutcome.Success>(outcome);
         Assert.False(string.IsNullOrEmpty(success.Response.AccessToken));
-        Assert.False(string.IsNullOrEmpty(success.Response.RefreshToken));
-        Assert.NotEqual(raw, success.Response.RefreshToken);
+        // Rotated raw token is delivered out-of-band (HttpOnly cookie), not in LoginResponse.
+        Assert.False(string.IsNullOrEmpty(success.RawRefreshToken));
+        Assert.NotEqual(raw, success.RawRefreshToken);
     }
 
     [Fact]

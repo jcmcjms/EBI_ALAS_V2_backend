@@ -43,7 +43,9 @@ public sealed class ChangePasswordHandlerTests
         var user = User.Create(
             "ada",
             hasher.Hash(password),
-            "Ada Lovelace",
+            "Ada",
+            "Lovelace",
+            "",
             "ada@example.com",
             "011",
             UserRole.Encoder,

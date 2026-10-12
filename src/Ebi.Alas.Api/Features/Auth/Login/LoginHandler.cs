@@ -47,10 +47,11 @@ public sealed class LoginHandler(
             cancellationToken);
 
         logger.LogInformation("{Event} user={UserName} userId={UserId}", AuthEvents.LoginSucceeded, user.UserName, user.Id);
-        return new LoginOutcome.Success(new LoginResponse(
-            access.Token,
-            rawRefresh,
-            access.ExpiresAt,
-            user.MustChangePassword));
+        return new LoginOutcome.Success(
+            new LoginResponse(
+                access.Token,
+                access.ExpiresAt,
+                user.MustChangePassword),
+            rawRefresh);
     }
 }

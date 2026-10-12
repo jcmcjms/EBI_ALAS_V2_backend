@@ -16,14 +16,7 @@ public sealed class JwtTokenServiceTests
     });
 
     private static User Admin() =>
-        User.Create(
-            "ada",
-            "hash",
-            "Ada Lovelace",
-            "ada@example.com",
-            "011",
-            UserRole.Admin,
-            DateTimeOffset.UtcNow);
+        User.Create("ada", "hash", "Ada", "Lovelace", "", "ada@example.com", "011", UserRole.Admin, DateTimeOffset.UtcNow);
 
     [Fact]
     public void CreateAccessToken_ContainsRoleAndJtiClaims()
@@ -45,7 +38,8 @@ public sealed class JwtTokenServiceTests
         var jwt = new JwtSecurityTokenHandler().ReadJwtToken(result.Token);
         Assert.Contains(jwt.Claims, c => c.Type == JwtRegisteredClaimNames.Sub && c.Value == user.Id.ToString());
         Assert.Contains(jwt.Claims, c => c.Type == "branch" && c.Value == "011");
-        Assert.Contains(jwt.Claims, c => c.Type == "fullName" && c.Value == "Ada Lovelace");
+        Assert.Contains(jwt.Claims, c => c.Type == "firstName" && c.Value == "Ada");
+        Assert.Contains(jwt.Claims, c => c.Type == "lastName" && c.Value == "Lovelace");
         Assert.Contains(jwt.Claims, c => c.Type == "unique_name" && c.Value == "ada");
     }
 

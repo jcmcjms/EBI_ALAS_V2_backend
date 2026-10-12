@@ -4,7 +4,10 @@ namespace Ebi.Alas.Api.Features.Auth.Refresh;
 
 public abstract record RefreshOutcome
 {
-    public sealed record Success(LoginResponse Response) : RefreshOutcome;
+    /// <param name="RawRefreshToken">
+    /// Opaque refresh token for the HttpOnly cookie only; never serialized to clients.
+    /// </param>
+    public sealed record Success(LoginResponse Response, string RawRefreshToken) : RefreshOutcome;
 
     public sealed record Failure(string Detail, int StatusCode) : RefreshOutcome;
 

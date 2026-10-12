@@ -40,7 +40,7 @@ public static class RefreshEndpoint
                 var absoluteDays = options.Value.Jwt.RefreshTokenAbsoluteDays;
                 RefreshCookie.Append(
                     httpContext,
-                    success.Response.RefreshToken,
+                    success.RawRefreshToken,
                     timeProvider.GetUtcNow().AddDays(absoluteDays));
                 return Results.Ok(success.Response);
             }

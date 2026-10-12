@@ -24,6 +24,8 @@ public sealed class TokenStoreRotationTests
             "ada",
             new PasswordHasher().Hash("Str0ngPass!"),
             "Ada",
+            "Lovelace",
+            "",
             "ada@example.com",
             "011",
             UserRole.Encoder,
