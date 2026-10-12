@@ -60,11 +60,14 @@ public static class WorkflowEndpoints
 
         group.MapGet("/queue", async (
             WorkflowStage stage,
-            string partitionKey,
+            string? branch,
             WorkflowQueueService queue,
+            System.Security.Claims.ClaimsPrincipal user,
             CancellationToken cancellationToken) =>
         {
-            var items = await queue.ListAsync(stage, partitionKey, 50, cancellationToken);
+            var caller = CallerContext.Require(user);
+            var partition = WorkflowQueueService.ResolvePartition(caller, branch);
+            var items = await queue.ListAsync(stage, partition, 50, cancellationToken);
             return Results.Ok(items.Select(i => new
             {
                 i.Id,
@@ -85,7 +88,7 @@ public static class WorkflowEndpoints
             CancellationToken cancellationToken) =>
         {
             var caller = CallerContext.Require(user);
-            var item = await queue.ClaimNextAsync(request.Stage, request.PartitionKey, caller.UserId, cancellationToken);
+            var item = await queue.ClaimNextAsync(request.Stage, caller.BranchId, caller.UserId, cancellationToken);
             return Results.Ok(new ClaimQueueResponse(
                 item.Id,
                 item.LoanApplicationId,
@@ -107,4 +110,4 @@ public static class WorkflowEndpoints
     }
 }
 
-public sealed record ClaimQueueRequest(WorkflowStage Stage, string PartitionKey);
+public sealed record ClaimQueueRequest(WorkflowStage Stage);

@@ -413,6 +413,30 @@ namespace Ebi.Alas.Api.Migrations
                     b.ToTable("RevisionRequests", (string)null);
                 });
 
+            modelBuilder.Entity("Ebi.Alas.Api.Features.SystemSettings.SystemSetting", b =>
+                {
+                    b.Property<string>("Key")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid>("UpdatedById")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Value")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.HasKey("Key");
+
+                    b.HasIndex("UpdatedById");
+
+                    b.ToTable("SystemSettings", (string)null);
+                });
+
             modelBuilder.Entity("Ebi.Alas.Api.Features.Users.Domain.User", b =>
                 {
                     b.Property<Guid>("Id")
@@ -432,10 +456,20 @@ namespace Ebi.Alas.Api.Migrations
                         .HasMaxLength(200)
                         .HasColumnType("nvarchar(200)");
 
-                    b.Property<string>("FullName")
+                    b.Property<string>("FirstName")
                         .IsRequired()
-                        .HasMaxLength(200)
-                        .HasColumnType("nvarchar(200)");
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<string>("LastName")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<string>("MiddleName")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
 
                     b.Property<bool>("MustChangePassword")
                         .HasColumnType("bit");
@@ -502,6 +536,10 @@ namespace Ebi.Alas.Api.Migrations
                     b.Property<int>("State")
                         .HasColumnType("int");
 
+                    b.Property<long>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint");
+
                     b.HasKey("Id");
 
                     b.HasIndex("LoanApplicationId");
@@ -509,6 +547,17 @@ namespace Ebi.Alas.Api.Migrations
                     b.HasIndex("Stage", "PartitionKey", "State", "Sequence");
 
                     b.ToTable("WorkflowQueueItems", (string)null);
+                });
+
+            modelBuilder.Entity("Ebi.Alas.Api.Features.SystemSettings.SystemSetting", b =>
+                {
+                    b.HasOne("Ebi.Alas.Api.Features.Users.Domain.User", "UpdatedBy")
+                        .WithMany()
+                        .HasForeignKey("UpdatedById")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("UpdatedBy");
                 });
 #pragma warning restore 612, 618
         }

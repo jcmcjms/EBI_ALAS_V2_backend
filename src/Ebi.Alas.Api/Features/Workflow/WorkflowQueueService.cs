@@ -1,3 +1,4 @@
+using Ebi.Alas.Api.Composition.Auth;
 using Ebi.Alas.Api.Composition.Errors;
 using Ebi.Alas.Api.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -8,6 +9,22 @@ public sealed class WorkflowQueueService(AlasDbContext db, TimeProvider timeProv
 {
     public static readonly TimeSpan DefaultLease = TimeSpan.FromMinutes(30);
     public const int ReapBatchSize = 100;
+
+    /// <summary>
+    /// Resolves the queue partition from the authenticated caller.
+    /// Client-supplied partition keys are never trusted; only callers that can access
+    /// all branches may request an explicit non-empty branch filter.
+    /// </summary>
+    public static string ResolvePartition(CallerContext caller, string? requestedBranchId)
+    {
+        ArgumentNullException.ThrowIfNull(caller);
+        if (caller.CanAccessAllBranches && !string.IsNullOrWhiteSpace(requestedBranchId))
+        {
+            return requestedBranchId.Trim();
+        }
+
+        return caller.BranchId;
+    }
 
     public async Task<WorkflowQueueItem> EnqueueAsync(
         Guid loanApplicationId,
@@ -61,7 +78,15 @@ public sealed class WorkflowQueueService(AlasDbContext db, TimeProvider timeProv
             throw new ConflictException("Queue item is already claimed.");
         }
 
-        await db.SaveChangesAsync(cancellationToken);
+        try
+        {
+            await db.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            throw new ConflictException("Queue item was claimed concurrently.");
+        }
+
         return head;
     }
 

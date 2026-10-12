@@ -117,7 +117,14 @@ public sealed class DeskQueueService(
                 throw new ConflictException("Queue item is already claimed.");
             }
 
-            await db.SaveChangesAsync(cancellationToken);
+            try
+            {
+                await db.SaveChangesAsync(cancellationToken);
+            }
+            catch (DbUpdateConcurrencyException)
+            {
+                throw new ConflictException("Queue item was claimed concurrently.");
+            }
         }
 
         var loan = await db.LoanApplications.AsNoTracking()
