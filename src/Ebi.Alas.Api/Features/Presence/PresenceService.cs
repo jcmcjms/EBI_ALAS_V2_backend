@@ -29,6 +29,7 @@ public sealed class PresenceService(
     IPresenceNotifier notifier)
 {
     public static readonly TimeSpan OnlineWindow = TimeSpan.FromMinutes(5);
+    public const int SweepBatchSize = 200;
 
     public async Task HeartbeatAsync(Guid userId, CancellationToken cancellationToken)
     {
@@ -83,6 +84,7 @@ public sealed class PresenceService(
         var expired = await db.UserPresences.AsNoTracking()
             .Where(p => p.LastSeenAt < cutoff)
             .Select(p => p.UserId)
+            .Take(SweepBatchSize)
             .ToListAsync(cancellationToken);
 
         if (expired.Count == 0)
@@ -96,9 +98,22 @@ public sealed class PresenceService(
         db.UserPresences.RemoveRange(rows);
         await db.SaveChangesAsync(cancellationToken);
 
-        foreach (var userId in expired)
+        // One query for all notify targets instead of one lookup per expired row.
+        var notifyRows = await (
+            from u in db.Users.AsNoTracking()
+            where expired.Contains(u.Id)
+            select new PresenceUserResponse(
+                u.Id,
+                u.FullName,
+                u.Role.ToString(),
+                u.BranchId,
+                null,
+                0)
+        ).ToListAsync(cancellationToken);
+
+        foreach (var row in notifyRows)
         {
-            await NotifyAsync(userId, online: false, cancellationToken);
+            await notifier.BroadcastChangedAsync(row, online: false, cancellationToken);
         }
 
         return expired.Count;

@@ -103,6 +103,32 @@ public sealed class ImportUsersHandlerTests
     }
 
     [Fact]
+    public async Task ImportAsync_Prefetch_DetectsEveryExistingUsername()
+    {
+        await using var db = Db();
+        db.Users.Add(User.Create("jdoe", "hash", "Existing One", "e1@x.com", "011", UserRole.Encoder, DateTimeOffset.UtcNow));
+        db.Users.Add(User.Create("asmith", "hash", "Existing Two", "e2@x.com", "011", UserRole.Encoder, DateTimeOffset.UtcNow));
+        await db.SaveChangesAsync();
+
+        var result = await Handler(db).ImportAsync(
+            new MemoryStream(BuildWorkbook(
+                ["jdoe", "Juan", null, "Cruz", null, "011", "Encoder"],
+                ["newuser", "Ana", null, "Smith", null, "011", "Approver"],
+                ["asmith", "Ben", null, "Lee", null, "011", "Encoder"],
+                ["newuser", "Cara", null, "Diaz", null, "011", "Encoder"])),
+            CancellationToken.None);
+
+        Assert.Equal(4, result.TotalRows);
+        Assert.Equal(1, result.SuccessfulImports);
+        Assert.Equal(3, result.FailedImports);
+        Assert.Equal(["newuser"], result.CreatedUsernames);
+        Assert.Equal(3, result.Errors.Count(e => e.Field == "Username" && e.Error.Contains("exists", StringComparison.OrdinalIgnoreCase)));
+        Assert.Equal(1, await db.Users.CountAsync(u => u.UserName == "newuser"));
+        Assert.Equal(1, await db.Users.CountAsync(u => u.UserName == "jdoe"));
+        Assert.Equal(1, await db.Users.CountAsync(u => u.UserName == "asmith"));
+    }
+
+    [Fact]
     public async Task ImportAsync_EmptyRows_AreIgnored()
     {
         await using var db = Db();

@@ -23,6 +23,7 @@ public sealed class QueueReconciliationHostedService(
                 {
                     var items = await db.WorkflowQueueItems
                         .Where(q => q.Stage == stage && q.State == QueueItemState.Active)
+                        .Take(WorkflowQueueService.ReapBatchSize)
                         .ToListAsync(stoppingToken);
                     var now = timeProvider.GetUtcNow();
                     foreach (var item in items)

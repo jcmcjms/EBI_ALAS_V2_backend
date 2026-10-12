@@ -11,14 +11,20 @@ public static class LoanProductEndpoints
         var group = endpoints.MapGroup("/api/loan-products").WithTags("LoanProducts");
 
         group.MapGet("/", async (
-            Infrastructure.Persistence.AlasDbContext db,
+            int? page,
+            int? pageSize,
+            ListLoanProductsHandler handler,
+            IConfiguration configuration,
             CancellationToken cancellationToken) =>
         {
-            var products = await db.LoanProducts
-                .AsNoTracking()
-                .OrderBy(p => p.Name)
-                .ToListAsync(cancellationToken);
-            return Results.Ok(products.Select(p => p.ToResponse()).ToList());
+            var options = configuration.GetSection("Api").Get<Composition.ApiOptions>()
+                ?? new Composition.ApiOptions();
+            var result = await handler.HandleAsync(
+                new Composition.Pagination.PageRequest { Page = page ?? 1, PageSize = pageSize ?? options.DefaultPageSize },
+                options.MaxPageSize,
+                options.DefaultPageSize,
+                cancellationToken);
+            return Results.Ok(result);
         })
         .RequireAuthorization();
 

@@ -27,6 +27,9 @@ public sealed class ImportLoanProductsHandler(AlasDbContext db)
                 [new LoanProductImportValidationError(0, "File", "Excel file is empty or corrupted.")]);
         }
 
+        // Prefetch existing products once; per-row FirstOrDefault was an N+1 (up to MaxImportRows).
+        var existingByCode = await db.LoanProducts.ToDictionaryAsync(p => p.Code, cancellationToken);
+
         var errors = new List<LoanProductImportValidationError>();
         var totalRows = 0;
         var created = 0;
@@ -45,7 +48,7 @@ public sealed class ImportLoanProductsHandler(AlasDbContext db)
             var code = row.Code?.Trim();
             var existing = code is null
                 ? null
-                : await db.LoanProducts.FirstOrDefaultAsync(p => p.Code == code, cancellationToken);
+                : existingByCode.GetValueOrDefault(code);
             ValidateRow(row, isNew: existing is null, errors);
             if (errors.Any(e => e.RowNumber == row.RowNumber))
             {
