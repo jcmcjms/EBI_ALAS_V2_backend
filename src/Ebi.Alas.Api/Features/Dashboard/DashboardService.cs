@@ -1,3 +1,4 @@
+using Ebi.Alas.Api.Composition.Auth;
 using Ebi.Alas.Api.Features.LoanApplications.Domain;
 using Ebi.Alas.Api.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -13,10 +14,16 @@ public sealed record DashboardOverview(
 
 public sealed class DashboardService(AlasDbContext db, TimeProvider timeProvider)
 {
-    public async Task<DashboardOverview> GetOverviewAsync(CancellationToken cancellationToken)
+    public async Task<DashboardOverview> GetOverviewAsync(CallerContext caller, CancellationToken cancellationToken)
     {
         var today = timeProvider.GetUtcNow().Date;
-        var counts = await db.LoanApplications
+        var query = db.LoanApplications.AsQueryable();
+        if (!caller.CanAccessAllBranches)
+        {
+            query = query.Where(l => l.BranchId == caller.BranchId);
+        }
+
+        var counts = await query
             .GroupBy(_ => 1)
             .Select(g => new
             {
