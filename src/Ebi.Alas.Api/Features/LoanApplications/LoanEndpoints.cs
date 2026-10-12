@@ -26,7 +26,8 @@ public static class LoanEndpoints
             var caller = CallerContext.Require(user);
             var result = await handler.HandleAsync(request, caller, cancellationToken);
             return Results.Created($"/api/loans/{result.Id}", result);
-        });
+        })
+        .RequireRateLimiting("write");
 
         group.MapGet("/", async (
             int? page,

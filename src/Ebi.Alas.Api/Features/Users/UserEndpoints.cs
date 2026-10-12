@@ -33,7 +33,8 @@ public static class UserEndpoints
                     title: "Server Error",
                     detail: "An unexpected error occurred.")
             };
-        });
+        })
+        .RequireRateLimiting("write");
 
         group.MapGet("/import-template", () =>
             Results.File(
@@ -71,6 +72,14 @@ public static class UserEndpoints
                     statusCode: StatusCodes.Status413PayloadTooLarge,
                     title: "Payload Too Large",
                     detail: "Import file must be at most 10 MB.");
+            }
+
+            if (!file.FileName.EndsWith(".xlsx", StringComparison.OrdinalIgnoreCase))
+            {
+                return Results.Problem(
+                    statusCode: StatusCodes.Status400BadRequest,
+                    title: "Bad Request",
+                    detail: "Only .xlsx files are supported.");
             }
 
             await using var stream = file.OpenReadStream();
@@ -111,7 +120,8 @@ public static class UserEndpoints
         {
             var result = await handler.HandleAsync(id, request, cancellationToken);
             return Results.Ok(result);
-        });
+        })
+        .RequireRateLimiting("write");
 
         group.MapPost("/{id:guid}/suspend", async (
             Guid id,
@@ -120,7 +130,8 @@ public static class UserEndpoints
         {
             var result = await handler.HandleAsync(id, UserStatus.Suspended, cancellationToken);
             return Results.Ok(result);
-        });
+        })
+        .RequireRateLimiting("write");
 
         group.MapPost("/{id:guid}/activate", async (
             Guid id,
@@ -129,6 +140,7 @@ public static class UserEndpoints
         {
             var result = await handler.HandleAsync(id, UserStatus.Active, cancellationToken);
             return Results.Ok(result);
-        });
+        })
+        .RequireRateLimiting("write");
     }
 }

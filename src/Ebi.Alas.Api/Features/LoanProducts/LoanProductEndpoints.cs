@@ -141,6 +141,7 @@ public static class LoanProductEndpoints
                     detail: ex.Message);
             }
         })
-        .RequireAuthorization(new AuthorizeAttribute { Roles = "Admin" });
+        .RequireAuthorization(new AuthorizeAttribute { Roles = "Admin" })
+        .RequireRateLimiting("write");
     }
 }
