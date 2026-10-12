@@ -88,4 +88,10 @@ public sealed class TokenStore(AlasDbContext db, TimeProvider timeProvider)
         db.RevokedTokens.Add(RevokedToken.Create(jti, userId, expiresAt, timeProvider.GetUtcNow()));
         await db.SaveChangesAsync(cancellationToken);
     }
+
+    public async Task<bool> IsAccessRevokedAsync(string jti, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(jti);
+        return await db.RevokedTokens.AnyAsync(t => t.Jti == jti, cancellationToken);
+    }
 }
