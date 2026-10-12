@@ -1,7 +1,6 @@
-using Ebi.Alas.Api.Common.Constants;
 using Microsoft.AspNetCore.Authorization;
 
-namespace Ebi.Alas.Api.Common.Extensions;
+namespace Ebi.Alas.Api.Composition.Auth;
 
 public static class AuthorizationExtensions
 {
