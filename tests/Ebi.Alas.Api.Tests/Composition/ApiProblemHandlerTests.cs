@@ -70,6 +70,15 @@ public sealed class ApiProblemHandlerTests
     }
 
     [Fact]
+    public void Map_ForArgumentException_Returns400()
+    {
+        var problem = ApiProblemHandler.Map(new ArgumentException("Value cannot be empty. (Parameter 'clientName')"));
+
+        Assert.Equal(StatusCodes.Status400BadRequest, problem.Status);
+        Assert.Equal("Bad Request", problem.Title);
+    }
+
+    [Fact]
     public void Map_ForOperationCanceledException_Returns499Cancelled()
     {
         var exception = new OperationCanceledException();
