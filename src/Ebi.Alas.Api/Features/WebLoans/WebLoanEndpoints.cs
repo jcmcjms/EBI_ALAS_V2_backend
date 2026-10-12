@@ -4,7 +4,7 @@ public static class WebLoanEndpoints
 {
     public static void MapWebLoans(this IEndpointRouteBuilder endpoints)
     {
-        var group = endpoints.MapGroup("/api/webloans").WithTags("WebLoans").RequireAuthorization();
+        var group = endpoints.MapGroup("/api/webloans").WithTags("WebLoans").RequireAuthorization("CanViewWebLoans");
 
         group.MapGet("/cis", async (
             string q,
