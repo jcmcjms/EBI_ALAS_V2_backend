@@ -27,8 +27,11 @@ public static class PipelineConfiguration
         app.UseAuthentication();
         app.UseAuthorization();
         app.UseAuthSecurity();
-        app.MapOpenApi();
-        app.MapScalarApiReference("scalar");
+        if (app.Environment.IsDevelopment())
+        {
+            app.MapOpenApi();
+            app.MapScalarApiReference("scalar");
+        }
         app.MapGet("/health/live", () => Results.Ok(new { status = "live" })).AllowAnonymous();
         app.MapHealthChecks("/health/ready", new Microsoft.AspNetCore.Diagnostics.HealthChecks.HealthCheckOptions
         {
@@ -45,6 +48,7 @@ public static class PipelineConfiguration
         app.MapLoans();
         app.MapLoanWorkflow();
         app.MapWorkflow();
+        app.MapWorkflowConfigurationEndpoints();
         app.MapDashboardEndpoints();
         app.MapNotificationEndpoints();
         app.MapWebLoans();
