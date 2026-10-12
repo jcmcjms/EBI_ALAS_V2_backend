@@ -188,6 +188,20 @@ public static class ServiceRegistration
                         var path = context.HttpContext.Request.Path.Value ?? "/";
                         context.Token = Auth.HubAccessToken.Resolve(path, context.Request.Query["access_token"]);
                         return Task.CompletedTask;
+                    },
+                    OnTokenValidated = async context =>
+                    {
+                        var jti = context.Principal?.FindFirst("jti")?.Value;
+                        if (string.IsNullOrEmpty(jti))
+                        {
+                            return;
+                        }
+
+                        var store = context.HttpContext.RequestServices.GetRequiredService<TokenStore>();
+                        if (await store.IsAccessRevokedAsync(jti, context.HttpContext.RequestAborted))
+                        {
+                            context.Fail("Token revoked.");
+                        }
                     }
                 };
             });
