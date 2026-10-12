@@ -27,6 +27,9 @@ public sealed class WorkflowQueueItem
 
     public int Sequence { get; private set; }
 
+    /// <summary>Row version used for optimistic concurrency on claim/release/complete.</summary>
+    public uint Version { get; private set; }
+
     public static WorkflowQueueItem Enqueue(
         Guid loanApplicationId,
         WorkflowStage stage,
@@ -45,7 +48,8 @@ public sealed class WorkflowQueueItem
             PartitionKey = partitionKey,
             LeaseDuration = leaseDuration,
             QueuedAt = now,
-            Sequence = sequence
+            Sequence = sequence,
+            Version = 1
         };
     }
 
@@ -59,6 +63,7 @@ public sealed class WorkflowQueueItem
         State = QueueItemState.Active;
         OwnerUserId = userId;
         LeasedAt = now;
+        Version++;
         return true;
     }
 
@@ -72,6 +77,7 @@ public sealed class WorkflowQueueItem
         State = QueueItemState.Queued;
         OwnerUserId = null;
         LeasedAt = null;
+        Version++;
         return true;
     }
 
@@ -84,6 +90,7 @@ public sealed class WorkflowQueueItem
 
         State = QueueItemState.Completed;
         LeasedAt = now;
+        Version++;
     }
 
     public bool IsLeaseExpired(DateTimeOffset now) =>
@@ -101,5 +108,6 @@ public sealed class WorkflowQueueItem
         State = QueueItemState.Queued;
         OwnerUserId = null;
         LeasedAt = null;
+        Version++;
     }
 }
