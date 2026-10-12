@@ -17,7 +17,7 @@ public sealed class ImportLoanProductsHandler(AlasDbContext db)
         {
             rows = LoanProductExcel.Parse(xlsx);
         }
-        catch (Exception)
+        catch (Exception ex) when (ex is IOException or InvalidDataException or UnauthorizedAccessException or InvalidOperationException)
         {
             return new LoanProductImportResult(
                 0,
