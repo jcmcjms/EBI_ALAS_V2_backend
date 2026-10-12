@@ -41,7 +41,9 @@ public static class TestHostSecrets
         var adminPassword = secrets["Seed:AdminPassword"];
         if (string.IsNullOrWhiteSpace(adminPassword))
         {
-            adminPassword = $"T-{Guid.NewGuid():N}Aa1";
+            // Stable test-only fallback: parallel WebApplicationFactory hosts share the
+            // in-memory "alas-dev" database and the seeder keeps the first admin password.
+            adminPassword = "T-test-admin-Aa1";
         }
 
         CurrentAdminUserName = secrets["Seed:AdminUserName"] ?? "test-admin";

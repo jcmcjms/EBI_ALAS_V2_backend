@@ -51,6 +51,7 @@ public static class NotificationEndpoints
             return Results.NoContent();
         })
         .RequireAuthorization()
+        .RequireRateLimiting("write")
         .WithTags("Notifications");
 
         endpoints.MapPost("/api/notifications/read-all", async (
@@ -68,6 +69,7 @@ public static class NotificationEndpoints
             return Results.Ok(new { changedCount });
         })
         .RequireAuthorization()
+        .RequireRateLimiting("write")
         .WithTags("Notifications");
     }
 }

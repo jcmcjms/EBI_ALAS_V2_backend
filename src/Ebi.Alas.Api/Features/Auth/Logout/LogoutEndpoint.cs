@@ -46,6 +46,7 @@ public static class LogoutEndpoint
             return Results.NoContent();
         })
         .RequireAuthorization()
+        .RequireRateLimiting("write")
         .WithName("Logout")
         .WithTags("Auth");
     }

@@ -25,7 +25,8 @@ public static class WorkflowEndpoints
         {
             var caller = CallerContext.Require(user);
             return Results.Ok(await service.ClaimHeadAsync(caller, cancellationToken));
-        });
+        })
+        .RequireRateLimiting("write");
 
         desk.MapPost("/release", async (
             DeskQueueService service,
@@ -35,7 +36,8 @@ public static class WorkflowEndpoints
             var caller = CallerContext.Require(user);
             await service.ReleaseClaimAsync(caller, cancellationToken);
             return Results.NoContent();
-        });
+        })
+        .RequireRateLimiting("write");
 
         desk.MapPost("/{loanId:guid}/claim", async (
             Guid loanId,
@@ -46,7 +48,8 @@ public static class WorkflowEndpoints
             var caller = CallerContext.Require(user);
             var result = await service.ClaimByIdAsync(loanId, caller, cancellationToken);
             return result is null ? Results.NotFound() : Results.Ok(result);
-        });
+        })
+        .RequireRateLimiting("write");
 
         var group = endpoints.MapGroup("/api/workflow").WithTags("Workflow").RequireAuthorization();
 
@@ -95,7 +98,8 @@ public static class WorkflowEndpoints
                 item.Stage.ToString(),
                 item.State.ToString(),
                 item.LeasedAt));
-        });
+        })
+        .RequireRateLimiting("write");
 
         group.MapPost("/queue/{id:guid}/release", async (
             Guid id,
@@ -106,7 +110,8 @@ public static class WorkflowEndpoints
             var caller = CallerContext.Require(user);
             await queue.ReleaseAsync(id, caller.UserId, cancellationToken);
             return Results.NoContent();
-        });
+        })
+        .RequireRateLimiting("write");
     }
 }
 
