@@ -1,4 +1,5 @@
-using Ebi.Alas.Api.Features.Dashboard;
+using System.Security.Claims;
+using Ebi.Alas.Api.Composition.Auth;
 
 namespace Ebi.Alas.Api.Features.Dashboard;
 
@@ -8,9 +9,11 @@ public static class DashboardEndpoints
     {
         endpoints.MapGet("/api/dashboard/overview", async (
             DashboardService service,
+            ClaimsPrincipal user,
             CancellationToken cancellationToken) =>
         {
-            var result = await service.GetOverviewAsync(cancellationToken);
+            var caller = CallerContext.Require(user);
+            var result = await service.GetOverviewAsync(caller, cancellationToken);
             return Results.Ok(result);
         })
         .RequireAuthorization()
