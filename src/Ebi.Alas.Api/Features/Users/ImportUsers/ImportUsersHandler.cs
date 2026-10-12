@@ -34,6 +34,12 @@ public sealed class ImportUsersHandler(
             return new ImportUsersResult(0, 0, 1, errors, createdUsernames, createdCredentials);
         }
 
+        // Prefetch existing usernames once; per-row AnyAsync was an N+1 (up to MaxImportRows).
+        var existingUsernames = await db.Users
+            .Select(u => u.UserName)
+            .ToListAsync(cancellationToken);
+        var takenUsernames = new HashSet<string>(existingUsernames, StringComparer.Ordinal);
+
         foreach (var row in rows)
         {
             if (totalRows >= MaxImportRows)
@@ -51,7 +57,8 @@ public sealed class ImportUsersHandler(
                 continue;
             }
 
-            if (await db.Users.AnyAsync(u => u.UserName == row.Username!.Trim(), cancellationToken))
+            var username = row.Username!.Trim();
+            if (!takenUsernames.Add(username))
             {
                 errors.Add(new ImportUsersValidationError(row.RowNumber, "Username", "Username already exists."));
                 continue;
@@ -64,7 +71,7 @@ public sealed class ImportUsersHandler(
                 .Where(s => !string.IsNullOrWhiteSpace(s)));
 
             var user = User.Create(
-                row.Username!.Trim(),
+                username,
                 passwordHasher.Hash(temporaryPassword),
                 fullName,
                 row.Email ?? string.Empty,

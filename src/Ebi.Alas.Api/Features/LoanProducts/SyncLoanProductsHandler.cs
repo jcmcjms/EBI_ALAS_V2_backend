@@ -16,6 +16,9 @@ public sealed class SyncLoanProductsHandler(
         var syncedAt = timeProvider.GetUtcNow();
         var catalog = await webLoans.GetAllProductsAsync(MaxCatalogProducts, cancellationToken);
 
+        // Prefetch existing products once; per-item FirstOrDefault was an N+1.
+        var existingByCode = await db.LoanProducts.ToDictionaryAsync(p => p.Code, cancellationToken);
+
         var added = 0;
         var updated = 0;
         var preserved = 0;
@@ -28,8 +31,7 @@ public sealed class SyncLoanProductsHandler(
             }
 
             var code = item.ProductCode.Trim();
-            var existing = await db.LoanProducts.FirstOrDefaultAsync(p => p.Code == code, cancellationToken);
-            if (existing is null)
+            if (!existingByCode.TryGetValue(code, out var existing))
             {
                 var product = LoanProduct.Create(
                     code,

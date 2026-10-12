@@ -10,6 +10,8 @@ public sealed class DisbursementSyncHostedService(
     TimeProvider timeProvider,
     ILogger<DisbursementSyncHostedService> logger) : BackgroundService
 {
+    public const int SyncBatchSize = 50;
+
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         using var timer = new PeriodicTimer(TimeSpan.FromMinutes(30));
@@ -23,12 +25,21 @@ public sealed class DisbursementSyncHostedService(
                 var pending = await db.LoanApplications
                     .Where(l => l.Status == LoanStatus.ForDisbursement || l.Status == LoanStatus.Disbursed)
                     .OrderBy(l => l.CreatedAt)
-                    .Take(50)
+                    .Take(SyncBatchSize)
                     .ToListAsync(stoppingToken);
 
+                // One WebLoan lookup per distinct client key, not per row.
+                // Residual: still one call per distinct client (bounded by SyncBatchSize);
+                // LoanApplication status transitions have no concurrency token (last-write-wins across instances).
+                var outstandingByClient = new Dictionary<string, IReadOnlyList<OutstandingLoanRow>>(StringComparer.Ordinal);
                 foreach (var loan in pending)
                 {
-                    var outstanding = await webLoans.GetOutstandingAsync(loan.ClientName, 5, stoppingToken);
+                    if (!outstandingByClient.TryGetValue(loan.ClientName, out var outstanding))
+                    {
+                        outstanding = await webLoans.GetOutstandingAsync(loan.ClientName, 5, stoppingToken);
+                        outstandingByClient[loan.ClientName] = outstanding;
+                    }
+
                     var disbursed = outstanding.Any(o => string.Equals(o.Status, "Active", StringComparison.OrdinalIgnoreCase));
                     if (disbursed && loan.Status == LoanStatus.ForDisbursement)
                     {

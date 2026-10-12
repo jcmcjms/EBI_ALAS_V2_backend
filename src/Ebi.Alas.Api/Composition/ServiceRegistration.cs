@@ -118,6 +118,7 @@ public static class ServiceRegistration
         services.AddScoped<UpdateUserHandler>();
         services.AddScoped<ChangeUserStatusHandler>();
         services.AddScoped<Features.LoanProducts.UpdateLoanProductPolicyHandler>();
+        services.AddScoped<Features.LoanProducts.ListLoanProductsHandler>();
         services.AddScoped<Features.LoanProducts.SyncLoanProductsHandler>();
         services.AddScoped<Features.LoanProducts.ImportLoanProductsHandler>();
         services.AddScoped<Features.Users.Seed.AdminUserSeeder>();
