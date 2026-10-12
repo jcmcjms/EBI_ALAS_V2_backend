@@ -37,6 +37,12 @@ public static class ApiProblemHandler
                 Title = "Bad Request",
                 Detail = "The request could not be processed."
             },
+            ArgumentException => new ProblemDetails
+            {
+                Status = StatusCodes.Status400BadRequest,
+                Title = "Bad Request",
+                Detail = "The request could not be processed."
+            },
             OperationCanceledException => new ProblemDetails
             {
                 Status = ClientClosedRequestStatus,
