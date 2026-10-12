@@ -24,10 +24,10 @@ public sealed class AlasDbContextRelationalTests
     {
         await using var db = CreateSqlite();
         var now = DateTimeOffset.UtcNow;
-        db.Users.Add(User.Create("ada", "hash", "Ada", "a@x.com", "011", UserRole.Encoder, now));
+        db.Users.Add(User.Create("ada", "hash", "Ada", "Ada", "", "a@x.com", "011", UserRole.Encoder, now));
         await db.SaveChangesAsync();
 
-        db.Users.Add(User.Create("ada", "hash2", "Ada2", "b@x.com", "011", UserRole.Encoder, now));
+        db.Users.Add(User.Create("ada", "hash2", "Ada2", "Ada2", "", "b@x.com", "011", UserRole.Encoder, now));
         await Assert.ThrowsAnyAsync<Exception>(() => db.SaveChangesAsync());
     }
 

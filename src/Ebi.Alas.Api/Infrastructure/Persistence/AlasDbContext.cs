@@ -9,6 +9,7 @@ using Ebi.Alas.Api.Features.LoanProducts;
 using Ebi.Alas.Api.Features.Notifications;
 using Ebi.Alas.Api.Features.Presence;
 using Ebi.Alas.Api.Features.Revisions;
+using Ebi.Alas.Api.Features.SystemSettings;
 using Ebi.Alas.Api.Features.Users.Domain;
 using Ebi.Alas.Api.Features.Users.Persistence;
 using Ebi.Alas.Api.Features.Workflow;
@@ -37,6 +38,8 @@ public sealed class AlasDbContext(DbContextOptions<AlasDbContext> options) : DbC
 
     public DbSet<Notification> Notifications => Set<Notification>();
 
+    public DbSet<SystemSetting> SystemSettings => Set<SystemSetting>();
+
     public DbSet<SignatureChainEntry> SignatureChainEntries => Set<SignatureChainEntry>();
 
     public DbSet<LoanProduct> LoanProducts => Set<LoanProduct>();
@@ -50,6 +53,20 @@ public sealed class AlasDbContext(DbContextOptions<AlasDbContext> options) : DbC
         modelBuilder.ApplyConfiguration(new RevokedTokenConfiguration());
         modelBuilder.ApplyConfiguration(new LoanApplicationConfiguration());
         modelBuilder.ApplyConfiguration(new WorkflowQueueItemConfiguration());
+
+        modelBuilder.Entity<SystemSetting>(b =>
+        {
+            b.ToTable("SystemSettings");
+            b.HasKey(x => x.Key);
+            b.Property(x => x.Key).HasMaxLength(100).IsRequired();
+            b.Property(x => x.Value).HasMaxLength(500).IsRequired();
+            b.Property(x => x.UpdatedAt).IsRequired();
+            b.HasOne(x => x.UpdatedBy)
+                .WithMany()
+                .HasForeignKey(x => x.UpdatedById)
+                .OnDelete(DeleteBehavior.Restrict);
+            b.HasIndex(x => x.UpdatedById);
+        });
 
         modelBuilder.Entity<DocumentChecklistItem>(b =>
         {

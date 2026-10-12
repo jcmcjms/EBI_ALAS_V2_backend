@@ -22,7 +22,9 @@ public sealed class ListUsersHandler(AlasDbContext db)
             {
                 u.Id,
                 u.UserName,
-                u.FullName,
+                u.FirstName,
+                u.LastName,
+                u.MiddleName,
                 u.Email,
                 u.BranchId,
                 Role = u.Role.ToString(),
@@ -37,7 +39,9 @@ public sealed class ListUsersHandler(AlasDbContext db)
             : [.. rows.Select(r => new UserResponse(
                 r.Id,
                 r.UserName,
-                r.FullName,
+                r.FirstName,
+                r.LastName,
+                r.MiddleName,
                 r.Email,
                 r.BranchId,
                 r.Role,

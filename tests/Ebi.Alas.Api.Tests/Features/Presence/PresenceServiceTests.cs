@@ -46,7 +46,7 @@ public sealed class PresenceServiceTests
         var clock = new FixedTimeProvider(now);
         var notifier = new RecordingNotifier();
         var service = new PresenceService(db, clock, notifier);
-        var user = User.Create("ada", "hash", "Ada", "a@x.com", "011", UserRole.Encoder, now);
+        var user = User.Create("ada", "hash", "Ada", "Ada", "", "a@x.com", "011", UserRole.Encoder, now);
         db.Users.Add(user);
         await db.SaveChangesAsync();
 
@@ -65,7 +65,7 @@ public sealed class PresenceServiceTests
         var clock = new FixedTimeProvider(now);
         var notifier = new RecordingNotifier();
         var service = new PresenceService(db, clock, notifier);
-        var user = User.Create("ada", "hash", "Ada", "a@x.com", "011", UserRole.Encoder, now);
+        var user = User.Create("ada", "hash", "Ada", "Ada", "", "a@x.com", "011", UserRole.Encoder, now);
         db.Users.Add(user);
         await db.SaveChangesAsync();
 
@@ -86,7 +86,7 @@ public sealed class PresenceServiceTests
         var clock = new FixedTimeProvider(now);
         var notifier = new RecordingNotifier();
         var service = new PresenceService(db, clock, notifier);
-        var user = User.Create("ada", "hash", "Ada", "a@x.com", "011", UserRole.Encoder, now);
+        var user = User.Create("ada", "hash", "Ada", "Ada", "", "a@x.com", "011", UserRole.Encoder, now);
         db.Users.Add(user);
         await db.SaveChangesAsync();
 
@@ -108,7 +108,7 @@ public sealed class PresenceServiceTests
         var clock = new FixedTimeProvider(now);
         var notifier = new RecordingNotifier();
         var service = new PresenceService(db, clock, notifier);
-        var user = User.Create("ada", "hash", "Ada", "a@x.com", "011", UserRole.Encoder, now);
+        var user = User.Create("ada", "hash", "Ada", "Ada", "", "a@x.com", "011", UserRole.Encoder, now);
         db.Users.Add(user);
         await db.SaveChangesAsync();
 

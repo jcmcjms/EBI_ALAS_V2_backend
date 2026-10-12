@@ -22,7 +22,7 @@ public sealed class CreateUserHandlerTests
         new(db, new PasswordHasher(), TimeProvider.System);
 
     private static CreateUserRequest Request(string userName = "new-user", string password = "StrongPass!234") =>
-        new(userName, password, "Full Name", "user@example.invalid", "BR-01", UserRole.Encoder);
+        new(userName, password, "Full", "Name", "", "user@example.invalid", "BR-01", UserRole.Encoder);
 
     [Fact]
     public async Task HandleAsync_ReturnsUserWithoutPasswordInPayload()

@@ -16,7 +16,8 @@ public sealed class CreateUserHandler(
     {
         ArgumentNullException.ThrowIfNull(request);
         ArgumentException.ThrowIfNullOrWhiteSpace(request.UserName);
-        ArgumentException.ThrowIfNullOrWhiteSpace(request.FullName);
+        ArgumentException.ThrowIfNullOrWhiteSpace(request.FirstName);
+        ArgumentException.ThrowIfNullOrWhiteSpace(request.LastName);
         ArgumentException.ThrowIfNullOrWhiteSpace(request.BranchId);
 
         if (string.IsNullOrWhiteSpace(request.Password))
@@ -40,7 +41,9 @@ public sealed class CreateUserHandler(
         var user = User.Create(
             userName,
             hash,
-            request.FullName,
+            request.FirstName,
+            request.LastName,
+            request.MiddleName,
             request.Email,
             request.BranchId,
             request.Role,

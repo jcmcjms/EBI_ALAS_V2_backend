@@ -5,7 +5,9 @@ namespace Ebi.Alas.Api.Features.Users;
 public sealed record UserResponse(
     Guid Id,
     string UserName,
-    string FullName,
+    string FirstName,
+    string LastName,
+    string MiddleName,
     string Email,
     string BranchId,
     string Role,
@@ -16,13 +18,17 @@ public sealed record UserResponse(
 public sealed record CreateUserRequest(
     string UserName,
     string Password,
-    string FullName,
+    string FirstName,
+    string LastName,
+    string MiddleName,
     string? Email,
     string BranchId,
     UserRole Role);
 
 public sealed record UpdateUserRequest(
-    string FullName,
+    string FirstName,
+    string LastName,
+    string MiddleName,
     string? Email,
     string BranchId,
     UserRole Role);

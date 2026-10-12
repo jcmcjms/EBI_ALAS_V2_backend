@@ -6,7 +6,9 @@ public sealed class User
     {
         UserName = string.Empty;
         PasswordHash = string.Empty;
-        FullName = string.Empty;
+        FirstName = string.Empty;
+        LastName = string.Empty;
+        MiddleName = string.Empty;
         Email = string.Empty;
         BranchId = string.Empty;
     }
@@ -17,7 +19,13 @@ public sealed class User
 
     public string PasswordHash { get; private set; }
 
-    public string FullName { get; private set; }
+    public string FirstName { get; private set; }
+
+    public string LastName { get; private set; }
+
+    public string MiddleName { get; private set; }
+
+    public string FullName => $"{FirstName} {MiddleName} {LastName}".Replace("  ", " ").Trim();
 
     public string Email { get; private set; }
 
@@ -36,7 +44,9 @@ public sealed class User
     public static User Create(
         string userName,
         string passwordHash,
-        string fullName,
+        string firstName,
+        string lastName,
+        string middleName,
         string? email,
         string branchId,
         UserRole role,
@@ -44,7 +54,8 @@ public sealed class User
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(userName);
         ArgumentException.ThrowIfNullOrWhiteSpace(passwordHash);
-        ArgumentException.ThrowIfNullOrWhiteSpace(fullName);
+        ArgumentException.ThrowIfNullOrWhiteSpace(firstName);
+        ArgumentException.ThrowIfNullOrWhiteSpace(lastName);
         ArgumentException.ThrowIfNullOrWhiteSpace(branchId);
 
         return new User
@@ -52,7 +63,9 @@ public sealed class User
             Id = Guid.NewGuid(),
             UserName = userName.Trim(),
             PasswordHash = passwordHash,
-            FullName = fullName.Trim(),
+            FirstName = firstName.Trim(),
+            LastName = lastName.Trim(),
+            MiddleName = middleName?.Trim() ?? string.Empty,
             Email = email?.Trim() ?? string.Empty,
             BranchId = branchId.Trim(),
             Role = role,
@@ -99,11 +112,14 @@ public sealed class User
         UpdatedAt = now;
     }
 
-    public void UpdateProfile(string fullName, string? email, string branchId, UserRole role, DateTimeOffset now)
+    public void UpdateProfile(string firstName, string lastName, string middleName, string? email, string branchId, UserRole role, DateTimeOffset now)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(fullName);
+        ArgumentException.ThrowIfNullOrWhiteSpace(firstName);
+        ArgumentException.ThrowIfNullOrWhiteSpace(lastName);
         ArgumentException.ThrowIfNullOrWhiteSpace(branchId);
-        FullName = fullName.Trim();
+        FirstName = firstName.Trim();
+        LastName = lastName.Trim();
+        MiddleName = middleName?.Trim() ?? string.Empty;
         Email = email?.Trim() ?? string.Empty;
         BranchId = branchId.Trim();
         Role = role;

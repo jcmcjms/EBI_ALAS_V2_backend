@@ -1,6 +1,7 @@
 using System.Text;
 using System.Text.Json.Serialization;
 using Ebi.Alas.Api.Composition;
+using Ebi.Alas.Api.Composition.Auth;
 using Ebi.Alas.Api.Composition.Errors;
 using Ebi.Alas.Api.Features.Auth;
 using Ebi.Alas.Api.Features.Auth.ChangePassword;
@@ -12,6 +13,7 @@ using Ebi.Alas.Api.Features.LoanApplications.ListLoans;
 using Ebi.Alas.Api.Features.LoanApplications.Submit;
 using Ebi.Alas.Api.Features.LoanApplications.WorkflowActions;
 using Ebi.Alas.Api.Features.LoanComputation;
+using Ebi.Alas.Api.Features.SystemSettings;
 using Ebi.Alas.Api.Features.Users.ChangeUserStatus;
 using Ebi.Alas.Api.Features.Users.CreateUser;
 using Ebi.Alas.Api.Features.Users.GetUser;
@@ -21,11 +23,14 @@ using Ebi.Alas.Api.Features.WebLoans;
 using Ebi.Alas.Api.Features.Workflow;
 using Ebi.Alas.Api.Infrastructure.Background;
 using Ebi.Alas.Api.Infrastructure.Persistence;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Diagnostics;
+using Microsoft.AspNetCore.SignalR;
 using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
+using Microsoft.Extensions.Caching.Memory;
 using OpenTelemetry.Metrics;
 using OpenTelemetry.Resources;
 using OpenTelemetry.Trace;
@@ -54,6 +59,7 @@ public static class ServiceRegistration
             .ValidateOnStart();
 
         services.AddSingleton(TimeProvider.System);
+        services.AddMemoryCache();
         services.AddProblemDetails();
         services.AddTransient<IExceptionHandler>(serviceProvider =>
             ApiProblemHandler.CreateHandler(serviceProvider.GetRequiredService<IProblemDetailsService>()));
@@ -149,6 +155,15 @@ public static class ServiceRegistration
         services.AddScoped<WorkflowQueueService>();
         services.AddScoped<Features.Workflow.DeskQueueService>();
         services.AddScoped<LoanWorkflowService>();
+
+        // SystemSettings and WorkflowConfiguration
+        services.AddOptions<WorkflowOptions>()
+            .Bind(configuration.GetSection(WorkflowOptions.SectionName))
+            .ValidateDataAnnotations()
+            .ValidateOnStart();
+        services.AddScoped<ISystemSettingsStore, SystemSettingsStore>();
+        services.AddScoped<IWorkflowConfiguration, WorkflowConfiguration>();
+
         services.AddScoped<DashboardService>();
         services.AddScoped<Features.Presence.PresenceService>();
         services.AddSignalR();
@@ -206,7 +221,10 @@ public static class ServiceRegistration
                     }
                 };
             });
-        services.AddAuthorization();
+        services.AddAuthorization()
+            .AddAuthorizationPolicies();
+
+        services.AddScoped<IAuthorizationHandler, PermissionAuthorizationHandler>();
 
         services.AddOpenTelemetry()
             .ConfigureResource(r => r.AddService("ebi-alas-api"))
