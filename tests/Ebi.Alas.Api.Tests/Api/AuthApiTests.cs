@@ -87,4 +87,64 @@ public sealed class AuthApiTests : IClassFixture<WebApplicationFactory<Program>>
         Assert.Contains("samesite=lax", refresh, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("path=/api/auth", refresh, StringComparison.OrdinalIgnoreCase);
     }
+
+    [Fact]
+    public async Task Login_Success_DoesNotReturnRefreshTokenInJsonBody()
+    {
+        var client = _factory.CreateClient(new WebApplicationFactoryClientOptions
+        {
+            HandleCookies = false
+        });
+        var response = await client.PostAsJsonAsync("/api/auth/login", new
+        {
+            userName = TestHostSecrets.CurrentAdminUserName,
+            password = TestHostSecrets.CurrentAdminPassword
+        });
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        var json = await response.Content.ReadAsStringAsync();
+        using var doc = System.Text.Json.JsonDocument.Parse(json);
+        Assert.False(
+            doc.RootElement.TryGetProperty("refreshToken", out _),
+            "Login JSON body must not carry the refresh token; it is cookie-only.");
+        Assert.True(
+            doc.RootElement.TryGetProperty("accessToken", out _),
+            "Login JSON body must still carry the access token.");
+        Assert.True(response.Headers.TryGetValues("Set-Cookie", out var setCookies));
+        Assert.Contains(setCookies, c => c.StartsWith("alas_refresh=", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task Refresh_Success_DoesNotReturnRefreshTokenInJsonBody()
+    {
+        var client = _factory.CreateClient(new WebApplicationFactoryClientOptions
+        {
+            HandleCookies = false
+        });
+        var login = await client.PostAsJsonAsync("/api/auth/login", new
+        {
+            userName = TestHostSecrets.CurrentAdminUserName,
+            password = TestHostSecrets.CurrentAdminPassword
+        });
+        Assert.Equal(HttpStatusCode.OK, login.StatusCode);
+        Assert.True(login.Headers.TryGetValues("Set-Cookie", out var loginCookies));
+        var refreshCookie = loginCookies.First(c => c.StartsWith("alas_refresh=", StringComparison.Ordinal));
+
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/api/auth/refresh")
+        {
+            Content = new StringContent("{}", System.Text.Encoding.UTF8, "application/json")
+        };
+        request.Headers.Add("Cookie", refreshCookie.Split(';', 2)[0]);
+        var response = await client.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var json = await response.Content.ReadAsStringAsync();
+        using var doc = System.Text.Json.JsonDocument.Parse(json);
+        Assert.False(
+            doc.RootElement.TryGetProperty("refreshToken", out _),
+            "Refresh JSON body must not carry the refresh token; it is cookie-only.");
+        Assert.True(response.Headers.TryGetValues("Set-Cookie", out var setCookies));
+        Assert.Contains(setCookies, c => c.StartsWith("alas_refresh=", StringComparison.Ordinal));
+    }
 }

@@ -50,6 +50,7 @@ public sealed class RefreshHandler(
         var access = tokenService.CreateAccessToken(user, jti, now);
         logger.LogInformation("{Event} userId={UserId}", AuthEvents.RefreshSucceeded, user.Id);
         return new RefreshOutcome.Success(
-            new LoginResponse(access.Token, rawRefresh, access.ExpiresAt, user.MustChangePassword));
+            new LoginResponse(access.Token, access.ExpiresAt, user.MustChangePassword),
+            rawRefresh);
     }
 }

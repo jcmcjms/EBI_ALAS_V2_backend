@@ -24,14 +24,7 @@ public sealed class XsrfClaimMappingTests
     };
 
     private static User Admin() =>
-        User.Create(
-            "ada",
-            "hash",
-            "Ada Lovelace",
-            "ada@example.com",
-            "011",
-            UserRole.Admin,
-            DateTimeOffset.UtcNow);
+        User.Create("ada", "hash", "Ada", "Lovelace", "", "ada@example.com", "011", UserRole.Admin, DateTimeOffset.UtcNow);
 
     private static TokenValidationParameters Parameters() => new()
     {

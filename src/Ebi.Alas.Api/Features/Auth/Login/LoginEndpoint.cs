@@ -20,7 +20,7 @@ public static class LoginEndpoint
             {
                 RefreshCookie.Append(
                     httpContext,
-                    success.Response.RefreshToken,
+                    success.RawRefreshToken,
                     timeProvider.GetUtcNow().AddDays(options.Value.Jwt.RefreshTokenAbsoluteDays));
                 return Results.Ok(success.Response);
             }
