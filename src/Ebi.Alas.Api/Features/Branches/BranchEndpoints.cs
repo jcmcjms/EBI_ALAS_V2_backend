@@ -1,10 +1,10 @@
 namespace Ebi.Alas.Api.Features.Branches;
 
-public sealed record BranchResponse(string Code, string Name);
+public sealed record BranchCatalogItem(string Code, string Name);
 
 public static class BranchCatalog
 {
-    public static readonly IReadOnlyList<BranchResponse> All =
+    public static readonly IReadOnlyList<BranchCatalogItem> All =
     [
         new("001", "Head Office"),
         new("011", "Main Branch"),
