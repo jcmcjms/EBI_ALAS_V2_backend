@@ -47,7 +47,8 @@ public sealed class CreateUserHandler(
             request.Email,
             request.BranchId,
             request.Role,
-            now);
+            now,
+            request.JobTitle);
 
         db.Users.Add(user);
         await db.SaveChangesAsync(cancellationToken);

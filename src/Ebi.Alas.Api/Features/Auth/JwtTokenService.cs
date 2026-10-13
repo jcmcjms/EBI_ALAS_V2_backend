@@ -31,7 +31,10 @@ public sealed class JwtTokenService(JwtOptions options)
             new("role", user.Role.ToString()),
             new("branch", user.BranchId),
             new("firstName", user.FirstName),
+            new("middleName", user.MiddleName),
             new("lastName", user.LastName),
+            new("fullName", user.FullName),
+            new("jobTitle", user.JobTitle ?? string.Empty),
             new("mustChangePassword", user.MustChangePassword ? "true" : "false"),
             new("XsrfToken", Convert.ToHexString(System.Security.Cryptography.RandomNumberGenerator.GetBytes(16))),
         ];

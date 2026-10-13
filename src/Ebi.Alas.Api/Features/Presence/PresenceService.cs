@@ -107,7 +107,7 @@ public sealed class PresenceService(
                 u.FirstName + " " + u.LastName,
                 u.Role.ToString(),
                 u.BranchId,
-                null,
+                u.JobTitle,
                 0)
         ).ToListAsync(cancellationToken);
 
@@ -133,7 +133,7 @@ public sealed class PresenceService(
                 u.FirstName + " " + u.LastName,
                 u.Role.ToString(),
                 u.BranchId,
-                null,
+                u.JobTitle,
                 1)
         ).Take(200).ToListAsync(cancellationToken);
     }
@@ -148,7 +148,7 @@ public sealed class PresenceService(
                 u.FirstName + " " + u.LastName,
                 u.Role.ToString(),
                 u.BranchId,
-                null,
+                u.JobTitle,
                 online ? 1 : 0)
         ).FirstOrDefaultAsync(cancellationToken);
 

@@ -31,6 +31,8 @@ public sealed class User
 
     public string BranchId { get; private set; }
 
+    public string? JobTitle { get; private set; }
+
     public UserRole Role { get; private set; }
 
     public UserStatus Status { get; private set; }
@@ -50,13 +52,18 @@ public sealed class User
         string? email,
         string branchId,
         UserRole role,
-        DateTimeOffset now)
+        DateTimeOffset now,
+        string? jobTitle = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(userName);
         ArgumentException.ThrowIfNullOrWhiteSpace(passwordHash);
         ArgumentException.ThrowIfNullOrWhiteSpace(firstName);
         ArgumentException.ThrowIfNullOrWhiteSpace(lastName);
         ArgumentException.ThrowIfNullOrWhiteSpace(branchId);
+        if (jobTitle?.Trim().Length > 100)
+        {
+            throw new ArgumentOutOfRangeException(nameof(jobTitle), "Job title must not exceed 100 characters.");
+        }
 
         return new User
         {
@@ -68,6 +75,7 @@ public sealed class User
             MiddleName = middleName?.Trim() ?? string.Empty,
             Email = email?.Trim() ?? string.Empty,
             BranchId = branchId.Trim(),
+            JobTitle = NormalizeJobTitle(jobTitle),
             Role = role,
             Status = UserStatus.Active,
             MustChangePassword = true,
@@ -112,17 +120,34 @@ public sealed class User
         UpdatedAt = now;
     }
 
-    public void UpdateProfile(string firstName, string lastName, string middleName, string? email, string branchId, UserRole role, DateTimeOffset now)
+    public void UpdateProfile(
+        string firstName,
+        string lastName,
+        string middleName,
+        string? email,
+        string branchId,
+        UserRole role,
+        DateTimeOffset now,
+        string? jobTitle = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(firstName);
         ArgumentException.ThrowIfNullOrWhiteSpace(lastName);
         ArgumentException.ThrowIfNullOrWhiteSpace(branchId);
+        if (jobTitle?.Trim().Length > 100)
+        {
+            throw new ArgumentOutOfRangeException(nameof(jobTitle), "Job title must not exceed 100 characters.");
+        }
+
         FirstName = firstName.Trim();
         LastName = lastName.Trim();
         MiddleName = middleName?.Trim() ?? string.Empty;
         Email = email?.Trim() ?? string.Empty;
         BranchId = branchId.Trim();
+        JobTitle = NormalizeJobTitle(jobTitle);
         Role = role;
         UpdatedAt = now;
     }
+
+    private static string? NormalizeJobTitle(string? jobTitle) =>
+        string.IsNullOrWhiteSpace(jobTitle) ? null : jobTitle.Trim();
 }
