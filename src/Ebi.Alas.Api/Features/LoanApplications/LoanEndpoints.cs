@@ -18,14 +18,14 @@ public static class LoanEndpoints
         group.MapGet("/queue-default", () => Results.Ok(QueueDefaults.Statuses));
 
         group.MapPost("/", async (
-            SubmitLoanRequest request,
+            SubmitLoanApplicationsRequest request,
             SubmitLoanHandler handler,
             ClaimsPrincipal user,
             CancellationToken cancellationToken) =>
         {
             var caller = CallerContext.Require(user);
             var result = await handler.HandleAsync(request, caller, cancellationToken);
-            return Results.Created($"/api/loans/{result.Id}", result);
+            return Results.Created($"/api/loans/{result.Loans[0].Id}", result);
         })
         .RequireRateLimiting("write");
 

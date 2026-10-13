@@ -15,13 +15,20 @@ public sealed class ApplicationNumberGenerator(AlasDbContext db)
     private static readonly TimeSpan PhilippinesOffset = TimeSpan.FromHours(8);
 
     public async Task<string> GenerateLamIdAsync(CancellationToken cancellationToken = default)
-        => await AllocateAsync(LamPrefix, cancellationToken);
+        => (await GenerateLamIdsAsync(1, cancellationToken))[0];
+
+    public async Task<IReadOnlyList<string>> GenerateLamIdsAsync(int count, CancellationToken cancellationToken = default)
+        => await AllocateAsync(LamPrefix, count, cancellationToken);
 
     public async Task<string> GenerateGroupNumberAsync(CancellationToken cancellationToken = default)
-        => await AllocateAsync(GroupPrefix, cancellationToken);
+        => (await AllocateAsync(GroupPrefix, 1, cancellationToken))[0];
 
-    private async Task<string> AllocateAsync(string prefix, CancellationToken cancellationToken)
+    private async Task<IReadOnlyList<string>> AllocateAsync(
+        string prefix,
+        int count,
+        CancellationToken cancellationToken)
     {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(count);
         var now = DateTimeOffset.UtcNow.ToOffset(PhilippinesOffset);
         var fullPrefix = $"{prefix}{now:yyyyMMdd}-";
 
@@ -47,6 +54,12 @@ public sealed class ApplicationNumberGenerator(AlasDbContext db)
             }
         }
 
-        return fullPrefix + next.ToString("D6");
+        var ids = new List<string>(count);
+        for (var n = 0; n < count; n++)
+        {
+            ids.Add(fullPrefix + (next + n).ToString("D6"));
+        }
+
+        return ids;
     }
 }

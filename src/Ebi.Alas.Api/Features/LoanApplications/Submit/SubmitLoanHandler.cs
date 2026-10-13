@@ -14,15 +14,17 @@ public sealed class SubmitLoanHandler(
     ApplicationNumberGenerator numbers,
     TimeProvider timeProvider)
 {
-    public async Task<LoanResponse> HandleAsync(
-        SubmitLoanRequest request,
+    public async Task<LoanSubmissionResponse> HandleAsync(
+        SubmitLoanApplicationsRequest request,
         CallerContext caller,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(request);
         ArgumentException.ThrowIfNullOrWhiteSpace(request.ClientName);
-        ArgumentException.ThrowIfNullOrWhiteSpace(request.ProductCode);
-        ArgumentException.ThrowIfNullOrWhiteSpace(request.Product);
+        if (request.Loans is null || request.Loans.Count == 0)
+        {
+            throw new ArgumentException("At least one loan is required.", nameof(request));
+        }
 
         await workflow.EnsureLoadedAsync(cancellationToken);
 
@@ -31,49 +33,71 @@ public sealed class SubmitLoanHandler(
             : caller.BranchId;
         ArgumentException.ThrowIfNullOrWhiteSpace(branchId);
 
-        var computed = computation.Compute(new LoanComputationInput(
-            request.Principal,
-            request.TermDays,
-            request.InterestRatePerMonth,
-            ServiceFee: request.ServiceFee,
-            InsuranceFee: request.InsuranceFee,
-            OtherDeductions: request.OtherDeductions));
-
         var now = timeProvider.GetUtcNow();
         var applicationGroupNo = string.IsNullOrWhiteSpace(request.ApplicationGroupNo)
             ? await numbers.GenerateGroupNumberAsync(cancellationToken)
             : request.ApplicationGroupNo.Trim();
-        var lamId = await numbers.GenerateLamIdAsync(cancellationToken);
+        var lamIds = await numbers.GenerateLamIdsAsync(request.Loans.Count, cancellationToken);
 
-        var loan = LoanApplication.Create(
-            lamId,
-            applicationGroupNo,
-            request.ClientName,
-            branchId,
-            request.LoanType,
-            request.Principal,
-            request.TermDays,
-            request.InterestRatePerMonth,
-            computed.TotalInterest,
-            computed.TotalDeductions,
-            computed.NetProceeds,
-            caller.UserId,
-            now,
-            request.ProductCode,
-            request.Product);
-
-        if (!workflow.RequireRecommendation)
+        var created = new List<LoanApplication>(request.Loans.Count);
+        for (var i = 0; i < request.Loans.Count; i++)
         {
-            loan.TransitionTo(LoanStatus.ForChecking, now, caller.UserId, "Submitted");
+            var line = request.Loans[i];
+            ArgumentException.ThrowIfNullOrWhiteSpace(line.ProductCode);
+            ArgumentException.ThrowIfNullOrWhiteSpace(line.Product);
+
+            var computed = computation.Compute(new LoanComputationInput(
+                line.Principal,
+                line.TermDays,
+                line.InterestRatePerMonth,
+                ServiceFee: line.ServiceFee,
+                InsuranceFee: line.InsuranceFee,
+                OtherDeductions: line.OtherDeductions));
+
+            var loan = LoanApplication.Create(
+                lamIds[i],
+                applicationGroupNo,
+                request.ClientName,
+                branchId,
+                request.LoanType,
+                line.Principal,
+                line.TermDays,
+                line.InterestRatePerMonth,
+                computed.TotalInterest,
+                computed.TotalDeductions,
+                computed.NetProceeds,
+                caller.UserId,
+                now,
+                line.ProductCode,
+                line.Product);
+
+            if (!workflow.RequireRecommendation)
+            {
+                loan.TransitionTo(LoanStatus.ForChecking, now, caller.UserId, "Submitted");
+            }
+
+            db.LoanApplications.Add(loan);
+            created.Add(loan);
         }
 
-        db.LoanApplications.Add(loan);
         await db.SaveChangesAsync(cancellationToken);
 
         var stage = workflow.RequireRecommendation
             ? WorkflowStage.Recommendation
             : WorkflowStage.Evaluation;
-        await queue.EnqueueAsync(loan.Id, stage, loan.BranchId, cancellationToken);
-        return LoanMapping.ToResponse(loan);
+        foreach (var loan in created)
+        {
+            await queue.EnqueueAsync(loan.Id, stage, loan.BranchId, cancellationToken);
+        }
+
+        return new LoanSubmissionResponse(
+            applicationGroupNo,
+            created.Select(l => new CreatedLoanSummary(
+                l.Id,
+                l.LamId,
+                l.ProductCode,
+                l.Product,
+                l.Principal,
+                l.Status.ToString())).ToList());
     }
 }
