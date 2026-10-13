@@ -1,10 +1,14 @@
 using Ebi.Alas.Api.Features.LoanApplications.Domain;
+using Ebi.Alas.Api.Infrastructure.Persistence;
+using Microsoft.EntityFrameworkCore;
 
 namespace Ebi.Alas.Api.Features.LoanApplications;
 
 public static class LoanMapping
 {
-    public static LoanResponse ToResponse(this LoanApplication loan) => new(
+    public static LoanResponse ToResponse(
+        this LoanApplication loan,
+        string? lastActionByName = null) => new(
         loan.Id,
         loan.LamId,
         loan.ApplicationGroupNo,
@@ -25,5 +29,23 @@ public static class LoanMapping
         loan.UpdatedAt,
         loan.LastActionDate,
         loan.LastActionById,
+        lastActionByName,
         loan.LastActionVerb);
+
+    public static async Task<LoanResponse> ToResponseAsync(
+        this LoanApplication loan,
+        AlasDbContext db,
+        CancellationToken cancellationToken)
+    {
+        string? lastActionByName = null;
+        if (loan.LastActionById is { } actorId)
+        {
+            lastActionByName = await db.Users.AsNoTracking()
+                .Where(u => u.Id == actorId)
+                .Select(u => u.FirstName + " " + u.LastName)
+                .FirstOrDefaultAsync(cancellationToken);
+        }
+
+        return loan.ToResponse(lastActionByName);
+    }
 }

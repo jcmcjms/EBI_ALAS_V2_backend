@@ -17,7 +17,7 @@ public sealed class GetLoanHandler(AlasDbContext db)
 
         var loan = await query.FirstOrDefaultAsync(cancellationToken)
             ?? throw new NotFoundException("Loan", id.ToString());
-        return LoanMapping.ToResponse(loan);
+        return await loan.ToResponseAsync(db, cancellationToken);
     }
 }
 
@@ -34,6 +34,6 @@ public sealed class GetLoanByLamIdHandler(AlasDbContext db)
 
         var loan = await query.FirstOrDefaultAsync(cancellationToken)
             ?? throw new NotFoundException("Loan", lamId);
-        return LoanMapping.ToResponse(loan);
+        return await loan.ToResponseAsync(db, cancellationToken);
     }
 }

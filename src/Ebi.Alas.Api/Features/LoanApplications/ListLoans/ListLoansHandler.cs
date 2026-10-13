@@ -76,7 +76,13 @@ public sealed class ListLoansHandler(AlasDbContext db)
                 l.UpdatedAt,
                 l.LastActionDate,
                 l.LastActionById,
-                l.LastActionVerb
+                l.LastActionVerb,
+                LastActionByName = l.LastActionById == null
+                    ? null
+                    : db.Users
+                        .Where(u => u.Id == l.LastActionById)
+                        .Select(u => (string?)(u.FirstName + " " + u.LastName))
+                        .FirstOrDefault()
             })
             .ToListAsync(cancellationToken);
 
@@ -101,6 +107,7 @@ public sealed class ListLoansHandler(AlasDbContext db)
             r.UpdatedAt,
             r.LastActionDate,
             r.LastActionById,
+            r.LastActionByName,
             r.LastActionVerb))];
 
         return new PageResult<LoanResponse>(items, total, normalized.Page, normalized.PageSize);
