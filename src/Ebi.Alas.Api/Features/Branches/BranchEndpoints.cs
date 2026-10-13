@@ -37,5 +37,55 @@ public static class BranchEndpoints
         })
         .RequireAuthorization()
         .WithName("GetBranchByCode");
+
+        group.MapPost("/", async (
+            CreateBranchRequest request,
+            CreateBranchHandler handler,
+            CancellationToken cancellationToken) =>
+        {
+            try
+            {
+                var created = await handler.HandleAsync(request, cancellationToken);
+                return Results.Created($"/api/branches/{created.Code}", created);
+            }
+            catch (InvalidOperationException ex)
+            {
+                return Results.Problem(
+                    statusCode: StatusCodes.Status409Conflict,
+                    title: "Conflict",
+                    detail: ex.Message);
+            }
+            catch (ArgumentException ex)
+            {
+                return Results.Problem(
+                    statusCode: StatusCodes.Status400BadRequest,
+                    title: "Bad Request",
+                    detail: ex.Message);
+            }
+        })
+        .RequireAuthorization("CanManageBranches")
+        .RequireRateLimiting("write");
+
+        group.MapPut("/{code}", async (
+            string code,
+            UpdateBranchRequest request,
+            UpdateBranchHandler handler,
+            CancellationToken cancellationToken) =>
+        {
+            try
+            {
+                var updated = await handler.HandleAsync(code, request, cancellationToken);
+                return Results.Ok(updated);
+            }
+            catch (ArgumentException ex)
+            {
+                return Results.Problem(
+                    statusCode: StatusCodes.Status400BadRequest,
+                    title: "Bad Request",
+                    detail: ex.Message);
+            }
+        })
+        .RequireAuthorization("CanManageBranches")
+        .RequireRateLimiting("write");
     }
 }
