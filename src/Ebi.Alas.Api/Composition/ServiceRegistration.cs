@@ -130,6 +130,7 @@ public static class ServiceRegistration
         services.AddScoped<Features.Branches.ListBranchesHandler>();
         services.AddScoped<Features.Branches.CreateBranchHandler>();
         services.AddScoped<Features.Branches.UpdateBranchHandler>();
+        services.AddScoped<Features.Branches.UpdateBranchStatusHandler>();
         services.AddScoped<Features.Users.Seed.AdminUserSeeder>();
         services.AddHostedService<AdminSeedHostedService>();
 
