@@ -112,6 +112,47 @@ public sealed class SubmitLoanBranchTests
         Assert.Equal(WorkflowStage.Evaluation, queueItem.Stage);
     }
 
+    [Fact]
+    public async Task SubmitLoan_BlankGroupNo_AllocatesAppGroupNumber()
+    {
+        await using var db = Db();
+        var handler = Handler(db, requireRecommendation: true);
+        var caller = new CallerContext(Guid.NewGuid(), UserRole.Encoder, "BR-A");
+        var request = new SubmitLoanRequest(
+            null,
+            "Client",
+            "BR-A",
+            LoanType.New,
+            1000m,
+            30,
+            0.05m);
+
+        var result = await handler.HandleAsync(request, caller, CancellationToken.None);
+
+        Assert.StartsWith("APP-", result.ApplicationGroupNo);
+        Assert.Matches(@"^APP-\d{8}-\d{6}$", result.ApplicationGroupNo);
+    }
+
+    [Fact]
+    public async Task SubmitLoan_UsesProvidedGroupNo()
+    {
+        await using var db = Db();
+        var handler = Handler(db, requireRecommendation: true);
+        var caller = new CallerContext(Guid.NewGuid(), UserRole.Encoder, "BR-A");
+        var request = new SubmitLoanRequest(
+            "APP-20261013-000042",
+            "Client",
+            "BR-A",
+            LoanType.New,
+            1000m,
+            30,
+            0.05m);
+
+        var result = await handler.HandleAsync(request, caller, CancellationToken.None);
+
+        Assert.Equal("APP-20261013-000042", result.ApplicationGroupNo);
+    }
+
     private sealed class FakeSettingsStore(SettingSnapshot snapshot) : ISystemSettingsStore
     {
         public Task<SettingSnapshot> GetSnapshotAsync(string key, CancellationToken ct = default)
