@@ -127,6 +127,7 @@ public static class ServiceRegistration
         services.AddScoped<Features.LoanProducts.ListLoanProductsHandler>();
         services.AddScoped<Features.LoanProducts.SyncLoanProductsHandler>();
         services.AddScoped<Features.LoanProducts.ImportLoanProductsHandler>();
+        services.AddScoped<Features.Branches.ListBranchesHandler>();
         services.AddScoped<Features.Users.Seed.AdminUserSeeder>();
         services.AddHostedService<AdminSeedHostedService>();
 

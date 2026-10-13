@@ -80,4 +80,17 @@ public sealed class BranchDomainTests
         Assert.Equal(BranchStatus.Closed, branch.Status);
         Assert.Equal(later, branch.UpdatedAt);
     }
+
+    [Fact]
+    public void ToResponse_MapsAllFields()
+    {
+        var branch = Branch.Create("011", "Head Office", "NA", Now);
+        var response = branch.ToResponse();
+        Assert.Equal("011", response.Code);
+        Assert.Equal("Head Office", response.Name);
+        Assert.Equal("NA", response.AreaCode);
+        Assert.Equal("Active", response.Status);
+        Assert.Equal(Now, response.CreatedAt);
+        Assert.Equal(Now, response.UpdatedAt);
+    }
 }
