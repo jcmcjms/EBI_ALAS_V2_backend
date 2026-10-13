@@ -18,8 +18,13 @@ public static class WorkflowConfigurationEndpoints
             .WithTags("Workflow")
             .RequireAuthorization();
 
-        group.MapGet("/configuration", (IWorkflowConfiguration cfg) =>
-            Results.Ok(Map(cfg)))
+        group.MapGet("/configuration", async (
+            IWorkflowConfiguration cfg,
+            CancellationToken ct) =>
+        {
+            await cfg.EnsureLoadedAsync(ct);
+            return Results.Ok(Map(cfg));
+        })
         .WithName("GetWorkflowConfiguration")
         .Produces<WorkflowConfigurationResponse>(200)
         .RequireAuthorization();
