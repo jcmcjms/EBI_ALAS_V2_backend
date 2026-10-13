@@ -12,6 +12,7 @@ public static class UserMapping
         user.MiddleName,
         user.Email,
         user.BranchId,
+        user.JobTitle,
         user.Role.ToString(),
         user.Status.ToString(),
         user.MustChangePassword,

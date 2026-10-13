@@ -18,7 +18,8 @@ public sealed class UpdateUserHandler(AlasDbContext db, TimeProvider timeProvide
             request.Email,
             request.BranchId,
             request.Role,
-            timeProvider.GetUtcNow());
+            timeProvider.GetUtcNow(),
+            request.JobTitle);
         await db.SaveChangesAsync(cancellationToken);
         return UserMapping.ToResponse(user);
     }

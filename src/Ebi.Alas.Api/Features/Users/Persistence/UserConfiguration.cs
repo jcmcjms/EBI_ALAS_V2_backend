@@ -18,6 +18,7 @@ public sealed class UserConfiguration : IEntityTypeConfiguration<User>
         builder.Property(x => x.MiddleName).HasMaxLength(100).IsRequired();
         builder.Property(x => x.Email).HasMaxLength(200).IsRequired();
         builder.Property(x => x.BranchId).HasMaxLength(16).IsRequired();
+        builder.Property(x => x.JobTitle).HasMaxLength(100);
         builder.Property(x => x.Role).HasConversion<int>();
         builder.Property(x => x.Status).HasConversion<int>();
         builder.Property(x => x.MustChangePassword).IsRequired();

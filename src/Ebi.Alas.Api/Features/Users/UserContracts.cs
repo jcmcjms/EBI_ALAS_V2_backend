@@ -10,6 +10,7 @@ public sealed record UserResponse(
     string MiddleName,
     string Email,
     string BranchId,
+    string? JobTitle,
     string Role,
     string Status,
     bool MustChangePassword,
@@ -23,7 +24,8 @@ public sealed record CreateUserRequest(
     string MiddleName,
     string? Email,
     string BranchId,
-    UserRole Role);
+    UserRole Role,
+    string? JobTitle = null);
 
 public sealed record UpdateUserRequest(
     string FirstName,
@@ -31,7 +33,8 @@ public sealed record UpdateUserRequest(
     string MiddleName,
     string? Email,
     string BranchId,
-    UserRole Role);
+    UserRole Role,
+    string? JobTitle = null);
 
 public sealed record CreateUserResponse(UserResponse User);
 

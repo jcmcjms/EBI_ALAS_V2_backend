@@ -23,8 +23,8 @@ public sealed class AdminUserSeeder(
             return false;
         }
 
-        var firstName = seed.AdminFirstName?.Trim() ?? "System";
-        var lastName = seed.AdminLastName?.Trim() ?? "Administrator";
+        var firstName = string.IsNullOrWhiteSpace(seed.AdminFirstName) ? "System" : seed.AdminFirstName.Trim();
+        var lastName = string.IsNullOrWhiteSpace(seed.AdminLastName) ? "Administrator" : seed.AdminLastName.Trim();
         var hash = passwordHasher.Hash(seed.AdminPassword);
         var user = User.Create(
             userName,

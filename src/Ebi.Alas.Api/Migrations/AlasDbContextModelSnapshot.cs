@@ -519,6 +519,10 @@ namespace Ebi.Alas.Api.Migrations
                         .HasMaxLength(100)
                         .HasColumnType("nvarchar(100)");
 
+                    b.Property<string>("JobTitle")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
                     b.Property<string>("LastName")
                         .IsRequired()
                         .HasMaxLength(100)
