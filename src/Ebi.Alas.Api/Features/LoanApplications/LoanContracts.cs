@@ -25,16 +25,36 @@ public sealed record LoanResponse(
     Guid? LastActionById,
     string? LastActionVerb);
 
-public sealed record SubmitLoanRequest(
-    string? ApplicationGroupNo,
-    string ClientName,
-    string BranchId,
+/// <summary>One selected loan in a multi-loan application submission.</summary>
+public sealed record SubmitLoanLine(
     string ProductCode,
     string Product,
-    LoanType LoanType,
     decimal Principal,
     int TermDays,
     decimal InterestRatePerMonth,
     decimal ServiceFee = 0,
     decimal InsuranceFee = 0,
     decimal OtherDeductions = 0);
+
+/// <summary>
+/// Multi-loan submission: one client application group with one or more loans,
+/// matching the reference create-loan contract.
+/// </summary>
+public sealed record SubmitLoanApplicationsRequest(
+    string? ApplicationGroupNo,
+    string ClientName,
+    string BranchId,
+    LoanType LoanType,
+    IReadOnlyList<SubmitLoanLine> Loans);
+
+public sealed record CreatedLoanSummary(
+    Guid Id,
+    string LamId,
+    string ProductCode,
+    string Product,
+    decimal Principal,
+    string Status);
+
+public sealed record LoanSubmissionResponse(
+    string ApplicationGroupNo,
+    IReadOnlyList<CreatedLoanSummary> Loans);

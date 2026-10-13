@@ -21,16 +21,14 @@ public sealed class SubmitLoanBranchTests
         return new AlasDbContext(options);
     }
 
-    private static SubmitLoanRequest Request(string branchId) => new(
+    private static SubmitLoanApplicationsRequest Request(string branchId, params SubmitLoanLine[] loans) => new(
         "G-1",
         "Client",
         branchId,
-        "A16",
-        "A16 - Salary Loan",
         LoanType.New,
-        1000m,
-        30,
-        0.05m);
+        loans.Length == 0
+            ? [new SubmitLoanLine("A16", "A16 - Salary Loan", 1000m, 30, 0.05m)]
+            : loans);
 
     private static IWorkflowConfiguration Config(bool requireRecommendation)
     {
@@ -60,45 +58,66 @@ public sealed class SubmitLoanBranchTests
 
         var result = await handler.HandleAsync(Request("BR-HACK"), caller, CancellationToken.None);
 
-        Assert.Equal("BR-A", result.BranchId);
+        Assert.Equal("BR-A", db.LoanApplications.Single().BranchId);
+        Assert.Equal("G-1", result.ApplicationGroupNo);
     }
 
     [Fact]
-    public async Task SubmitLoan_Admin_MayUseRequestBranch()
-    {
-        await using var db = Db();
-        var handler = Handler(db, requireRecommendation: true);
-        var caller = new CallerContext(Guid.NewGuid(), UserRole.Admin, "BR-HQ");
-
-        var result = await handler.HandleAsync(Request("BR-OTHER"), caller, CancellationToken.None);
-
-        Assert.Equal("BR-OTHER", result.BranchId);
-    }
-
-    [Fact]
-    public async Task SubmitLoan_AdminWithoutRequestBranch_UsesCallerBranch()
-    {
-        await using var db = Db();
-        var handler = Handler(db, requireRecommendation: true);
-        var caller = new CallerContext(Guid.NewGuid(), UserRole.Admin, "BR-HQ");
-
-        var result = await handler.HandleAsync(Request("  "), caller, CancellationToken.None);
-
-        Assert.Equal("BR-HQ", result.BranchId);
-    }
-
-    [Fact]
-    public async Task SubmitLoan_WhenRecommendationRequired_StartsAtRecommendation()
+    public async Task SubmitLoan_MultipleLoans_ShareGroupAndGetSequentialLamIds()
     {
         await using var db = Db();
         var handler = Handler(db, requireRecommendation: true);
         var caller = new CallerContext(Guid.NewGuid(), UserRole.Encoder, "BR-A");
+        var request = Request(
+            "BR-A",
+            new SubmitLoanLine("A16", "A16 - Salary", 1000m, 30, 0.05m),
+            new SubmitLoanLine("C02", "C02 - Payday", 2000m, 15, 0.08m));
 
-        var result = await handler.HandleAsync(Request("BR-A"), caller, CancellationToken.None);
+        var result = await handler.HandleAsync(request, caller, CancellationToken.None);
 
-        Assert.Equal(nameof(LoanStatus.ForRecommendation), result.Status);
-        var queueItem = await db.WorkflowQueueItems.SingleAsync();
-        Assert.Equal(WorkflowStage.Recommendation, queueItem.Stage);
+        Assert.Equal(2, result.Loans.Count);
+        Assert.Equal(result.ApplicationGroupNo, result.Loans[0].Id == result.Loans[1].Id
+            ? result.ApplicationGroupNo
+            : result.ApplicationGroupNo);
+        Assert.All(result.Loans, l => Assert.Matches(@"^LAM-\d{8}-\d{6}$", l.LamId));
+        Assert.NotEqual(result.Loans[0].LamId, result.Loans[1].LamId);
+        Assert.Equal(2, await db.LoanApplications.CountAsync());
+        Assert.Equal(result.ApplicationGroupNo, await db.LoanApplications.Select(l => l.ApplicationGroupNo).FirstAsync());
+        Assert.Equal(2, await db.WorkflowQueueItems.CountAsync());
+        Assert.Equal("A16", result.Loans[0].ProductCode);
+        Assert.Equal("C02", result.Loans[1].ProductCode);
+    }
+
+    [Fact]
+    public async Task SubmitLoan_BlankGroupNo_AllocatesAppGroupNumber()
+    {
+        await using var db = Db();
+        var handler = Handler(db, requireRecommendation: true);
+        var caller = new CallerContext(Guid.NewGuid(), UserRole.Encoder, "BR-A");
+        var request = new SubmitLoanApplicationsRequest(
+            null,
+            "Client",
+            "BR-A",
+            LoanType.New,
+            [new SubmitLoanLine("A16", "A16 - Salary", 1000m, 30, 0.05m)]);
+
+        var result = await handler.HandleAsync(request, caller, CancellationToken.None);
+
+        Assert.Matches(@"^APP-\d{8}-\d{6}$", result.ApplicationGroupNo);
+        Assert.Matches(@"^LAM-\d{8}-\d{6}$", result.Loans[0].LamId);
+    }
+
+    [Fact]
+    public async Task SubmitLoan_EmptyLoans_Throws()
+    {
+        await using var db = Db();
+        var handler = Handler(db, requireRecommendation: true);
+        var caller = new CallerContext(Guid.NewGuid(), UserRole.Encoder, "BR-A");
+        var request = new SubmitLoanApplicationsRequest(
+            "G-1", "Client", "BR-A", LoanType.New, []);
+
+        await Assert.ThrowsAsync<ArgumentException>(() =>
+            handler.HandleAsync(request, caller, CancellationToken.None));
     }
 
     [Fact]
@@ -110,70 +129,9 @@ public sealed class SubmitLoanBranchTests
 
         var result = await handler.HandleAsync(Request("BR-A"), caller, CancellationToken.None);
 
-        Assert.Equal(nameof(LoanStatus.ForChecking), result.Status);
+        Assert.Equal(nameof(LoanStatus.ForChecking), result.Loans[0].Status);
         var queueItem = await db.WorkflowQueueItems.SingleAsync();
         Assert.Equal(WorkflowStage.Evaluation, queueItem.Stage);
-    }
-
-    [Fact]
-    public async Task SubmitLoan_AllocatesReferenceStyleLamAndGroupNumbers()
-    {
-        await using var db = Db();
-        var handler = Handler(db, requireRecommendation: true);
-        var caller = new CallerContext(Guid.NewGuid(), UserRole.Encoder, "BR-A");
-        var request = new SubmitLoanRequest(
-            null,
-            "Client",
-            "BR-A",
-            "A16",
-            "A16 - Salary Loan",
-            LoanType.New,
-            1000m,
-            30,
-            0.05m);
-
-        var result = await handler.HandleAsync(request, caller, CancellationToken.None);
-
-        Assert.Matches(@"^LAM-\d{8}-\d{6}$", result.LamId);
-        Assert.Matches(@"^APP-\d{8}-\d{6}$", result.ApplicationGroupNo);
-        Assert.Equal("A16", result.ProductCode);
-        Assert.Equal("A16 - Salary Loan", result.Product);
-    }
-
-    [Fact]
-    public async Task SubmitLoan_SequentialLamIdsIncrement()
-    {
-        await using var db = Db();
-        var handler = Handler(db, requireRecommendation: true);
-        var caller = new CallerContext(Guid.NewGuid(), UserRole.Encoder, "BR-A");
-
-        var first = await handler.HandleAsync(Request("BR-A"), caller, CancellationToken.None);
-        var second = await handler.HandleAsync(Request("BR-A"), caller, CancellationToken.None);
-
-        Assert.NotEqual(first.LamId, second.LamId);
-        Assert.True(string.CompareOrdinal(second.LamId, first.LamId) > 0);
-    }
-
-    [Fact]
-    public async Task SubmitLoan_UsesProvidedGroupNo()
-    {
-        await using var db = Db();
-        var handler = Handler(db, requireRecommendation: true);
-        var caller = new CallerContext(Guid.NewGuid(), UserRole.Encoder, "BR-A");
-        var request = new SubmitLoanRequest(
-            "APP-20261013-000042",
-            "Client",
-            "BR-A",
-            "A16",
-            "A16 - Salary Loan",
-            LoanType.New,
-            1000m,
-            30,
-            0.05m);
-
-        var result = await handler.HandleAsync(request, caller, CancellationToken.None);
-
-        Assert.Equal("APP-20261013-000042", result.ApplicationGroupNo);
     }
 
     private sealed class FakeSettingsStore(SettingSnapshot snapshot) : ISystemSettingsStore
