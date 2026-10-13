@@ -75,6 +75,7 @@ public static class WorkflowConfigurationEndpoints
             foreach (var notification in notifications)
             {
                 var payload = NotificationHub.ToReceiveNotification(
+                    notification.Id,
                     notification.Title,
                     notification.Body,
                     notification.CreatedAt);

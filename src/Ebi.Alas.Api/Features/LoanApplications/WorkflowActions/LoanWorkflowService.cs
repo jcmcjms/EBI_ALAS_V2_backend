@@ -144,15 +144,23 @@ public sealed class LoanWorkflowService(
 
     private async Task NotifyAsync(Guid actorId, string title, CancellationToken cancellationToken)
     {
-        db.Notifications.Add(Notification.Create(
+        var notification = Notification.Create(
             actorId,
             title,
             string.Empty,
             NotificationType.Action,
-            timeProvider.GetUtcNow()));
+            timeProvider.GetUtcNow());
+        db.Notifications.Add(notification);
+        await db.SaveChangesAsync(cancellationToken);
         if (notifier is not null)
         {
-            await notifier.NotifyUserAsync(actorId, title, string.Empty, cancellationToken);
+            await notifier.NotifyUserAsync(
+                notification.Id,
+                actorId,
+                title,
+                string.Empty,
+                notification.CreatedAt,
+                cancellationToken);
         }
     }
 }
