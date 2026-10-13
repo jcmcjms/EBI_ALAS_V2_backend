@@ -19,7 +19,7 @@ public sealed record LoanResponse(
     DateTimeOffset CreatedAt);
 
 public sealed record SubmitLoanRequest(
-    string ApplicationGroupNo,
+    string? ApplicationGroupNo,
     string ClientName,
     string BranchId,
     LoanType LoanType,

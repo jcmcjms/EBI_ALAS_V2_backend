@@ -3,6 +3,7 @@ using Ebi.Alas.Api.Features.LoanApplications.Domain;
 using Ebi.Alas.Api.Features.LoanComputation;
 using Ebi.Alas.Api.Features.Workflow;
 using Ebi.Alas.Api.Infrastructure.Persistence;
+using Microsoft.EntityFrameworkCore;
 
 namespace Ebi.Alas.Api.Features.LoanApplications.Submit;
 
@@ -13,13 +14,14 @@ public sealed class SubmitLoanHandler(
     IWorkflowConfiguration workflow,
     TimeProvider timeProvider)
 {
+    private const int GroupSequenceWidth = 6;
+
     public async Task<LoanResponse> HandleAsync(
         SubmitLoanRequest request,
         CallerContext caller,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(request);
-        ArgumentException.ThrowIfNullOrWhiteSpace(request.ApplicationGroupNo);
         ArgumentException.ThrowIfNullOrWhiteSpace(request.ClientName);
 
         await workflow.EnsureLoadedAsync(cancellationToken);
@@ -38,10 +40,14 @@ public sealed class SubmitLoanHandler(
             OtherDeductions: request.OtherDeductions));
 
         var now = timeProvider.GetUtcNow();
+        var applicationGroupNo = await ResolveApplicationGroupNoAsync(
+            request.ApplicationGroupNo,
+            now,
+            cancellationToken);
         var lamId = $"LAM-{now:yyyyMMddHHmmss}-{Guid.NewGuid():N}"[..32];
         var loan = LoanApplication.Create(
             lamId,
-            request.ApplicationGroupNo.Trim(),
+            applicationGroupNo,
             request.ClientName,
             branchId,
             request.LoanType,
@@ -67,5 +73,39 @@ public sealed class SubmitLoanHandler(
             : WorkflowStage.Evaluation;
         await queue.EnqueueAsync(loan.Id, stage, loan.BranchId, cancellationToken);
         return LoanMapping.ToResponse(loan);
+    }
+
+    /// <summary>
+    /// Uses the client-supplied group number when present; otherwise allocates
+    /// APP-{yyyyMMdd}-{000001} in the same style as the prior system.
+    /// </summary>
+    private async Task<string> ResolveApplicationGroupNoAsync(
+        string? applicationGroupNo,
+        DateTimeOffset now,
+        CancellationToken cancellationToken)
+    {
+        if (!string.IsNullOrWhiteSpace(applicationGroupNo))
+        {
+            return applicationGroupNo.Trim();
+        }
+
+        var prefix = $"APP-{now:yyyyMMdd}-";
+        var last = await db.LoanApplications.AsNoTracking()
+            .Where(l => l.ApplicationGroupNo.StartsWith(prefix))
+            .OrderByDescending(l => l.ApplicationGroupNo)
+            .Select(l => l.ApplicationGroupNo)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        var next = 1;
+        if (!string.IsNullOrEmpty(last))
+        {
+            var sequencePart = last[^GroupSequenceWidth..];
+            if (int.TryParse(sequencePart, out var lastSequence))
+            {
+                next = lastSequence + 1;
+            }
+        }
+
+        return $"{prefix}{next:D6}";
     }
 }
