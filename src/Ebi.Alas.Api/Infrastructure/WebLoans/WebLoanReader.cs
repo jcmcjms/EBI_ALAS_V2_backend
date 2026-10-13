@@ -233,6 +233,8 @@ public sealed class WebLoanReader(WebLoanDbContext db) : IWebLoanReader
                AND ld.bch = ad.bch AND ad.amort_no = 1
             LEFT JOIN dbo.loan_product AS lp ON ld.loan_product = lp.id_code
             WHERE ld.bch = {branchCode} AND ld.acct_no = {accountNo}
+              AND dbo.is_loan(ld.loan_no) = 1
+              AND ld.loan_status != 10
               AND ld.principal_bal > 0
             ORDER BY ld.date_granted DESC
             OFFSET {skip} ROWS FETCH NEXT {pageSize} ROWS ONLY";
