@@ -22,7 +22,7 @@ public sealed class LoanWorkflowService(
     {
         EnsureRole(caller, UserRole.Recommender);
         var loan = await LoadScopedAsync(loanId, caller, cancellationToken);
-        loan.TransitionTo(LoanStatus.ForChecking, timeProvider.GetUtcNow());
+        loan.TransitionTo(LoanStatus.ForChecking, timeProvider.GetUtcNow(), caller.UserId, "Recommended");
         await queue.CompleteAsync(await ActiveQueueIdAsync(loanId, WorkflowStage.Recommendation, cancellationToken), caller.UserId, cancellationToken);
         await queue.EnqueueAsync(loanId, WorkflowStage.Evaluation, loan.BranchId, cancellationToken);
         await NotifyAsync(caller.UserId, $"Loan {loan.LamId} recommended", cancellationToken);
@@ -38,7 +38,7 @@ public sealed class LoanWorkflowService(
     {
         EnsureRole(caller, UserRole.Evaluator);
         var loan = await LoadScopedAsync(loanId, caller, cancellationToken);
-        loan.TransitionTo(LoanStatus.ForApproval, timeProvider.GetUtcNow());
+        loan.TransitionTo(LoanStatus.ForApproval, timeProvider.GetUtcNow(), caller.UserId, recommend ? "EvaluatedRecommended" : "EvaluatedNotRecommended");
         await queue.CompleteAsync(await ActiveQueueIdAsync(loanId, WorkflowStage.Evaluation, cancellationToken), caller.UserId, cancellationToken);
         await queue.EnqueueAsync(loanId, WorkflowStage.Approval, loan.BranchId, cancellationToken);
         await NotifyAsync(caller.UserId, $"Loan {loan.LamId} evaluated (recommend={recommend})", cancellationToken);
@@ -53,7 +53,7 @@ public sealed class LoanWorkflowService(
     {
         EnsureRole(caller, UserRole.Approver);
         var loan = await LoadScopedAsync(loanId, caller, cancellationToken);
-        loan.TransitionTo(LoanStatus.Approved, timeProvider.GetUtcNow());
+        loan.TransitionTo(LoanStatus.Approved, timeProvider.GetUtcNow(), caller.UserId, "Approved");
         await queue.CompleteAsync(await ActiveQueueIdAsync(loanId, WorkflowStage.Approval, cancellationToken), caller.UserId, cancellationToken);
         await NotifyAsync(caller.UserId, $"Loan {loan.LamId} approved", cancellationToken);
         await db.SaveChangesAsync(cancellationToken);
@@ -67,7 +67,7 @@ public sealed class LoanWorkflowService(
     {
         EnsureRole(caller, UserRole.Approver);
         var loan = await LoadScopedAsync(loanId, caller, cancellationToken);
-        loan.TransitionTo(LoanStatus.Rejected, timeProvider.GetUtcNow());
+        loan.TransitionTo(LoanStatus.Rejected, timeProvider.GetUtcNow(), caller.UserId, "Rejected");
         await queue.CompleteAsync(await ActiveQueueIdAsync(loanId, WorkflowStage.Approval, cancellationToken), caller.UserId, cancellationToken);
         await NotifyAsync(caller.UserId, $"Loan {loan.LamId} rejected", cancellationToken);
         await db.SaveChangesAsync(cancellationToken);
@@ -83,7 +83,7 @@ public sealed class LoanWorkflowService(
     {
         EnsureRole(caller, UserRole.Recommender, UserRole.Evaluator, UserRole.Approver);
         var loan = await LoadScopedAsync(loanId, caller, cancellationToken);
-        loan.TransitionTo(LoanStatus.ForRevision, timeProvider.GetUtcNow());
+        loan.TransitionTo(LoanStatus.ForRevision, timeProvider.GetUtcNow(), caller.UserId, "PushedBack");
         db.RevisionRequests.Add(Revisions.RevisionRequest.Create(
             loanId, section, comment, caller.UserId, timeProvider.GetUtcNow()));
         await NotifyAsync(caller.UserId, $"Loan {loan.LamId} returned for revision", cancellationToken);
@@ -102,7 +102,7 @@ public sealed class LoanWorkflowService(
             EnsureRole(caller, UserRole.Approver);
         }
 
-        loan.Cancel(timeProvider.GetUtcNow());
+        loan.Cancel(timeProvider.GetUtcNow(), caller.UserId);
         await NotifyAsync(caller.UserId, $"Loan {loan.LamId} cancelled", cancellationToken);
         await db.SaveChangesAsync(cancellationToken);
         return LoanMapping.ToResponse(loan);

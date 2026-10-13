@@ -8,6 +8,8 @@ public sealed class LoanApplication
         ApplicationGroupNo = string.Empty;
         ClientName = string.Empty;
         BranchId = string.Empty;
+        ProductCode = string.Empty;
+        Product = string.Empty;
     }
 
     public Guid Id { get; private set; }
@@ -19,6 +21,10 @@ public sealed class LoanApplication
     public string ClientName { get; private set; }
 
     public string BranchId { get; private set; }
+
+    public string ProductCode { get; private set; }
+
+    public string Product { get; private set; }
 
     public LoanType LoanType { get; private set; }
 
@@ -42,6 +48,12 @@ public sealed class LoanApplication
 
     public DateTimeOffset UpdatedAt { get; private set; }
 
+    public DateTimeOffset LastActionDate { get; private set; }
+
+    public Guid? LastActionById { get; private set; }
+
+    public string? LastActionVerb { get; private set; }
+
     public static LoanApplication Create(
         string lamId,
         string applicationGroupNo,
@@ -55,7 +67,9 @@ public sealed class LoanApplication
         decimal totalDeductions,
         decimal netProceeds,
         Guid createdBy,
-        DateTimeOffset now)
+        DateTimeOffset now,
+        string productCode = "",
+        string product = "")
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(lamId);
         ArgumentException.ThrowIfNullOrWhiteSpace(applicationGroupNo);
@@ -71,6 +85,8 @@ public sealed class LoanApplication
             ApplicationGroupNo = applicationGroupNo,
             ClientName = clientName.Trim(),
             BranchId = branchId.Trim(),
+            ProductCode = productCode.Trim(),
+            Product = product.Trim(),
             LoanType = loanType,
             Status = LoanStatus.ForRecommendation,
             Principal = principal,
@@ -81,11 +97,14 @@ public sealed class LoanApplication
             NetProceeds = netProceeds,
             CreatedBy = createdBy,
             CreatedAt = now,
-            UpdatedAt = now
+            UpdatedAt = now,
+            LastActionDate = now,
+            LastActionById = createdBy,
+            LastActionVerb = "Encoded"
         };
     }
 
-    public void TransitionTo(LoanStatus next, DateTimeOffset now)
+    public void TransitionTo(LoanStatus next, DateTimeOffset now, Guid? actorId = null, string? verb = null)
     {
         if (!IsValidTransition(Status, next))
         {
@@ -94,9 +113,19 @@ public sealed class LoanApplication
 
         Status = next;
         UpdatedAt = now;
+        LastActionDate = now;
+        if (actorId is not null)
+        {
+            LastActionById = actorId;
+        }
+
+        if (!string.IsNullOrWhiteSpace(verb))
+        {
+            LastActionVerb = verb.Trim();
+        }
     }
 
-    public void Cancel(DateTimeOffset now)
+    public void Cancel(DateTimeOffset now, Guid? actorId = null, string? verb = null)
     {
         if (Status is LoanStatus.Approved or LoanStatus.Rejected or LoanStatus.Cancelled
             or LoanStatus.ForDisbursement or LoanStatus.Disbursed or LoanStatus.OnGoing)
@@ -106,6 +135,9 @@ public sealed class LoanApplication
 
         Status = LoanStatus.Cancelled;
         UpdatedAt = now;
+        LastActionDate = now;
+        LastActionById = actorId;
+        LastActionVerb = string.IsNullOrWhiteSpace(verb) ? "Cancelled" : verb.Trim();
     }
 
     public static bool IsValidTransition(LoanStatus from, LoanStatus to) => (from, to) switch

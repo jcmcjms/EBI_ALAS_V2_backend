@@ -25,6 +25,8 @@ public sealed class SubmitLoanBranchTests
         "G-1",
         "Client",
         branchId,
+        "A16",
+        "A16 - Salary Loan",
         LoanType.New,
         1000m,
         30,
@@ -46,6 +48,7 @@ public sealed class SubmitLoanBranchTests
         new Ebi.Alas.Api.Features.LoanComputation.LoanComputationService(),
         new WorkflowQueueService(db, TimeProvider.System),
         Config(requireRecommendation),
+        new ApplicationNumberGenerator(db),
         TimeProvider.System);
 
     [Fact]
@@ -113,7 +116,7 @@ public sealed class SubmitLoanBranchTests
     }
 
     [Fact]
-    public async Task SubmitLoan_BlankGroupNo_AllocatesAppGroupNumber()
+    public async Task SubmitLoan_AllocatesReferenceStyleLamAndGroupNumbers()
     {
         await using var db = Db();
         var handler = Handler(db, requireRecommendation: true);
@@ -122,6 +125,8 @@ public sealed class SubmitLoanBranchTests
             null,
             "Client",
             "BR-A",
+            "A16",
+            "A16 - Salary Loan",
             LoanType.New,
             1000m,
             30,
@@ -129,8 +134,24 @@ public sealed class SubmitLoanBranchTests
 
         var result = await handler.HandleAsync(request, caller, CancellationToken.None);
 
-        Assert.StartsWith("APP-", result.ApplicationGroupNo);
+        Assert.Matches(@"^LAM-\d{8}-\d{6}$", result.LamId);
         Assert.Matches(@"^APP-\d{8}-\d{6}$", result.ApplicationGroupNo);
+        Assert.Equal("A16", result.ProductCode);
+        Assert.Equal("A16 - Salary Loan", result.Product);
+    }
+
+    [Fact]
+    public async Task SubmitLoan_SequentialLamIdsIncrement()
+    {
+        await using var db = Db();
+        var handler = Handler(db, requireRecommendation: true);
+        var caller = new CallerContext(Guid.NewGuid(), UserRole.Encoder, "BR-A");
+
+        var first = await handler.HandleAsync(Request("BR-A"), caller, CancellationToken.None);
+        var second = await handler.HandleAsync(Request("BR-A"), caller, CancellationToken.None);
+
+        Assert.NotEqual(first.LamId, second.LamId);
+        Assert.True(string.CompareOrdinal(second.LamId, first.LamId) > 0);
     }
 
     [Fact]
@@ -143,6 +164,8 @@ public sealed class SubmitLoanBranchTests
             "APP-20261013-000042",
             "Client",
             "BR-A",
+            "A16",
+            "A16 - Salary Loan",
             LoanType.New,
             1000m,
             30,

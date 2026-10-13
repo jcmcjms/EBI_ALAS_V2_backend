@@ -10,6 +10,8 @@ public static class LoanMapping
         loan.ApplicationGroupNo,
         loan.ClientName,
         loan.BranchId,
+        loan.ProductCode,
+        loan.Product,
         loan.LoanType.ToString(),
         loan.Status.ToString(),
         loan.Principal,
@@ -18,5 +20,10 @@ public static class LoanMapping
         loan.TotalInterest,
         loan.TotalDeductions,
         loan.NetProceeds,
-        loan.CreatedAt);
+        loan.CreatedBy,
+        loan.CreatedAt,
+        loan.UpdatedAt,
+        loan.LastActionDate,
+        loan.LastActionById,
+        loan.LastActionVerb);
 }
