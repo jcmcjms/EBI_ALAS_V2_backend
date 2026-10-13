@@ -5,6 +5,7 @@ using Ebi.Alas.Api.Features.Auth.Login;
 using Ebi.Alas.Api.Features.Auth.Refresh;
 using Ebi.Alas.Api.Features.Branches;
 using Ebi.Alas.Api.Features.Dashboard;
+using Ebi.Alas.Api.Features.Deviations;
 using Ebi.Alas.Api.Features.LoanApplications;
 using Ebi.Alas.Api.Features.LoanProducts;
 using Ebi.Alas.Api.Features.Notifications;
@@ -55,6 +56,7 @@ public static class PipelineConfiguration
         app.MapPresenceEndpoints();
         app.MapLoanProductEndpoints();
         app.MapSlaPolicyEndpoints();
+        app.MapDeviationCatalogEndpoints();
         Features.Notifications.NotificationHubModule.MapNotificationHub(app);
 
         return app;
