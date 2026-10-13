@@ -40,6 +40,8 @@ public static class AuthorizationExtensions
                 new PermissionRequirement(Permissions.WorkflowManage)));
             options.AddPolicy("CanViewWebLoans", p => p.Requirements.Add(
                 new PermissionRequirement(Permissions.WebLoansView)));
+            options.AddPolicy("CanManageBranches", p => p.Requirements.Add(
+                new PermissionRequirement(Permissions.BranchesManage)));
         });
         return services;
     }

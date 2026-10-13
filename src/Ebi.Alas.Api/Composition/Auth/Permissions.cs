@@ -19,6 +19,7 @@ public static class Permissions
     public const string AuditLogsView = "auditLogs.view";
     public const string WorkflowManage = "workflow.manage";
     public const string WebLoansView = "webloans.view";
+    public const string BranchesManage = "branches.manage";
     public static readonly string[] All =
     [
         LoansCreate,
@@ -37,6 +38,7 @@ public static class Permissions
         RoleView,
         AuditLogsView,
         WorkflowManage,
-        WebLoansView
+        WebLoansView,
+        BranchesManage
     ];
 }
