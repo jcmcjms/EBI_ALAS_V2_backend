@@ -23,6 +23,7 @@ public sealed record LoanResponse(
     DateTimeOffset UpdatedAt,
     DateTimeOffset LastActionDate,
     Guid? LastActionById,
+    string? LastActionByName,
     string? LastActionVerb);
 
 /// <summary>One selected loan in a multi-loan application submission.</summary>

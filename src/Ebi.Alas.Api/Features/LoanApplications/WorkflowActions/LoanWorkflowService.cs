@@ -27,7 +27,7 @@ public sealed class LoanWorkflowService(
         await queue.EnqueueAsync(loanId, WorkflowStage.Evaluation, loan.BranchId, cancellationToken);
         await NotifyAsync(caller.UserId, $"Loan {loan.LamId} recommended", cancellationToken);
         await db.SaveChangesAsync(cancellationToken);
-        return LoanMapping.ToResponse(loan);
+        return await loan.ToResponseAsync(db, cancellationToken);
     }
 
     public async Task<LoanResponse> EvaluateAsync(
@@ -43,7 +43,7 @@ public sealed class LoanWorkflowService(
         await queue.EnqueueAsync(loanId, WorkflowStage.Approval, loan.BranchId, cancellationToken);
         await NotifyAsync(caller.UserId, $"Loan {loan.LamId} evaluated (recommend={recommend})", cancellationToken);
         await db.SaveChangesAsync(cancellationToken);
-        return LoanMapping.ToResponse(loan);
+        return await loan.ToResponseAsync(db, cancellationToken);
     }
 
     public async Task<LoanResponse> ApproveAsync(
@@ -57,7 +57,7 @@ public sealed class LoanWorkflowService(
         await queue.CompleteAsync(await ActiveQueueIdAsync(loanId, WorkflowStage.Approval, cancellationToken), caller.UserId, cancellationToken);
         await NotifyAsync(caller.UserId, $"Loan {loan.LamId} approved", cancellationToken);
         await db.SaveChangesAsync(cancellationToken);
-        return LoanMapping.ToResponse(loan);
+        return await loan.ToResponseAsync(db, cancellationToken);
     }
 
     public async Task<LoanResponse> RejectAsync(
@@ -71,7 +71,7 @@ public sealed class LoanWorkflowService(
         await queue.CompleteAsync(await ActiveQueueIdAsync(loanId, WorkflowStage.Approval, cancellationToken), caller.UserId, cancellationToken);
         await NotifyAsync(caller.UserId, $"Loan {loan.LamId} rejected", cancellationToken);
         await db.SaveChangesAsync(cancellationToken);
-        return LoanMapping.ToResponse(loan);
+        return await loan.ToResponseAsync(db, cancellationToken);
     }
 
     public async Task<LoanResponse> PushBackAsync(
@@ -88,7 +88,7 @@ public sealed class LoanWorkflowService(
             loanId, section, comment, caller.UserId, timeProvider.GetUtcNow()));
         await NotifyAsync(caller.UserId, $"Loan {loan.LamId} returned for revision", cancellationToken);
         await db.SaveChangesAsync(cancellationToken);
-        return LoanMapping.ToResponse(loan);
+        return await loan.ToResponseAsync(db, cancellationToken);
     }
 
     public async Task<LoanResponse> CancelAsync(
@@ -105,7 +105,7 @@ public sealed class LoanWorkflowService(
         loan.Cancel(timeProvider.GetUtcNow(), caller.UserId);
         await NotifyAsync(caller.UserId, $"Loan {loan.LamId} cancelled", cancellationToken);
         await db.SaveChangesAsync(cancellationToken);
-        return LoanMapping.ToResponse(loan);
+        return await loan.ToResponseAsync(db, cancellationToken);
     }
 
     private static void EnsureRole(CallerContext caller, params UserRole[] allowed)
