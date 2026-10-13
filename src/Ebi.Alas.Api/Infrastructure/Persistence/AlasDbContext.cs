@@ -1,6 +1,8 @@
 using Ebi.Alas.Api.Features.Auth.Domain;
 using Ebi.Alas.Api.Features.Auth.Persistence;
 using Ebi.Alas.Api.Features.Approvals;
+using Ebi.Alas.Api.Features.Branches;
+using Ebi.Alas.Api.Features.Branches.Persistence;
 using Ebi.Alas.Api.Features.Deviations;
 using Ebi.Alas.Api.Features.Documents;
 using Ebi.Alas.Api.Features.LoanApplications.Domain;
@@ -46,6 +48,8 @@ public sealed class AlasDbContext(DbContextOptions<AlasDbContext> options) : DbC
 
     public DbSet<UserPresence> UserPresences => Set<UserPresence>();
 
+    public DbSet<Branch> Branches => Set<Branch>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.ApplyConfiguration(new UserConfiguration());
@@ -53,6 +57,7 @@ public sealed class AlasDbContext(DbContextOptions<AlasDbContext> options) : DbC
         modelBuilder.ApplyConfiguration(new RevokedTokenConfiguration());
         modelBuilder.ApplyConfiguration(new LoanApplicationConfiguration());
         modelBuilder.ApplyConfiguration(new WorkflowQueueItemConfiguration());
+        modelBuilder.ApplyConfiguration(new BranchConfiguration());
 
         modelBuilder.Entity<SystemSetting>(b =>
         {
