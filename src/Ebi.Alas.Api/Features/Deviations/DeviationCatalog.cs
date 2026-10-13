@@ -25,7 +25,7 @@ public static class DeviationCatalog
         new(14, "No interview sheet", 1),
         new(15, "No orientation form or old form submitted", 1),
         new(16, "No valid identification cards", 1),
-        new(17, "Total consumer loan exposure exceeding 1.2 million", 1),
+        new(17, "Total consumer loan exposure exceeding 1.5 million", 1),
         new(18, "With blocked ATIM in same school", 1),
         new(19, "With history of delinquency in the latest loan availment", 1),
         new(20, "With NFIS findings", 1),
