@@ -20,17 +20,43 @@ public interface IWorkflowConfiguration
     string Source { get; }
     DateTime? UpdatedAt { get; }
     string? UpdatedByName { get; }
+    Task EnsureLoadedAsync(CancellationToken cancellationToken = default);
     void Apply(SettingSnapshot snapshot);
 }
 
 public sealed class WorkflowConfiguration : IWorkflowConfiguration
 {
     private readonly IOptionsMonitor<WorkflowOptions> _options;
+    private readonly ISystemSettingsStore _store;
     private SettingSnapshot _override = SettingSnapshot.Empty;
+    private bool _loaded;
 
-    public WorkflowConfiguration(IOptionsMonitor<WorkflowOptions> options) => _options = options;
+    public WorkflowConfiguration(
+        IOptionsMonitor<WorkflowOptions> options,
+        ISystemSettingsStore store)
+    {
+        _options = options;
+        _store = store;
+    }
 
-    public void Apply(SettingSnapshot snapshot) => _override = snapshot;
+    public async Task EnsureLoadedAsync(CancellationToken cancellationToken = default)
+    {
+        if (_loaded)
+        {
+            return;
+        }
+
+        _override = await _store.GetSnapshotAsync(
+            SystemSettingKeys.RequireRecommendation,
+            cancellationToken);
+        _loaded = true;
+    }
+
+    public void Apply(SettingSnapshot snapshot)
+    {
+        _override = snapshot;
+        _loaded = true;
+    }
 
     public bool RequireRecommendation =>
         _override.Value ?? _options.CurrentValue.RequireRecommendation;

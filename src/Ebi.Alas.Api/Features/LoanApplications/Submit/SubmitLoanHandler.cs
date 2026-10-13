@@ -3,7 +3,6 @@ using Ebi.Alas.Api.Features.LoanApplications.Domain;
 using Ebi.Alas.Api.Features.LoanComputation;
 using Ebi.Alas.Api.Features.Workflow;
 using Ebi.Alas.Api.Infrastructure.Persistence;
-using Microsoft.EntityFrameworkCore;
 
 namespace Ebi.Alas.Api.Features.LoanApplications.Submit;
 
@@ -11,6 +10,7 @@ public sealed class SubmitLoanHandler(
     AlasDbContext db,
     LoanComputationService computation,
     WorkflowQueueService queue,
+    IWorkflowConfiguration workflow,
     TimeProvider timeProvider)
 {
     public async Task<LoanResponse> HandleAsync(
@@ -21,6 +21,8 @@ public sealed class SubmitLoanHandler(
         ArgumentNullException.ThrowIfNull(request);
         ArgumentException.ThrowIfNullOrWhiteSpace(request.ApplicationGroupNo);
         ArgumentException.ThrowIfNullOrWhiteSpace(request.ClientName);
+
+        await workflow.EnsureLoadedAsync(cancellationToken);
 
         var branchId = caller.CanAccessAllBranches
             ? (string.IsNullOrWhiteSpace(request.BranchId) ? caller.BranchId : request.BranchId.Trim())
@@ -52,9 +54,18 @@ public sealed class SubmitLoanHandler(
             caller.UserId,
             now);
 
+        if (!workflow.RequireRecommendation)
+        {
+            loan.TransitionTo(LoanStatus.ForChecking, now);
+        }
+
         db.LoanApplications.Add(loan);
         await db.SaveChangesAsync(cancellationToken);
-        await queue.EnqueueAsync(loan.Id, WorkflowStage.Recommendation, loan.BranchId, cancellationToken);
+
+        var stage = workflow.RequireRecommendation
+            ? WorkflowStage.Recommendation
+            : WorkflowStage.Evaluation;
+        await queue.EnqueueAsync(loan.Id, stage, loan.BranchId, cancellationToken);
         return LoanMapping.ToResponse(loan);
     }
 }
