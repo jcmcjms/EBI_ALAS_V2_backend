@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using Microsoft.EntityFrameworkCore.Migrations;
 
 #nullable disable
@@ -11,10 +11,6 @@ namespace Ebi.Alas.Api.Migrations
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
-            migrationBuilder.DropColumn(
-                name: "FullName",
-                table: "Users");
-
             migrationBuilder.AddColumn<long>(
                 name: "Version",
                 table: "WorkflowQueueItems",
@@ -45,6 +41,39 @@ namespace Ebi.Alas.Api.Migrations
                 maxLength: 100,
                 nullable: false,
                 defaultValue: "");
+
+            // Split FullName into structured name parts before dropping it.
+            // 1 token → FirstName only (LastName gets the same token so the
+            // required LastName invariant holds). 2 tokens → First/Last.
+            // 3+ tokens → First / middle run / Last.
+            migrationBuilder.Sql("""
+                UPDATE Users
+                SET
+                    FirstName = CASE
+                        WHEN NULLIF(LTRIM(RTRIM(FullName)), '') IS NULL THEN N''
+                        WHEN CHARINDEX(N' ', LTRIM(RTRIM(FullName))) = 0 THEN LTRIM(RTRIM(FullName))
+                        ELSE LEFT(LTRIM(RTRIM(FullName)), CHARINDEX(N' ', LTRIM(RTRIM(FullName))) - 1)
+                    END,
+                    LastName = CASE
+                        WHEN NULLIF(LTRIM(RTRIM(FullName)), '') IS NULL THEN N''
+                        WHEN CHARINDEX(N' ', LTRIM(RTRIM(FullName))) = 0 THEN LTRIM(RTRIM(FullName))
+                        ELSE REVERSE(LEFT(REVERSE(LTRIM(RTRIM(FullName))), CHARINDEX(N' ', REVERSE(LTRIM(RTRIM(FullName)))) - 1))
+                    END,
+                    MiddleName = CASE
+                        WHEN NULLIF(LTRIM(RTRIM(FullName)), '') IS NULL THEN N''
+                        WHEN CHARINDEX(N' ', LTRIM(RTRIM(FullName))) = 0 THEN N''
+                        ELSE LTRIM(RTRIM(SUBSTRING(
+                            LTRIM(RTRIM(FullName)),
+                            CHARINDEX(N' ', LTRIM(RTRIM(FullName))) + 1,
+                            LEN(LTRIM(RTRIM(FullName))) - CHARINDEX(N' ', LTRIM(RTRIM(FullName))) - CHARINDEX(N' ', REVERSE(LTRIM(RTRIM(FullName))))
+                        )))
+                    END
+                WHERE NULLIF(LTRIM(RTRIM(FullName)), '') IS NOT NULL;
+                """);
+
+            migrationBuilder.DropColumn(
+                name: "FullName",
+                table: "Users");
 
             migrationBuilder.CreateTable(
                 name: "SystemSettings",
