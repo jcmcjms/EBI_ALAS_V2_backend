@@ -48,6 +48,7 @@ public static class PipelineConfiguration
         app.MapBranches();
         app.MapLoans();
         app.MapLoanWorkflow();
+        Features.LoanApplications.Documents.ChecklistDocumentEndpoints.MapChecklistDocumentEndpoints(app);
         app.MapWorkflow();
         app.MapWorkflowConfigurationEndpoints();
         app.MapDashboardEndpoints();
