@@ -1,4 +1,4 @@
-﻿namespace Ebi.Alas.Api.Features.Branches;
+namespace Ebi.Alas.Api.Features.Branches;
 
 public sealed class Branch
 {
@@ -28,6 +28,21 @@ public sealed class Branch
         ArgumentException.ThrowIfNullOrWhiteSpace(code);
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
         ArgumentException.ThrowIfNullOrWhiteSpace(areaCode);
+        if (code.Trim().Length > 8)
+        {
+            throw new ArgumentOutOfRangeException(nameof(code), "Code must be at most 8 characters.");
+        }
+
+        if (name.Trim().Length > 200)
+        {
+            throw new ArgumentOutOfRangeException(nameof(name), "Name must be at most 200 characters.");
+        }
+
+        if (areaCode.Trim().Length > 16)
+        {
+            throw new ArgumentOutOfRangeException(nameof(areaCode), "AreaCode must be at most 16 characters.");
+        }
+
         return new Branch
         {
             Id = Guid.NewGuid(),
@@ -44,6 +59,16 @@ public sealed class Branch
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
         ArgumentException.ThrowIfNullOrWhiteSpace(areaCode);
+        if (name.Trim().Length > 200)
+        {
+            throw new ArgumentOutOfRangeException(nameof(name), "Name must be at most 200 characters.");
+        }
+
+        if (areaCode.Trim().Length > 16)
+        {
+            throw new ArgumentOutOfRangeException(nameof(areaCode), "AreaCode must be at most 16 characters.");
+        }
+
         Name = name.Trim();
         AreaCode = areaCode.Trim();
         UpdatedAt = now;

@@ -1,4 +1,4 @@
-﻿using Ebi.Alas.Api.Features.Branches;
+using Ebi.Alas.Api.Features.Branches;
 
 namespace Ebi.Alas.Api.Tests.Features.Branches;
 
@@ -28,6 +28,35 @@ public sealed class BranchDomainTests
     public void Create_RejectsBlankAreaCode()
     {
         Assert.Throws<ArgumentException>(() => Branch.Create("011", "Name", " ", Now));
+    }
+
+    [Fact]
+    public void Create_RejectsCodeLongerThan8()
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            Branch.Create("123456789", "Name", "NA", Now));
+    }
+
+    [Fact]
+    public void Create_RejectsNameLongerThan200()
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            Branch.Create("011", new string('x', 201), "NA", Now));
+    }
+
+    [Fact]
+    public void Create_RejectsAreaCodeLongerThan16()
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            Branch.Create("011", "Name", new string('x', 17), Now));
+    }
+
+    [Fact]
+    public void UpdateDetails_RejectsNameLongerThan200()
+    {
+        var branch = Branch.Create("011", "Main", "NA", Now);
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            branch.UpdateDetails(new string('x', 201), "NA", Now));
     }
 
     [Fact]
