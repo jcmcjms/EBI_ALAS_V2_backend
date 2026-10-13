@@ -87,5 +87,34 @@ public static class BranchEndpoints
         })
         .RequireAuthorization("CanManageBranches")
         .RequireRateLimiting("write");
+
+        group.MapPatch("/{code}/status", async (
+            string code,
+            UpdateBranchStatusRequest request,
+            UpdateBranchStatusHandler handler,
+            CancellationToken cancellationToken) =>
+        {
+            try
+            {
+                var updated = await handler.HandleAsync(code, request, cancellationToken);
+                return Results.Ok(updated);
+            }
+            catch (BranchCloseBlockedException ex)
+            {
+                return Results.Problem(
+                    statusCode: StatusCodes.Status409Conflict,
+                    title: "Branch has dependencies",
+                    detail: ex.Message);
+            }
+            catch (ArgumentException ex)
+            {
+                return Results.Problem(
+                    statusCode: StatusCodes.Status400BadRequest,
+                    title: "Bad Request",
+                    detail: ex.Message);
+            }
+        })
+        .RequireAuthorization("CanManageBranches")
+        .RequireRateLimiting("write");
     }
 }
