@@ -7,10 +7,11 @@ namespace Ebi.Alas.Api.Features.Notifications;
 
 public interface IRealtimeNotifier
 {
-    Task NotifyUserAsync(Guid userId, string title, string body, CancellationToken cancellationToken);
+    Task NotifyUserAsync(Guid notificationId, Guid userId, string title, string body, DateTimeOffset createdAt, CancellationToken cancellationToken);
 }
 
 public sealed record ReceiveNotificationPayload(
+    Guid Id,
     string Title,
     string Description,
     string? Link,
@@ -24,10 +25,11 @@ public sealed class NotificationHub(PresenceService presence) : Hub
     public static string UserGroup(Guid userId) => $"user:{userId}";
 
     public static ReceiveNotificationPayload ToReceiveNotification(
+        Guid id,
         string title,
         string body,
         DateTimeOffset createdAt) =>
-        new(title, body, Link: null, Timestamp: createdAt);
+        new(id, title, body, Link: null, Timestamp: createdAt);
 
     public override async Task OnConnectedAsync()
     {
@@ -46,15 +48,21 @@ public sealed class NotificationHub(PresenceService presence) : Hub
 }
 
 public sealed class SignalRRealtimeNotifier(
-    IHubContext<NotificationHub> hubContext,
-    TimeProvider timeProvider) : IRealtimeNotifier
+    IHubContext<NotificationHub> hubContext) : IRealtimeNotifier
 {
-    public async Task NotifyUserAsync(Guid userId, string title, string body, CancellationToken cancellationToken)
+    public async Task NotifyUserAsync(
+        Guid notificationId,
+        Guid userId,
+        string title,
+        string body,
+        DateTimeOffset createdAt,
+        CancellationToken cancellationToken)
     {
         var payload = NotificationHub.ToReceiveNotification(
+            notificationId,
             title,
             body,
-            timeProvider.GetUtcNow());
+            createdAt);
 
         await hubContext.Clients.Group(NotificationHub.UserGroup(userId))
             .SendAsync(NotificationHub.ReceiveNotificationEvent, payload, cancellationToken);
