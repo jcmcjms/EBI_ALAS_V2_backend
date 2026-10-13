@@ -61,6 +61,8 @@ public sealed class ListLoansHandler(AlasDbContext db)
                 l.ApplicationGroupNo,
                 l.ClientName,
                 l.BranchId,
+                l.ProductCode,
+                l.Product,
                 LoanType = l.LoanType.ToString(),
                 Status = l.Status.ToString(),
                 l.Principal,
@@ -69,7 +71,12 @@ public sealed class ListLoansHandler(AlasDbContext db)
                 l.TotalInterest,
                 l.TotalDeductions,
                 l.NetProceeds,
-                l.CreatedAt
+                l.CreatedBy,
+                l.CreatedAt,
+                l.UpdatedAt,
+                l.LastActionDate,
+                l.LastActionById,
+                l.LastActionVerb
             })
             .ToListAsync(cancellationToken);
 
@@ -79,6 +86,8 @@ public sealed class ListLoansHandler(AlasDbContext db)
             r.ApplicationGroupNo,
             r.ClientName,
             r.BranchId,
+            r.ProductCode,
+            r.Product,
             r.LoanType,
             r.Status,
             r.Principal,
@@ -87,7 +96,12 @@ public sealed class ListLoansHandler(AlasDbContext db)
             r.TotalInterest,
             r.TotalDeductions,
             r.NetProceeds,
-            r.CreatedAt))];
+            r.CreatedBy,
+            r.CreatedAt,
+            r.UpdatedAt,
+            r.LastActionDate,
+            r.LastActionById,
+            r.LastActionVerb))];
 
         return new PageResult<LoanResponse>(items, total, normalized.Page, normalized.PageSize);
     }

@@ -255,6 +255,16 @@ namespace Ebi.Alas.Api.Migrations
                         .HasMaxLength(32)
                         .HasColumnType("nvarchar(32)");
 
+                    b.Property<Guid?>("LastActionById")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTimeOffset>("LastActionDate")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("LastActionVerb")
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)");
+
                     b.Property<int>("LoanType")
                         .HasColumnType("int");
 
@@ -265,6 +275,16 @@ namespace Ebi.Alas.Api.Migrations
                     b.Property<decimal>("Principal")
                         .HasPrecision(18, 2)
                         .HasColumnType("decimal(18,2)");
+
+                    b.Property<string>("Product")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<string>("ProductCode")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("nvarchar(16)");
 
                     b.Property<int>("Status")
                         .HasColumnType("int");

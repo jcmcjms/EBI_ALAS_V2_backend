@@ -15,6 +15,9 @@ public sealed class LoanApplicationConfiguration : IEntityTypeConfiguration<Loan
         builder.Property(x => x.ApplicationGroupNo).HasMaxLength(32).IsRequired();
         builder.Property(x => x.ClientName).HasMaxLength(200).IsRequired();
         builder.Property(x => x.BranchId).HasMaxLength(16).IsRequired();
+        builder.Property(x => x.ProductCode).HasMaxLength(16).IsRequired();
+        builder.Property(x => x.Product).HasMaxLength(200).IsRequired();
+        builder.Property(x => x.LastActionVerb).HasMaxLength(50);
         builder.Property(x => x.LoanType).HasConversion<int>();
         builder.Property(x => x.Status).HasConversion<int>();
         builder.Property(x => x.Principal).HasPrecision(18, 2);

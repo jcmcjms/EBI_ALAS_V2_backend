@@ -8,6 +8,8 @@ public sealed record LoanResponse(
     string ApplicationGroupNo,
     string ClientName,
     string BranchId,
+    string ProductCode,
+    string Product,
     string LoanType,
     string Status,
     decimal Principal,
@@ -16,12 +18,19 @@ public sealed record LoanResponse(
     decimal TotalInterest,
     decimal TotalDeductions,
     decimal NetProceeds,
-    DateTimeOffset CreatedAt);
+    Guid CreatedBy,
+    DateTimeOffset CreatedAt,
+    DateTimeOffset UpdatedAt,
+    DateTimeOffset LastActionDate,
+    Guid? LastActionById,
+    string? LastActionVerb);
 
 public sealed record SubmitLoanRequest(
     string? ApplicationGroupNo,
     string ClientName,
     string BranchId,
+    string ProductCode,
+    string Product,
     LoanType LoanType,
     decimal Principal,
     int TermDays,
