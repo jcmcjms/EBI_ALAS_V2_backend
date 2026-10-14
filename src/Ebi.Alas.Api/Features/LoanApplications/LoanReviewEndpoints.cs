@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using System.Text.Json;
 using Ebi.Alas.Api.Composition.Auth;
 using Ebi.Alas.Api.Composition.Errors;
 using Ebi.Alas.Api.Composition.Pagination;
@@ -236,7 +237,7 @@ public static class LoanReviewEndpoints
         return await query.FirstOrDefaultAsync(ct);
     }
 
-    private static async Task<List<TimelineEventDto>> BuildTimelineEventsAsync(
+    public static async Task<List<TimelineEventDto>> BuildTimelineEventsAsync(
         AlasDbContext db,
         LoanApplication loan,
         CancellationToken ct)
@@ -244,16 +245,16 @@ public static class LoanReviewEndpoints
         var events = new List<TimelineEventDto>
         {
             new(
-                $"remark:encoded:{loan.Id}",
-                "remark",
+                $"workflow:created:{loan.Id}",
+                "workflow",
                 loan.CreatedAt,
                 null,
                 null,
-                "Encoded",
+                "Created",
                 null,
                 LoanStatus.ForRecommendation.ToString(),
-                "Application submitted",
-                "Encoder remarks",
+                null,
+                null,
                 null),
         };
 
@@ -353,6 +354,8 @@ public static class LoanReviewEndpoints
                 deviation.Code));
         }
 
+        AddFormRemarkEvents(events, loan);
+
         var revisions = await db.RevisionRequests.AsNoTracking()
             .Where(r => r.LoanApplicationId == loan.Id)
             .OrderBy(r => r.RequestedAt)
@@ -376,5 +379,136 @@ public static class LoanReviewEndpoints
         }
 
         return events;
+    }
+
+    private static void AddFormRemarkEvents(List<TimelineEventDto> events, LoanApplication loan)
+    {
+        if (string.IsNullOrWhiteSpace(loan.FormJson))
+        {
+            return;
+        }
+
+        JsonDocument doc;
+        try
+        {
+            doc = JsonDocument.Parse(loan.FormJson);
+        }
+        catch (JsonException)
+        {
+            return;
+        }
+
+        using (doc)
+        {
+            foreach (var loanEl in EnumerateLoans(doc.RootElement))
+            {
+                var verification = GetString(loanEl, "verification", "findings");
+                AddRemarkEvent(events, loan, "Verification findings", verification);
+
+                if (!TryGetObject(loanEl, "deviations", out var deviations))
+                {
+                    continue;
+                }
+
+                AddRemarkEvent(events, loan, "Encoder remarks", GetString(deviations, "remarks"));
+                AddRemarkEvent(events, loan, "Account officer recommendation", GetString(deviations, "aoRecommendation"));
+                AddRemarkEvent(events, loan, "Other remarks", GetString(deviations, "otherRemarks"));
+                AddRemarkEvent(events, loan, "Fee deviation", GetString(deviations, "feeDeviationJustification"));
+
+                if (TryGetObject(deviations, "deviationJustifications", out var justifications))
+                {
+                    foreach (var prop in justifications.EnumerateObject())
+                    {
+                        var body = prop.Value.GetString();
+                        if (string.IsNullOrWhiteSpace(body))
+                        {
+                            continue;
+                        }
+
+                        events.Add(new TimelineEventDto(
+                            $"deviationRemark:{prop.Name}",
+                            "deviationRemark",
+                            loan.CreatedAt,
+                            null,
+                            null,
+                            null,
+                            null,
+                            null,
+                            body.Trim(),
+                            prop.Name,
+                            null));
+                    }
+                }
+            }
+        }
+    }
+
+    private static IEnumerable<JsonElement> EnumerateLoans(JsonElement root)
+    {
+        if (root.TryGetProperty("loans", out var loans) && loans.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var loanEl in loans.EnumerateArray())
+            {
+                yield return loanEl;
+            }
+        }
+        else
+        {
+            yield return root;
+        }
+    }
+
+    private static bool TryGetObject(JsonElement parent, string name, out JsonElement value)
+    {
+        value = default;
+        if (parent.ValueKind != JsonValueKind.Object
+            || !parent.TryGetProperty(name, out var el)
+            || el.ValueKind != JsonValueKind.Object)
+        {
+            return false;
+        }
+
+        value = el;
+        return true;
+    }
+
+    private static string? GetString(JsonElement parent, params string[] path)
+    {
+        var current = parent;
+        foreach (var name in path)
+        {
+            if (current.ValueKind != JsonValueKind.Object
+                || !current.TryGetProperty(name, out current))
+            {
+                return null;
+            }
+        }
+
+        return current.ValueKind == JsonValueKind.String ? current.GetString() : null;
+    }
+
+    private static void AddRemarkEvent(
+        List<TimelineEventDto> events,
+        LoanApplication loan,
+        string label,
+        string? body)
+    {
+        if (string.IsNullOrWhiteSpace(body))
+        {
+            return;
+        }
+
+        events.Add(new TimelineEventDto(
+            $"remark:{label}:{loan.Id}",
+            "remark",
+            loan.CreatedAt,
+            null,
+            null,
+            null,
+            null,
+            null,
+            body.Trim(),
+            label,
+            null));
     }
 }
