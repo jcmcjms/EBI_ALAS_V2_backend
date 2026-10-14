@@ -132,6 +132,7 @@ public static class ServiceRegistration
         services.AddScoped<Features.Branches.UpdateBranchHandler>();
         services.AddScoped<Features.Branches.UpdateBranchStatusHandler>();
         services.AddScoped<Features.Users.Seed.AdminUserSeeder>();
+        services.AddScoped<Features.LoanProducts.ProductDocumentRequirementSeeder>();
         services.AddHostedService<AdminSeedHostedService>();
 
         var webLoanConnectionString = configuration.GetConnectionString("WebLoan");
@@ -174,6 +175,7 @@ public static class ServiceRegistration
         services.AddSignalR();
         services.AddSingleton<Features.Presence.IPresenceNotifier, Features.Presence.SignalRPresenceNotifier>();
         services.AddSingleton<Features.Notifications.IRealtimeNotifier, Features.Notifications.SignalRRealtimeNotifier>();
+        services.AddScoped<Features.Notifications.ApplicationArrivalNotifier>();
         services.AddHostedService<Infrastructure.Background.PresenceSweepHostedService>();
         services.AddHostedService<QueueReconciliationHostedService>();
         services.AddHostedService<TokenCleanupHostedService>();

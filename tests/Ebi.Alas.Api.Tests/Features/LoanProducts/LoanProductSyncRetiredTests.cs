@@ -31,6 +31,10 @@ public sealed class LoanProductSyncRetiredTests
         public Task<PendingLoanResponse?> GetAccountPendingLoanAsync(
             string cisNo, string accountId, CancellationToken cancellationToken)
             => Task.FromResult<PendingLoanResponse?>(null);
+
+        public Task<string?> GetCatLoanClassAsync(
+            string branchCode, string loanNo, string productCode, CancellationToken cancellationToken)
+            => Task.FromResult<string?>(null);
     }
 
     private sealed class FixedTimeProvider(DateTimeOffset now) : TimeProvider

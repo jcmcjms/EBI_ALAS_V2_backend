@@ -246,6 +246,9 @@ namespace Ebi.Alas.Api.Migrations
                     b.Property<Guid>("CreatedBy")
                         .HasColumnType("uniqueidentifier");
 
+                    b.Property<string>("FormJson")
+                        .HasColumnType("nvarchar(max)");
+
                     b.Property<decimal>("InterestRate")
                         .HasPrecision(9, 4)
                         .HasColumnType("decimal(9,4)");
@@ -385,6 +388,35 @@ namespace Ebi.Alas.Api.Migrations
                         .IsUnique();
 
                     b.ToTable("LoanProducts", (string)null);
+                });
+
+            modelBuilder.Entity("Ebi.Alas.Api.Features.LoanProducts.LoanProductDocumentRequirement", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)");
+
+                    b.Property<string>("Description")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<string>("ProductCode")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ProductCode", "Code")
+                        .IsUnique();
+
+                    b.ToTable("LoanProductDocumentRequirements", (string)null);
                 });
 
             modelBuilder.Entity("Ebi.Alas.Api.Features.Notifications.Notification", b =>
