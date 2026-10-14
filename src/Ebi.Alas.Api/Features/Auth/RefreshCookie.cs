@@ -2,10 +2,6 @@ using Microsoft.AspNetCore.Http;
 
 namespace Ebi.Alas.Api.Features.Auth;
 
-/// <summary>
-/// HttpOnly cookie that carries the opaque refresh token so browsers can restore
-/// sessions without putting the secret in JavaScript-accessible storage.
-/// </summary>
 public static class RefreshCookie
 {
     public const string Name = "alas_refresh";

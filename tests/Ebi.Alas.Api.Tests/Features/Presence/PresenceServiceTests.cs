@@ -124,4 +124,26 @@ public sealed class PresenceServiceTests
         Assert.Equal(user.Id, change.User.UserId);
         Assert.Empty(await db.UserPresences.ToListAsync());
     }
+
+    [Fact]
+    public async Task GetOnlineUsers_ReturnsDisplayNameForActiveUser()
+    {
+        await using var db = Db();
+        var now = DateTimeOffset.UtcNow;
+        var clock = new FixedTimeProvider(now);
+        var notifier = new RecordingNotifier();
+        var service = new PresenceService(db, clock, notifier);
+        var user = User.Create("ada", "hash", "Ada", "Lovelace", "Byron", "a@x.com", "011", UserRole.Encoder, now);
+        db.Users.Add(user);
+        await db.SaveChangesAsync();
+
+        await service.HeartbeatAsync(user.Id, CancellationToken.None);
+        var online = await service.GetOnlineUsersAsync(CancellationToken.None);
+
+        var row = Assert.Single(online);
+        Assert.Equal(user.Id, row.UserId);
+        Assert.False(string.IsNullOrWhiteSpace(row.Name));
+        Assert.Contains("Ada", row.Name);
+        Assert.Contains("Lovelace", row.Name);
+    }
 }

@@ -1,8 +1,5 @@
 namespace Ebi.Alas.Api.Features.Deviations;
 
-/// <summary>
-/// Stable deviation catalog (None=0, Minor=1, Major=2) matching the prior system seed.
-/// </summary>
 public static class DeviationCatalog
 {
     public sealed record Item(int Id, string Description, int Severity);

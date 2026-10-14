@@ -31,10 +31,6 @@ public sealed record LoanComputationResult(
     bool PassesNthpCheck,
     bool PassesDisposableIncomeCheck);
 
-/// <summary>
-/// Monthly amortization and capacity math shared with the approval form
-/// (annuity PMT over termMonths = floor(termDays / 30)).
-/// </summary>
 public sealed class LoanComputationService
 {
     public const decimal NthpThresholdRatio = 0.40m;

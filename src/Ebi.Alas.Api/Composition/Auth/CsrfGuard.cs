@@ -2,10 +2,6 @@ using System.Security.Claims;
 
 namespace Ebi.Alas.Api.Composition.Auth;
 
-/// <summary>
-/// Double-submit CSRF check: unsafe methods on an authenticated request must
-/// carry X-XSRF-TOKEN matching the access-token XsrfToken claim.
-/// </summary>
 public static class CsrfGuard
 {
     public const string HeaderName = "X-XSRF-TOKEN";

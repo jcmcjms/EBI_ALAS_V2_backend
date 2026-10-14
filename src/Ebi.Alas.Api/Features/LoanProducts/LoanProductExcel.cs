@@ -2,13 +2,8 @@ using ClosedXML.Excel;
 
 namespace Ebi.Alas.Api.Features.LoanProducts;
 
-/// <summary>xlsx read/write for loan-product import, template, and export.</summary>
 public static class LoanProductExcel
 {
-    /// <summary>
-    /// Header labels from the production import template
-    /// (Testing Excel/loan-product-import-template.xlsx). Asterisks mark required columns.
-    /// </summary>
     public static readonly string[] ImportHeaders =
     [
         "Code *", "Description *", "Min Amount *", "Max Amount *",

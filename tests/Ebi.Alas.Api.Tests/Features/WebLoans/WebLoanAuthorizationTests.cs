@@ -8,11 +8,6 @@ using Microsoft.IdentityModel.Tokens;
 
 namespace Ebi.Alas.Api.Tests.Features.WebLoans;
 
-/// <summary>
-/// Endpoint-level authorization for /api/webloans/* customer financial data.
-/// Tokens are minted with explicit role/permission claims so each case isolates
-/// the authorization decision rather than login or role-catalog seeding.
-/// </summary>
 public sealed class WebLoanAuthorizationTests : IClassFixture<WebApplicationFactory<Program>>
 {
     private const string SigningKey = "webloan-auth-tests-signing-key-32chars!";

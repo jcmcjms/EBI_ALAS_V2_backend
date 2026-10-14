@@ -9,10 +9,6 @@ using Microsoft.IdentityModel.Tokens;
 
 namespace Ebi.Alas.Api.Tests.Features.Auth;
 
-/// <summary>
-/// Diagnostic: confirm the XsrfToken claim written into the access JWT is still
-/// addressable as "XsrfToken" after JwtBearer-style token validation.
-/// </summary>
 public sealed class XsrfClaimMappingTests
 {
     private static readonly JwtOptions Options = new()

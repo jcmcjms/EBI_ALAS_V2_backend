@@ -8,10 +8,6 @@ using Microsoft.Extensions.DependencyInjection;
 
 namespace Ebi.Alas.Api.Tests.Api;
 
-/// <summary>
-/// Write rate-limit coverage: mutation endpoints must carry the "write" policy,
-/// and a write endpoint must return 429 under burst.
-/// </summary>
 public sealed class WriteRateLimitApiTests : IClassFixture<WebApplicationFactory<Program>>
 {
     private readonly WebApplicationFactory<Program> _factory;

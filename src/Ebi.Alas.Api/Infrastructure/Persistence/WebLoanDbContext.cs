@@ -2,7 +2,6 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Ebi.Alas.Api.Infrastructure.Persistence;
 
-/// <summary>Read-only EF mapping for the external WebLoan database.</summary>
 public sealed class WebLoanDbContext(DbContextOptions<WebLoanDbContext> options) : DbContext(options)
 {
     public DbSet<WebLoanCisInfo> CisInfos => Set<WebLoanCisInfo>();
@@ -229,7 +228,6 @@ public sealed class WebLoanCheckList
     public DateTime? Expiration { get; set; }
 }
 
-/// <summary>webloan check_list_all — catalog of checklist codes and official descriptions.</summary>
 public sealed class WebLoanCheckListCatalog
 {
     public string IdCode { get; set; } = string.Empty;
@@ -263,6 +261,5 @@ public sealed class WebLoanProduct
 
     public string ProductName { get; set; } = string.Empty;
 
-    /// <summary>webloan expiration — non-null means the catalog row is retired.</summary>
     public DateTime? Expiration { get; set; }
 }

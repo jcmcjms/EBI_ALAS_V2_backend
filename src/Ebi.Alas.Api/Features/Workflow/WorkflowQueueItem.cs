@@ -27,7 +27,6 @@ public sealed class WorkflowQueueItem
 
     public int Sequence { get; private set; }
 
-    /// <summary>Row version used for optimistic concurrency on claim/release/complete.</summary>
     public uint Version { get; private set; }
 
     public static WorkflowQueueItem Enqueue(

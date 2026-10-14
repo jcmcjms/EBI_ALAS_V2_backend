@@ -5,10 +5,6 @@ using Microsoft.Extensions.Configuration;
 
 namespace Ebi.Alas.Api.Infrastructure.Persistence;
 
-/// <summary>
-/// Design-time factory for EF tools. Prefer env var, then user secrets,
-/// then LocalDB fallback so `dotnet ef` matches the running app's Alas DB.
-/// </summary>
 public sealed class AlasDbContextFactory : IDesignTimeDbContextFactory<AlasDbContext>
 {
     public AlasDbContext CreateDbContext(string[] args)

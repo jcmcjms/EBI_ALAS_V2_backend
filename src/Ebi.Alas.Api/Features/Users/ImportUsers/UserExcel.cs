@@ -2,10 +2,8 @@ using ClosedXML.Excel;
 
 namespace Ebi.Alas.Api.Features.Users.ImportUsers;
 
-/// <summary>xlsx read/write for bulk user import (header-based columns).</summary>
 public static class UserExcel
 {
-    /// <summary>Preferred 7-column export/import layout.</summary>
     public static readonly string[] Headers =
     [
         "Username", "First Name", "Middle Name", "Last Name", "Email", "Branch Code", "Role"

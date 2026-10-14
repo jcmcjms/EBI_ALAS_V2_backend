@@ -24,12 +24,6 @@ public interface ISystemSettingsStore
     Task<SettingSnapshot> SetBoolAsync(string key, bool value, Guid userId, CancellationToken ct = default);
 }
 
-/// <summary>
-/// Reads SystemSettings directly from the database. No process-local cache:
-/// values must be consistent across instances and this store is on a low-volume
-/// admin path (workflow configuration), so a stale 30s IMemoryCache was a
-/// multi-instance correctness risk with no meaningful load benefit.
-/// </summary>
 public sealed class SystemSettingsStore : ISystemSettingsStore
 {
     private readonly AlasDbContext _db;

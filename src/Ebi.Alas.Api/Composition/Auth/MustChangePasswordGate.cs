@@ -2,10 +2,6 @@ using System.Security.Claims;
 
 namespace Ebi.Alas.Api.Composition.Auth;
 
-/// <summary>
-/// Server-side gate: callers with mustChangePassword may only reach
-/// change-password / logout / anonymous auth and health endpoints.
-/// </summary>
 public static class MustChangePasswordGate
 {
     private static readonly string[] AllowedPathPrefixes =
