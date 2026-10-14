@@ -29,6 +29,10 @@ public sealed class User
 
     public string Email { get; private set; }
 
+    public string? Phone { get; private set; }
+
+    public string? EmergencyContact { get; private set; }
+
     public string BranchId { get; private set; }
 
     public string? JobTitle { get; private set; }
@@ -148,6 +152,29 @@ public sealed class User
         UpdatedAt = now;
     }
 
+    public void UpdateContact(
+        string? email,
+        string? phone,
+        string? emergencyContact,
+        DateTimeOffset now)
+    {
+        Email = email?.Trim() ?? string.Empty;
+        Phone = NormalizeContact(phone, 20);
+        EmergencyContact = NormalizeContact(emergencyContact, 200);
+        UpdatedAt = now;
+    }
+
     private static string? NormalizeJobTitle(string? jobTitle) =>
         string.IsNullOrWhiteSpace(jobTitle) ? null : jobTitle.Trim();
+
+    private static string? NormalizeContact(string? value, int maxLength)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return null;
+        }
+
+        var trimmed = value.Trim();
+        return trimmed.Length > maxLength ? trimmed[..maxLength] : trimmed;
+    }
 }
