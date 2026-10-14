@@ -452,6 +452,35 @@ public sealed class WebLoanReader(WebLoanDbContext db) : IWebLoanReader
         return joined.Length == 0 ? null : joined;
     }
 
+    public async Task<WebLoanLoanDataRow?> GetLoanByNoAsync(
+        string loanNo,
+        CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(loanNo);
+        var normalized = loanNo.Trim();
+        FormattableString sql = $@"
+            SELECT TOP (1) loan_no, loan_product
+            FROM webloan.dbo.loan_data
+            WHERE loan_no = {normalized}";
+        var row = await db.Database
+            .SqlQuery<LoanByNoSqlRow>(sql)
+            .AsNoTracking()
+            .FirstOrDefaultAsync(cancellationToken);
+        if (row is null || string.IsNullOrWhiteSpace(row.loan_no))
+        {
+            return null;
+        }
+
+        return new WebLoanLoanDataRow(row.loan_no, row.loan_product ?? string.Empty);
+    }
+
+    private sealed class LoanByNoSqlRow
+    {
+        public string? loan_no { get; set; }
+
+        public string? loan_product { get; set; }
+    }
+
     public async Task<string?> GetCatLoanClassAsync(
         string branchCode,
         string loanNo,

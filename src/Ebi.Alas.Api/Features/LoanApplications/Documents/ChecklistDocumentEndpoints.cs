@@ -1,7 +1,6 @@
 using System.Security.Claims;
 using System.Text.Json;
 using Ebi.Alas.Api.Composition.Auth;
-using Ebi.Alas.Api.Features.WebLoans;
 using Ebi.Alas.Api.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.EntityFrameworkCore;
@@ -31,6 +30,11 @@ public sealed record DocumentRemarkDto(
 
 public static class ChecklistDocumentEndpoints
 {
+    private static readonly HashSet<string> InlineSafeTypes = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "application/pdf", "image/png", "image/jpeg", "image/jpg", "image/gif",
+    };
+
     public static void MapChecklistDocumentEndpoints(this IEndpointRouteBuilder endpoints)
     {
         var group = endpoints.MapGroup("/api/loans").WithTags("Documents").RequireAuthorization();
@@ -38,14 +42,14 @@ public static class ChecklistDocumentEndpoints
         group.MapGet("/{id:guid}/checklist-documents", async (
             Guid id,
             AlasDbContext db,
-            IWebLoanReader webLoan,
+            IChecklistDocumentReader checklistReader,
             ClaimsPrincipal user,
             CancellationToken ct) =>
         {
             var caller = CallerContext.Require(user);
             var loan = await db.LoanApplications.AsNoTracking()
                 .Where(l => l.Id == id)
-                .Select(l => new { l.Id, l.LamId, l.ProductCode, l.BranchId, l.FormJson })
+                .Select(l => new { l.Id, l.ProductCode, l.BranchId, l.FormJson })
                 .FirstOrDefaultAsync(ct);
             if (loan is null)
             {
@@ -63,46 +67,53 @@ public static class ChecklistDocumentEndpoints
                 .Select(r => r.Code)
                 .ToListAsync(ct);
 
-            var cisNo = ExtractCisId(loan.FormJson);
-            var webloanItems = cisNo is null
-                ? Array.Empty<WebLoanChecklistRow>()
-                : await webLoan.GetChecklistItemsAsync(cisNo, ct);
-            var catalog = await webLoan.GetChecklistCatalogAsync(requirements, ct);
-            var descriptionByCode = catalog
-                .Where(c => !string.IsNullOrWhiteSpace(c.Description))
-                .GroupBy(c => c.IdCode, StringComparer.OrdinalIgnoreCase)
-                .ToDictionary(g => g.Key, g => g.First().Description, StringComparer.OrdinalIgnoreCase);
-
-            var documents = requirements.Select(code =>
+            var loanNo = ChecklistDocumentReader.ExtractLoanNo(loan.FormJson);
+            if (loanNo is null)
             {
-                var match = webloanItems.FirstOrDefault(w =>
-                    string.Equals(w.CheckListItem, code, StringComparison.OrdinalIgnoreCase));
-                var uploaded = match?.Submitted is not null;
-                // Reference: checklist_description comes only from webloan check_list_all.
-                descriptionByCode.TryGetValue(code, out var checklistDescription);
-                return new LoanChecklistDocumentDto(
-                    LoanNo: loan.LamId,
-                    LoanProduct: loan.ProductCode,
-                    IdCode: code,
-                    ChecklistDescription: checklistDescription,
-                    DocId: null,
-                    DocStr: null,
-                    MiniStr: null,
-                    ContentType: null,
-                    Created: match?.Submitted,
-                    UploadedBy: null,
-                    UploadStatus: uploaded ? "Uploaded" : "No uploaded documents");
-            }).ToList();
+                return Results.Ok(Array.Empty<LoanChecklistDocumentDto>());
+            }
 
+            var documents = await checklistReader.GetChecklistDocumentsAsync(loanNo, requirements, ct);
             return Results.Ok(documents);
         })
         .WithName("GetChecklistDocuments");
 
-        group.MapGet("/checklist-documents/{docId:int}/view", (
-            int docId) =>
+        group.MapGet("/checklist-documents/{docId:int}/view", async (
+            int docId,
+            string? disposition,
+            IChecklistDocumentReader checklistReader,
+            CancellationToken ct) =>
         {
-            // Binary document store is not wired in this API yet.
-            throw new Composition.Errors.NotFoundException("Document", docId.ToString());
+            var document = await checklistReader.GetDocumentContentAsync(docId, ct);
+            if (document?.MiniStr is null || document.MiniStr.Length == 0)
+            {
+                throw new Composition.Errors.NotFoundException("Document", docId.ToString());
+            }
+
+            byte[] content;
+            try
+            {
+                content = Convert.FromBase64String(document.MiniStr);
+            }
+            catch (FormatException)
+            {
+                content = [];
+            }
+
+            if (content.Length == 0)
+            {
+                throw new Composition.Errors.NotFoundException("Document", docId.ToString());
+            }
+
+            var contentType = string.IsNullOrWhiteSpace(document.ContentType)
+                ? "application/octet-stream"
+                : document.ContentType;
+            var wantsInline = string.Equals(disposition, "inline", StringComparison.OrdinalIgnoreCase)
+                && InlineSafeTypes.Contains(contentType);
+            var fileName = $"document-{docId}{FileExtension(contentType)}";
+            return wantsInline
+                ? Results.File(content, contentType)
+                : Results.File(content, contentType, fileName);
         })
         .WithName("ViewChecklistDocument");
 
@@ -126,30 +137,20 @@ public static class ChecklistDocumentEndpoints
         .WithName("GetDocumentRemarks");
     }
 
-    public static string? ExtractCisId(string? formJson)
+    private static string FileExtension(string contentType) => contentType.ToLowerInvariant() switch
     {
-        if (string.IsNullOrWhiteSpace(formJson))
-        {
-            return null;
-        }
-
-        try
-        {
-            using var doc = JsonDocument.Parse(formJson);
-            if (doc.RootElement.TryGetProperty("client", out var client)
-                && client.ValueKind == JsonValueKind.Object
-                && client.TryGetProperty("cisId", out var cisId)
-                && cisId.ValueKind == JsonValueKind.String)
-            {
-                var value = cisId.GetString()?.Trim();
-                return string.IsNullOrEmpty(value) ? null : value;
-            }
-        }
-        catch (JsonException)
-        {
-            return null;
-        }
-
-        return null;
-    }
+        "application/pdf" => ".pdf",
+        "image/jpeg" or "image/jpg" => ".jpg",
+        "image/png" => ".png",
+        "image/gif" => ".gif",
+        "image/bmp" => ".bmp",
+        "image/tiff" => ".tiff",
+        "application/msword" => ".doc",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document" => ".docx",
+        "application/vnd.ms-excel" => ".xls",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" => ".xlsx",
+        "text/plain" => ".txt",
+        "text/html" => ".html",
+        _ => ".bin",
+    };
 }

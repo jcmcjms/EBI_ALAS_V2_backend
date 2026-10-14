@@ -106,6 +106,10 @@ public sealed record WebLoanChecklistRow(
     string? Description,
     DateTime? Submitted);
 
+public sealed record WebLoanLoanDataRow(
+    string LoanNo,
+    string LoanProduct);
+
 public sealed record WebLoanChecklistCatalogRow(
     string IdCode,
     string? Description);
@@ -140,6 +144,10 @@ public interface IWebLoanReader
         string branchCode,
         string loanNo,
         string productCode,
+        CancellationToken cancellationToken);
+
+    Task<WebLoanLoanDataRow?> GetLoanByNoAsync(
+        string loanNo,
         CancellationToken cancellationToken);
 }
 
@@ -202,5 +210,13 @@ public sealed class NullWebLoanReader : IWebLoanReader
         ArgumentException.ThrowIfNullOrWhiteSpace(loanNo);
         ArgumentException.ThrowIfNullOrWhiteSpace(productCode);
         return Task.FromResult<string?>(null);
+    }
+
+    public Task<WebLoanLoanDataRow?> GetLoanByNoAsync(
+        string loanNo,
+        CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(loanNo);
+        return Task.FromResult<WebLoanLoanDataRow?>(null);
     }
 }
