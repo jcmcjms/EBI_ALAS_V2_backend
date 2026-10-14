@@ -50,7 +50,7 @@ public sealed class UpdateUserHandlerTests
     }
 
     [Fact]
-    public async Task HandleAsync_NullEmail_StoresEmptyEmail()
+    public async Task HandleAsync_MissingEmail_ThrowsValidationException()
     {
         await using var db = Db();
         var now = DateTimeOffset.UtcNow;
@@ -59,11 +59,11 @@ public sealed class UpdateUserHandlerTests
         await db.SaveChangesAsync();
 
         var handler = new UpdateUserHandler(db, new FixedTimeProvider(now));
-        var result = await handler.HandleAsync(
-            user.Id,
-            new UpdateUserRequest("John", "Doe", "", null, "011", UserRole.Encoder),
-            CancellationToken.None);
 
-        Assert.Equal(string.Empty, result.Email);
+        await Assert.ThrowsAsync<Ebi.Alas.Api.Composition.Errors.ValidationException>(() =>
+            handler.HandleAsync(
+                user.Id,
+                new UpdateUserRequest("John", "Doe", "", "  ", "011", UserRole.Encoder),
+                CancellationToken.None));
     }
 }

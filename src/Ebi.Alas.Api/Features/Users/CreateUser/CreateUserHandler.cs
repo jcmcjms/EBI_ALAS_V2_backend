@@ -30,6 +30,16 @@ public sealed class CreateUserHandler(
             return CreateUserOutcome.InvalidPassword($"Password must be at least {MinimumPasswordLength} characters.");
         }
 
+        if (string.IsNullOrWhiteSpace(request.Email))
+        {
+            return CreateUserOutcome.InvalidEmail("Email is required for password reset.");
+        }
+
+        if (request.Email.Trim().Length > 200)
+        {
+            return CreateUserOutcome.InvalidEmail("Email must not exceed 200 characters.");
+        }
+
         var userName = request.UserName.Trim();
         if (await db.Users.AnyAsync(u => u.UserName == userName, cancellationToken))
         {

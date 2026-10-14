@@ -31,6 +31,12 @@ public static class ApiProblemHandler
                 Title = "Conflict",
                 Detail = ex.Message
             },
+            ValidationException ex => new ProblemDetails
+            {
+                Status = StatusCodes.Status400BadRequest,
+                Title = "Bad Request",
+                Detail = ex.Message
+            },
             BadHttpRequestException ex => new ProblemDetails
             {
                 Status = ex.StatusCode,
