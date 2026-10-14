@@ -29,9 +29,9 @@ public sealed class JwtTokenServiceTests
     }
 
     [Fact]
-    public void CreateAccessToken_ContainsUserIdBranchAndFullNameClaims()
+    public void CreateAccessToken_ContainsUserIdBranchAndNameClaims()
     {
-        var user = Admin();
+        var user = User.Create("ada", "hash", "Ada", "Lovelace", "Byron", "ada@example.com", "011", UserRole.Admin, DateTimeOffset.UtcNow);
 
         var result = Service().CreateAccessToken(user, jti: "jti-1", now: DateTimeOffset.UtcNow);
 
@@ -39,7 +39,9 @@ public sealed class JwtTokenServiceTests
         Assert.Contains(jwt.Claims, c => c.Type == JwtRegisteredClaimNames.Sub && c.Value == user.Id.ToString());
         Assert.Contains(jwt.Claims, c => c.Type == "branch" && c.Value == "011");
         Assert.Contains(jwt.Claims, c => c.Type == "firstName" && c.Value == "Ada");
+        Assert.Contains(jwt.Claims, c => c.Type == "middleName" && c.Value == "Byron");
         Assert.Contains(jwt.Claims, c => c.Type == "lastName" && c.Value == "Lovelace");
+        Assert.Contains(jwt.Claims, c => c.Type == "fullName" && c.Value == user.FullName);
         Assert.Contains(jwt.Claims, c => c.Type == "unique_name" && c.Value == "ada");
     }
 

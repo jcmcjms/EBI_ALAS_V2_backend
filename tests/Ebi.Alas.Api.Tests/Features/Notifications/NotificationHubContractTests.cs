@@ -24,7 +24,7 @@ public sealed class NotificationHubContractTests
         var id = Guid.Parse("11111111-1111-1111-1111-111111111111");
         var createdAt = DateTimeOffset.Parse("2026-10-09T01:00:00+00:00");
 
-        var payload = NotificationHub.ToReceiveNotification(id, "Loan submitted", "Ready for recommendation", createdAt);
+        var payload = NotificationHub.ToReceiveNotification(id, "Loan submitted", "Ready for recommendation", link: null, createdAt);
 
         Assert.Equal(id, payload.Id);
         Assert.Equal("Loan submitted", payload.Title);

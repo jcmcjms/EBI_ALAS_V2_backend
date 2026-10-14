@@ -5,13 +5,8 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Ebi.Alas.Api.Tests.Features.LoanProducts;
 
-/// <summary>
-/// Contract tests against the production import layout used by
-/// Testing Excel/loan-product-import-template.xlsx.
-/// </summary>
 public sealed class LoanProductTemplateLayoutTests
 {
-    /// <summary>Header row exactly as in the production template.</summary>
     public static readonly string[] ProductionHeaders =
     [
         "Code *", "Description *", "Min Amount *", "Max Amount *",

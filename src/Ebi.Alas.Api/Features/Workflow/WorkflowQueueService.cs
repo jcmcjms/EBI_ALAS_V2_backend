@@ -10,11 +10,6 @@ public sealed class WorkflowQueueService(AlasDbContext db, TimeProvider timeProv
     public static readonly TimeSpan DefaultLease = TimeSpan.FromMinutes(30);
     public const int ReapBatchSize = 100;
 
-    /// <summary>
-    /// Resolves the queue partition from the authenticated caller.
-    /// Client-supplied partition keys are never trusted; only callers that can access
-    /// all branches may request an explicit non-empty branch filter.
-    /// </summary>
     public static string ResolvePartition(CallerContext caller, string? requestedBranchId)
     {
         ArgumentNullException.ThrowIfNull(caller);

@@ -6,11 +6,6 @@ using Microsoft.AspNetCore.Mvc.Testing;
 
 namespace Ebi.Alas.Api.Tests.Api;
 
-/// <summary>
-/// User import upload validation. The seeded admin requires a password change before
-/// reaching the endpoint; the change is restored afterwards so the shared in-memory
-/// admin account stays usable for other tests.
-/// </summary>
 public sealed class UserImportApiTests : IClassFixture<WebApplicationFactory<Program>>, IAsyncLifetime
 {
     private const string TemporaryPassword = "ImportTest!2";

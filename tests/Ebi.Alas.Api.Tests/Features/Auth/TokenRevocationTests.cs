@@ -52,10 +52,6 @@ public sealed class TokenRevocationTests : IClassFixture<WebApplicationFactory<P
         return request;
     }
 
-    /// <summary>
-    /// Logout is authorized but remains reachable for a must-change-password principal,
-    /// so it doubles as a probe for whether the bearer token still authenticates.
-    /// </summary>
     private static async Task<HttpStatusCode> ProbeAsync(HttpClient client, string accessToken, string xsrf)
     {
         using var response = await client.SendAsync(

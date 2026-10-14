@@ -50,10 +50,6 @@ public sealed class TokenStore(AlasDbContext db, TimeProvider timeProvider)
         await db.SaveChangesAsync(cancellationToken);
     }
 
-    /// <summary>
-    /// Issues a replacement refresh token and revokes the previous one in a single
-    /// unit of work so a crash cannot leave both tokens valid.
-    /// </summary>
     public async Task<(RefreshToken Token, string RawToken)> RotateAsync(
         RefreshToken existing,
         TimeSpan lifetime,

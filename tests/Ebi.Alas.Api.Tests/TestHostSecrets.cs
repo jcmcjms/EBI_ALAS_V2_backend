@@ -3,15 +3,10 @@ using Microsoft.Extensions.Configuration;
 
 namespace Ebi.Alas.Api.Tests;
 
-/// <summary>
-/// Applies host settings from dotnet user-secrets when present.
-/// Never hardcodes credentials; missing secrets fall back to ephemeral test-only values.
-/// </summary>
 public static class TestHostSecrets
 {
     public const string ApiSecretsId = "ebi-alas-v2-backend-local";
 
-    /// <summary>Admin password used by the most recent Apply call (test-only).</summary>
     public static string CurrentAdminPassword { get; private set; } = string.Empty;
 
     public static string CurrentAdminUserName { get; private set; } = "test-admin";

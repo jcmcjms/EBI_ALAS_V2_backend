@@ -1,8 +1,5 @@
 namespace Ebi.Alas.Api.Features.Auth;
 
-/// <summary>
-/// Structured auth events for operations. Never log tokens, passwords, or hashes.
-/// </summary>
 public static class AuthEvents
 {
     public const string LoginSucceeded = "Auth.LoginSucceeded";

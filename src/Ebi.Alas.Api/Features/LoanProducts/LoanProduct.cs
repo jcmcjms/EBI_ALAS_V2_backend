@@ -123,10 +123,6 @@ public sealed class LoanProduct
         AdvanceInterestRate = advanceInterestRate;
     }
 
-    /// <summary>
-    /// Applies webloan catalog fields while preserving ALAS-owned policy fields.
-    /// Returns true when catalog values changed.
-    /// </summary>
     public bool ApplyCatalog(string name, decimal interestRatePerMonth, DateTimeOffset syncedAt)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(name);

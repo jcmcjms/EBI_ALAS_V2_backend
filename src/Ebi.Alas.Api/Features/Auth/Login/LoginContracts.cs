@@ -7,10 +7,6 @@ public sealed record LoginRequest
     public required string Password { get; init; }
 }
 
-/// <summary>
-/// Public login/refresh JSON body. The refresh token is cookie-only and must
-/// never appear here.
-/// </summary>
 public sealed record LoginResponse(
     string AccessToken,
     DateTimeOffset AccessTokenExpiresAt,
