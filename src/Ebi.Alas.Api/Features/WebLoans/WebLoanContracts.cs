@@ -106,12 +106,20 @@ public sealed record WebLoanChecklistRow(
     string? Description,
     DateTime? Submitted);
 
+public sealed record WebLoanChecklistCatalogRow(
+    string IdCode,
+    string? Description);
+
 public interface IWebLoanReader
 {
     Task<IReadOnlyList<CisSearchResult>> SearchCisAsync(string keyword, int max, CancellationToken cancellationToken);
 
     Task<IReadOnlyList<WebLoanChecklistRow>> GetChecklistItemsAsync(
         string cisNo,
+        CancellationToken cancellationToken);
+
+    Task<IReadOnlyList<WebLoanChecklistCatalogRow>> GetChecklistCatalogAsync(
+        IReadOnlyCollection<string> idCodes,
         CancellationToken cancellationToken);
 
     Task<CisDetail?> GetCisDetailAsync(string cisNo, CancellationToken cancellationToken);
@@ -146,6 +154,14 @@ public sealed class NullWebLoanReader : IWebLoanReader
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(cisNo);
         return Task.FromResult<IReadOnlyList<WebLoanChecklistRow>>([]);
+    }
+
+    public Task<IReadOnlyList<WebLoanChecklistCatalogRow>> GetChecklistCatalogAsync(
+        IReadOnlyCollection<string> idCodes,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(idCodes);
+        return Task.FromResult<IReadOnlyList<WebLoanChecklistCatalogRow>>([]);
     }
 
     public Task<CisDetail?> GetCisDetailAsync(string cisNo, CancellationToken cancellationToken)

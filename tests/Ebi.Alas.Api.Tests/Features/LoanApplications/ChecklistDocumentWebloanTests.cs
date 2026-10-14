@@ -31,4 +31,18 @@ public sealed class ChecklistDocumentWebloanTests
         Assert.True(uploaded.Submitted is not null);
         Assert.True(pending.Submitted is null);
     }
+
+    [Fact]
+    public void ChecklistDescription_ComesFromCatalog_NotAdminText()
+    {
+        // Reference maps checklist_description only from webloan check_list_all.
+        // Product requirement description is not used as the printed label.
+        var catalog = new WebLoanChecklistCatalogRow("A1004", "Approved Government ID");
+        string? requirementDescription = "A1004";
+
+        string? checklistDescription = catalog.Description;
+
+        Assert.Equal("Approved Government ID", checklistDescription);
+        Assert.NotEqual(requirementDescription, checklistDescription);
+    }
 }
