@@ -7,6 +7,20 @@ namespace Ebi.Alas.Api.Infrastructure.WebLoans;
 
 public sealed class WebLoanReader(WebLoanDbContext db) : IWebLoanReader
 {
+    public async Task<IReadOnlyList<WebLoanChecklistRow>> GetChecklistItemsAsync(
+        string cisNo,
+        CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(cisNo);
+        var rows = await db.CheckLists.AsNoTracking()
+            .Where(c => c.CisNo == cisNo)
+            .OrderBy(c => c.CheckListItem)
+            .Select(c => new { c.CheckListItem, c.Description, c.Submitted })
+            .ToListAsync(cancellationToken);
+        return rows
+            .Select(r => new WebLoanChecklistRow(r.CheckListItem, r.Description, r.Submitted))
+            .ToList();
+    }
     public async Task<IReadOnlyList<CisSearchResult>> SearchCisAsync(
         string keyword,
         int max,
@@ -407,6 +421,47 @@ public sealed class WebLoanReader(WebLoanDbContext db) : IWebLoanReader
         string?[] parts = [cis.Zip, cis.HouseStreet, cis.City, cis.StateProvince, cis.Barangay, cis.Village];
         var joined = string.Join(", ", parts.Where(p => !string.IsNullOrWhiteSpace(p)).Select(p => p!.Trim()));
         return joined.Length == 0 ? null : joined;
+    }
+
+    public async Task<string?> GetCatLoanClassAsync(
+        string branchCode,
+        string loanNo,
+        string productCode,
+        CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(branchCode);
+        ArgumentException.ThrowIfNullOrWhiteSpace(loanNo);
+        ArgumentException.ThrowIfNullOrWhiteSpace(productCode);
+
+        var connection = db.Database.GetDbConnection();
+        if (connection.State != System.Data.ConnectionState.Open)
+        {
+            await connection.OpenAsync(cancellationToken);
+        }
+
+        await using var command = connection.CreateCommand();
+        command.CommandText = @"
+            SELECT TOP (1) cat_loan_class
+            FROM webloan.dbo.loan_data
+            WHERE bch = @branchCode AND loan_no = @loanNo AND loan_product = @productCode";
+
+        var pBranch = command.CreateParameter();
+        pBranch.ParameterName = "@branchCode";
+        pBranch.Value = branchCode;
+        command.Parameters.Add(pBranch);
+
+        var pLoanNo = command.CreateParameter();
+        pLoanNo.ParameterName = "@loanNo";
+        pLoanNo.Value = loanNo;
+        command.Parameters.Add(pLoanNo);
+
+        var pProduct = command.CreateParameter();
+        pProduct.ParameterName = "@productCode";
+        pProduct.Value = productCode;
+        command.Parameters.Add(pProduct);
+
+        var result = await command.ExecuteScalarAsync(cancellationToken);
+        return result is string value && value.Length > 0 ? value : null;
     }
 
     private static string? ParseBirthDate(string? raw)

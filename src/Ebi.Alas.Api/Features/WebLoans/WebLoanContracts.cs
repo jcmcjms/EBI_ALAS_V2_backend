@@ -101,9 +101,18 @@ public static class WebLoanAccountId
     }
 }
 
+public sealed record WebLoanChecklistRow(
+    string CheckListItem,
+    string? Description,
+    DateTime? Submitted);
+
 public interface IWebLoanReader
 {
     Task<IReadOnlyList<CisSearchResult>> SearchCisAsync(string keyword, int max, CancellationToken cancellationToken);
+
+    Task<IReadOnlyList<WebLoanChecklistRow>> GetChecklistItemsAsync(
+        string cisNo,
+        CancellationToken cancellationToken);
 
     Task<CisDetail?> GetCisDetailAsync(string cisNo, CancellationToken cancellationToken);
 
@@ -118,12 +127,26 @@ public interface IWebLoanReader
 
     Task<PendingLoanResponse?> GetAccountPendingLoanAsync(
         string cisNo, string accountId, CancellationToken cancellationToken);
+
+    Task<string?> GetCatLoanClassAsync(
+        string branchCode,
+        string loanNo,
+        string productCode,
+        CancellationToken cancellationToken);
 }
 
 public sealed class NullWebLoanReader : IWebLoanReader
 {
     public Task<IReadOnlyList<CisSearchResult>> SearchCisAsync(string keyword, int max, CancellationToken cancellationToken)
         => Task.FromResult<IReadOnlyList<CisSearchResult>>([]);
+
+    public Task<IReadOnlyList<WebLoanChecklistRow>> GetChecklistItemsAsync(
+        string cisNo,
+        CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(cisNo);
+        return Task.FromResult<IReadOnlyList<WebLoanChecklistRow>>([]);
+    }
 
     public Task<CisDetail?> GetCisDetailAsync(string cisNo, CancellationToken cancellationToken)
     {
@@ -154,5 +177,14 @@ public sealed class NullWebLoanReader : IWebLoanReader
         ArgumentException.ThrowIfNullOrWhiteSpace(cisNo);
         ArgumentException.ThrowIfNullOrWhiteSpace(accountId);
         return Task.FromResult<PendingLoanResponse?>(null);
+    }
+
+    public Task<string?> GetCatLoanClassAsync(
+        string branchCode, string loanNo, string productCode, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(branchCode);
+        ArgumentException.ThrowIfNullOrWhiteSpace(loanNo);
+        ArgumentException.ThrowIfNullOrWhiteSpace(productCode);
+        return Task.FromResult<string?>(null);
     }
 }

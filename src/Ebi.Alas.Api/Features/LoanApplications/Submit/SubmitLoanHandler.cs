@@ -1,6 +1,5 @@
 using Ebi.Alas.Api.Composition.Auth;
 using Ebi.Alas.Api.Features.LoanApplications.Domain;
-using Ebi.Alas.Api.Features.Documents;
 using Ebi.Alas.Api.Features.LoanComputation;
 using Ebi.Alas.Api.Features.Notifications;
 using Ebi.Alas.Api.Features.Users.Domain;
@@ -83,20 +82,6 @@ public sealed class SubmitLoanHandler(
 
             db.LoanApplications.Add(loan);
             created.Add(loan);
-
-            var requirements = await db.LoanProductDocumentRequirements.AsNoTracking()
-                .Where(r => r.ProductCode == line.ProductCode)
-                .OrderBy(r => r.Code)
-                .Select(r => new { r.Code, r.Description })
-                .ToListAsync(cancellationToken);
-            foreach (var requirement in requirements)
-            {
-                db.DocumentChecklistItems.Add(DocumentChecklistItem.Create(
-                    loan.Id,
-                    requirement.Code,
-                    requirement.Description,
-                    now));
-            }
         }
 
         if (request.Form is { } formSnapshot)

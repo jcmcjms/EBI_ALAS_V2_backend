@@ -35,6 +35,10 @@ public sealed class LoanProductSyncRetiredTests
         public Task<string?> GetCatLoanClassAsync(
             string branchCode, string loanNo, string productCode, CancellationToken cancellationToken)
             => Task.FromResult<string?>(null);
+
+        public Task<IReadOnlyList<WebLoanChecklistRow>> GetChecklistItemsAsync(
+            string cisNo, CancellationToken cancellationToken)
+            => Task.FromResult<IReadOnlyList<WebLoanChecklistRow>>([]);
     }
 
     private sealed class FixedTimeProvider(DateTimeOffset now) : TimeProvider
