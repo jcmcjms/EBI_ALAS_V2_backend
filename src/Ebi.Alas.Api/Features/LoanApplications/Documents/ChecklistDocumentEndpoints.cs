@@ -84,8 +84,8 @@ public static class ChecklistDocumentEndpoints
             IChecklistDocumentReader checklistReader,
             CancellationToken ct) =>
         {
-            var document = await checklistReader.GetDocumentContentAsync(docId, ct);
-            if (document?.MiniStr is null || document.MiniStr.Length == 0)
+            var document = await checklistReader.GetDocumentFileAsync(docId, ct);
+            if (document?.DocStr is null || document.DocStr.Length == 0)
             {
                 throw new Composition.Errors.NotFoundException("Document", docId.ToString());
             }
@@ -93,7 +93,7 @@ public static class ChecklistDocumentEndpoints
             byte[] content;
             try
             {
-                content = Convert.FromBase64String(document.MiniStr);
+                content = Convert.FromBase64String(document.DocStr);
             }
             catch (FormatException)
             {
