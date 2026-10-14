@@ -177,6 +177,7 @@ public static class ServiceRegistration
         services.AddScoped<IWorkflowConfiguration, WorkflowConfiguration>();
 
         services.AddScoped<DashboardService>();
+        services.AddScoped<Features.Account.AccountService>();
         services.AddScoped<Features.Presence.PresenceService>();
         services.AddSignalR();
         services.AddSingleton<Features.Presence.IPresenceNotifier, Features.Presence.SignalRPresenceNotifier>();
