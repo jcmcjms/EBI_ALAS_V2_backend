@@ -53,13 +53,14 @@ public sealed class SmtpEmailSender(
             await client.SendAsync(message, cancellationToken);
             await client.DisconnectAsync(true, cancellationToken);
         }
-        catch (Exception ex) when (ex is MailKit.ServiceNotConnectedException
-            or MailKit.ServiceNotAuthenticatedException
-            or MailKit.ProtocolException
-            or System.Net.Sockets.SocketException
-            or IOException
-            or TimeoutException)
+        catch (OperationCanceledException)
         {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            // Any transport/auth/protocol failure becomes EmailSendException so callers
+            // get a stable outcome instead of an unhandled 500.
             throw new EmailSendException("SMTP send failed.", ex);
         }
 
