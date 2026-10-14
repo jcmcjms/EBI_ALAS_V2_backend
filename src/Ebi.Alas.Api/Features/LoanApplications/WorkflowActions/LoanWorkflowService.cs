@@ -43,6 +43,7 @@ public sealed class LoanWorkflowService(
             link: $"/loans/approval/{loan.Id}",
             cancellationToken);
         await db.SaveChangesAsync(cancellationToken);
+        await NotifyDashboardAsync(cancellationToken);
         return await loan.ToResponseAsync(db, cancellationToken);
     }
 
@@ -72,6 +73,7 @@ public sealed class LoanWorkflowService(
                 : $"Loan {loan.LamId} was evaluated as Not Recommended and sent for approval.",
             cancellationToken);
         await db.SaveChangesAsync(cancellationToken);
+        await NotifyDashboardAsync(cancellationToken);
         return await loan.ToResponseAsync(db, cancellationToken);
     }
 
@@ -88,6 +90,7 @@ public sealed class LoanWorkflowService(
         await queue.CompleteAsync(await ActiveQueueIdAsync(loanId, WorkflowStage.Approval, cancellationToken), caller.UserId, cancellationToken);
         await NotifyAsync(caller.UserId, "Application approved", $"Loan {loan.LamId} has been approved.", cancellationToken);
         await db.SaveChangesAsync(cancellationToken);
+        await NotifyDashboardAsync(cancellationToken);
         return await loan.ToResponseAsync(db, cancellationToken);
     }
 
@@ -104,6 +107,7 @@ public sealed class LoanWorkflowService(
         await queue.CompleteAsync(await ActiveQueueIdAsync(loanId, WorkflowStage.Approval, cancellationToken), caller.UserId, cancellationToken);
         await NotifyAsync(caller.UserId, "Application rejected", $"Loan {loan.LamId} has been rejected.", cancellationToken);
         await db.SaveChangesAsync(cancellationToken);
+        await NotifyDashboardAsync(cancellationToken);
         return await loan.ToResponseAsync(db, cancellationToken);
     }
 
@@ -125,6 +129,7 @@ public sealed class LoanWorkflowService(
         await CompleteActiveQueueAsync(loanId, caller.UserId, cancellationToken);
         await NotifyAsync(caller.UserId, "Application returned for revision", $"Loan {loan.LamId} was sent back to the encoder for revision.", cancellationToken);
         await db.SaveChangesAsync(cancellationToken);
+        await NotifyDashboardAsync(cancellationToken);
         return await loan.ToResponseAsync(db, cancellationToken);
     }
 
@@ -157,9 +162,22 @@ public sealed class LoanWorkflowService(
         }
 
         loan.Cancel(timeProvider.GetUtcNow(), caller.UserId);
+        loan.AssignTo(null, timeProvider.GetUtcNow());
+        await queue.CompleteOpenForApplicationAsync(loanId, cancellationToken);
         await NotifyAsync(caller.UserId, "Application cancelled", $"Loan {loan.LamId} has been cancelled.", cancellationToken);
         await db.SaveChangesAsync(cancellationToken);
+        await NotifyDashboardAsync(cancellationToken);
         return await loan.ToResponseAsync(db, cancellationToken);
+    }
+
+    private async Task NotifyDashboardAsync(CancellationToken cancellationToken)
+    {
+        if (notifier is null)
+        {
+            return;
+        }
+
+        await notifier.NotifyDashboardUpdatedAsync(cancellationToken);
     }
 
     private static void EnsureRole(CallerContext caller, params UserRole[] allowed)
