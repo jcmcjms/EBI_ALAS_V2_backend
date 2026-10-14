@@ -58,6 +58,11 @@ public static class ServiceRegistration
             .ValidateDataAnnotations()
             .ValidateOnStart();
 
+        // SMTP is optional at startup (dev/tests may have no mail host). Validate on send.
+        services.AddOptions<Infrastructure.Email.EmailOptions>()
+            .Bind(configuration.GetSection(Infrastructure.Email.EmailOptions.SectionName));
+        services.AddSingleton<Infrastructure.Email.IEmailSender, Infrastructure.Email.SmtpEmailSender>();
+
         services.AddSingleton(TimeProvider.System);
         services.AddMemoryCache();
         services.AddProblemDetails();
@@ -117,6 +122,7 @@ public static class ServiceRegistration
         services.AddScoped<LoginHandler>();
         services.AddScoped<RefreshHandler>();
         services.AddScoped<ChangePasswordHandler>();
+        services.AddScoped<Features.Auth.ForgotPassword.ForgotPasswordHandler>();
         services.AddScoped<CreateUserHandler>();
         services.AddScoped<Features.Users.ImportUsers.ImportUsersHandler>();
         services.AddScoped<ListUsersHandler>();
