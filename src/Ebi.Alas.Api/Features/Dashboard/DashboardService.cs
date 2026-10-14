@@ -61,7 +61,7 @@ public sealed record DashboardOverview(
     IReadOnlyList<FlaggedDocumentItem> FlaggedDocuments,
     IReadOnlyList<PendingQueueItem> PendingQueue,
     IReadOnlyList<NowServingItem> NowServing,
-    IReadOnlyList<PushBackItem> PushBacks,
+    IReadOnlyList<PushBackItem> PushBackItems,
     IReadOnlyList<ApprovedLoanItem> ApprovedLoans,
     IReadOnlyList<WeeklyTrendPoint> WeeklyTrend);
 
@@ -203,7 +203,7 @@ public sealed class DashboardService(AlasDbContext db, TimeProvider timeProvider
             })
             .ToList();
 
-        var pushBacks = pushbackRows
+        var pushBackItems = pushbackRows
             .Select((r, i) =>
             {
                 names.TryGetValue(r.CreatedBy, out var encoderName);
@@ -242,7 +242,7 @@ public sealed class DashboardService(AlasDbContext db, TimeProvider timeProvider
             flagged,
             pendingQueue,
             nowServing,
-            pushBacks,
+            pushBackItems,
             approvedLoans,
             trend);
     }
