@@ -88,10 +88,17 @@ public sealed class ListLoansHandler(AlasDbContext db)
                 l.LastActionDate,
                 l.LastActionById,
                 l.LastActionVerb,
+                l.AssignedToUserId,
                 LastActionByName = l.LastActionById == null
                     ? null
                     : db.Users
                         .Where(u => u.Id == l.LastActionById)
+                        .Select(u => (string?)(u.FirstName + " " + u.LastName))
+                        .FirstOrDefault(),
+                AssignedToName = l.AssignedToUserId == null
+                    ? null
+                    : db.Users
+                        .Where(u => u.Id == l.AssignedToUserId)
                         .Select(u => (string?)(u.FirstName + " " + u.LastName))
                         .FirstOrDefault()
             })
@@ -119,7 +126,9 @@ public sealed class ListLoansHandler(AlasDbContext db)
             r.LastActionDate,
             r.LastActionById,
             r.LastActionByName,
-            r.LastActionVerb))];
+            r.LastActionVerb,
+            AssignedToUserId: r.AssignedToUserId,
+            AssignedToName: r.AssignedToName))];
 
         return new PageResult<LoanResponse>(items, total, normalized.Page, normalized.PageSize);
     }
