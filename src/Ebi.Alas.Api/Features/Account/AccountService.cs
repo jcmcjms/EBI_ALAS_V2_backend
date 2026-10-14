@@ -1,9 +1,17 @@
+using Ebi.Alas.Api.Features.Auth.Domain;
 using Ebi.Alas.Api.Features.LoanApplications.Domain;
 using Ebi.Alas.Api.Features.Users.Domain;
 using Ebi.Alas.Api.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 
 namespace Ebi.Alas.Api.Features.Account;
+
+public enum SessionRevokeResult
+{
+    Revoked,
+    CurrentSession,
+    NotFound,
+}
 
 public sealed record AccountStatsDto(
     int ProcessedLoans,
@@ -50,7 +58,14 @@ public sealed record RecentClientDto(
     string Agency,
     DateTimeOffset LastInteraction);
 
-public sealed class AccountService(AlasDbContext db)
+public sealed record SessionDto(
+    Guid Id,
+    string? DeviceInfo,
+    DateTimeOffset CreatedAt,
+    DateTimeOffset ExpiresAt,
+    bool IsCurrent);
+
+public sealed class AccountService(AlasDbContext db, TimeProvider timeProvider)
 {
     private static readonly LoanStatus[] PendingStatuses =
     [
@@ -86,12 +101,30 @@ public sealed class AccountService(AlasDbContext db)
             user.BranchId,
             user.Role.ToString(),
             string.IsNullOrWhiteSpace(user.Email) ? null : user.Email,
-            Phone: null,
-            EmergencyContact: null,
+            user.Phone,
+            user.EmergencyContact,
             ProfilePhotoUrl: null,
             user.CreatedAt,
             PasswordChangedAt: null,
             stats);
+    }
+
+    public async Task<bool> UpdateContactAsync(
+        Guid userId,
+        string? email,
+        string? phone,
+        string? emergencyContact,
+        CancellationToken cancellationToken)
+    {
+        var user = await db.Users.FirstOrDefaultAsync(u => u.Id == userId, cancellationToken);
+        if (user is null)
+        {
+            return false;
+        }
+
+        user.UpdateContact(email, phone, emergencyContact, timeProvider.GetUtcNow());
+        await db.SaveChangesAsync(cancellationToken);
+        return true;
     }
 
     public async Task<IReadOnlyList<AccountActivityDto>> GetRecentActivityAsync(
@@ -155,6 +188,87 @@ public sealed class AccountService(AlasDbContext db)
                 string.Empty,
                 l.CreatedAt))
             .ToListAsync(cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<SessionDto>> GetSessionsAsync(
+        Guid userId,
+        Guid? currentSessionId,
+        CancellationToken cancellationToken)
+    {
+        var now = timeProvider.GetUtcNow();
+        return await db.RefreshTokens.AsNoTracking()
+            .Where(t => t.UserId == userId && t.RevokedAt == null && t.ExpiresAt > now)
+            .OrderByDescending(t => t.CreatedAt)
+            .Select(t => new SessionDto(
+                t.Id,
+                DeviceInfo: null,
+                t.CreatedAt,
+                t.ExpiresAt,
+                currentSessionId != null && t.Id == currentSessionId))
+            .ToListAsync(cancellationToken);
+    }
+
+    public async Task<SessionRevokeResult> RevokeSessionAsync(
+        Guid userId,
+        Guid sessionId,
+        Guid? currentSessionId,
+        CancellationToken cancellationToken)
+    {
+        if (currentSessionId is { } current && current == sessionId)
+        {
+            return SessionRevokeResult.CurrentSession;
+        }
+
+        var token = await db.RefreshTokens
+            .FirstOrDefaultAsync(
+                t => t.Id == sessionId && t.UserId == userId && t.RevokedAt == null,
+                cancellationToken);
+        if (token is null)
+        {
+            return SessionRevokeResult.NotFound;
+        }
+
+        token.Revoke(timeProvider.GetUtcNow(), Guid.Empty);
+        await db.SaveChangesAsync(cancellationToken);
+        return SessionRevokeResult.Revoked;
+    }
+
+    public async Task<int> RevokeOtherSessionsAsync(
+        Guid userId,
+        Guid? currentSessionId,
+        CancellationToken cancellationToken)
+    {
+        var now = timeProvider.GetUtcNow();
+        var tokens = await db.RefreshTokens
+            .Where(t => t.UserId == userId
+                && t.RevokedAt == null
+                && t.ExpiresAt > now
+                && (currentSessionId == null || t.Id != currentSessionId))
+            .ToListAsync(cancellationToken);
+        if (tokens.Count == 0)
+        {
+            return 0;
+        }
+
+        foreach (var token in tokens)
+        {
+            token.Revoke(now, Guid.Empty);
+        }
+
+        await db.SaveChangesAsync(cancellationToken);
+        return tokens.Count;
+    }
+
+    public async Task<Guid?> FindSessionIdByRawTokenAsync(
+        Guid userId,
+        string rawToken,
+        CancellationToken cancellationToken)
+    {
+        var hash = Auth.TokenStore.HashToken(rawToken);
+        return await db.RefreshTokens.AsNoTracking()
+            .Where(t => t.UserId == userId && t.TokenHash == hash)
+            .Select(t => (Guid?)t.Id)
+            .FirstOrDefaultAsync(cancellationToken);
     }
 
     private async Task<AccountStatsDto> GetStatsAsync(Guid userId, CancellationToken cancellationToken)

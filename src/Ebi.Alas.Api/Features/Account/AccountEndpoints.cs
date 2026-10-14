@@ -1,7 +1,13 @@
 using System.Security.Claims;
 using Ebi.Alas.Api.Composition.Auth;
+using Ebi.Alas.Api.Features.Auth;
 
 namespace Ebi.Alas.Api.Features.Account;
+
+public sealed record UpdateAccountContactRequest(
+    string? Email,
+    string? Phone,
+    string? EmergencyContact);
 
 public static class AccountEndpoints
 {
@@ -19,6 +25,24 @@ public static class AccountEndpoints
             return profile is null ? Results.NotFound() : Results.Ok(profile);
         })
         .WithName("GetAccountProfile");
+
+        group.MapPut("/me", async (
+            ClaimsPrincipal user,
+            UpdateAccountContactRequest request,
+            AccountService service,
+            CancellationToken cancellationToken) =>
+        {
+            var caller = CallerContext.Require(user);
+            var ok = await service.UpdateContactAsync(
+                caller.UserId,
+                request.Email,
+                request.Phone,
+                request.EmergencyContact,
+                cancellationToken);
+            return ok ? Results.NoContent() : Results.NotFound();
+        })
+        .RequireRateLimiting("write")
+        .WithName("UpdateAccountProfile");
 
         group.MapGet("/me/activity", async (
             ClaimsPrincipal user,
@@ -64,5 +88,76 @@ public static class AccountEndpoints
             return Results.Ok(clients);
         })
         .WithName("GetAccountClients");
+
+        group.MapGet("/me/sessions", async (
+            ClaimsPrincipal user,
+            AccountService service,
+            HttpContext httpContext,
+            CancellationToken cancellationToken) =>
+        {
+            var caller = CallerContext.Require(user);
+            var current = await ResolveCurrentSessionIdAsync(service, caller.UserId, httpContext, cancellationToken);
+            var sessions = await service.GetSessionsAsync(caller.UserId, current, cancellationToken);
+            return Results.Ok(new
+            {
+                items = sessions,
+                currentPage = 1,
+                pageSize = Math.Max(sessions.Count, 1),
+                totalCount = sessions.Count,
+                totalPages = 1,
+                hasPreviousPage = false,
+                hasNextPage = false,
+            });
+        })
+        .WithName("GetAccountSessions");
+
+        group.MapDelete("/me/sessions/{id:guid}", async (
+            Guid id,
+            ClaimsPrincipal user,
+            AccountService service,
+            HttpContext httpContext,
+            CancellationToken cancellationToken) =>
+        {
+            var caller = CallerContext.Require(user);
+            var current = await ResolveCurrentSessionIdAsync(service, caller.UserId, httpContext, cancellationToken);
+            var result = await service.RevokeSessionAsync(caller.UserId, id, current, cancellationToken);
+            return result switch
+            {
+                SessionRevokeResult.Revoked => Results.NoContent(),
+                SessionRevokeResult.CurrentSession => Results.BadRequest(),
+                _ => Results.NotFound(),
+            };
+        })
+        .RequireRateLimiting("write")
+        .WithName("RevokeAccountSession");
+
+        group.MapDelete("/me/sessions/others", async (
+            ClaimsPrincipal user,
+            AccountService service,
+            HttpContext httpContext,
+            CancellationToken cancellationToken) =>
+        {
+            var caller = CallerContext.Require(user);
+            var current = await ResolveCurrentSessionIdAsync(service, caller.UserId, httpContext, cancellationToken);
+            var revokedCount = await service.RevokeOtherSessionsAsync(caller.UserId, current, cancellationToken);
+            return Results.Ok(new { revokedCount });
+        })
+        .RequireRateLimiting("write")
+        .WithName("RevokeOtherAccountSessions");
+    }
+
+    private static async Task<Guid?> ResolveCurrentSessionIdAsync(
+        AccountService service,
+        Guid userId,
+        HttpContext httpContext,
+        CancellationToken cancellationToken)
+    {
+        var raw = RefreshCookie.Read(httpContext);
+        if (string.IsNullOrWhiteSpace(raw))
+        {
+            return null;
+        }
+
+        return await service.FindSessionIdByRawTokenAsync(userId, raw, cancellationToken);
     }
 }

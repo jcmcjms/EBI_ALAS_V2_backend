@@ -44,7 +44,7 @@ public sealed class AccountMeEndpointTests
         db.LoanApplications.Add(approved);
         await db.SaveChangesAsync();
 
-        var service = new Ebi.Alas.Api.Features.Account.AccountService(db);
+        var service = new Ebi.Alas.Api.Features.Account.AccountService(db, TimeProvider.System);
         var profile = await service.GetProfileAsync(user.Id, CancellationToken.None);
 
         Assert.NotNull(profile);
@@ -70,7 +70,7 @@ public sealed class AccountMeEndpointTests
             loan.Id, user.Id, "Recommended", null, "ForChecking", "ok", now));
         await db.SaveChangesAsync();
 
-        var service = new Ebi.Alas.Api.Features.Account.AccountService(db);
+        var service = new Ebi.Alas.Api.Features.Account.AccountService(db, TimeProvider.System);
         var activity = await service.GetRecentActivityAsync(user.Id, 10, CancellationToken.None);
 
         var item = Assert.Single(activity);
@@ -91,7 +91,7 @@ public sealed class AccountMeEndpointTests
         db.LoanApplications.Add(loan);
         await db.SaveChangesAsync();
 
-        var service = new Ebi.Alas.Api.Features.Account.AccountService(db);
+        var service = new Ebi.Alas.Api.Features.Account.AccountService(db, TimeProvider.System);
         var loans = await service.GetProcessedLoansAsync(user.Id, 10, CancellationToken.None);
         var clients = await service.GetRecentClientsAsync(user.Id, 5, CancellationToken.None);
 
