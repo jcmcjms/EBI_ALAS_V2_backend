@@ -2,6 +2,7 @@ using Ebi.Alas.Api.Features.Account;
 using Ebi.Alas.Api.Features.Approvals;
 using Ebi.Alas.Api.Features.Auth.Logout;
 using Ebi.Alas.Api.Features.Auth.ChangePassword;
+using Ebi.Alas.Api.Features.Auth.ForgotPassword;
 using Ebi.Alas.Api.Features.Auth.Login;
 using Ebi.Alas.Api.Features.Auth.Refresh;
 using Ebi.Alas.Api.Features.Branches;
@@ -44,6 +45,7 @@ public static class PipelineConfiguration
         app.MapRefresh();
         app.MapLogout();
         app.MapChangePassword();
+        app.MapForgotPassword();
         app.MapUsers();
         app.MapAccountEndpoints();
         app.MapRoles();
