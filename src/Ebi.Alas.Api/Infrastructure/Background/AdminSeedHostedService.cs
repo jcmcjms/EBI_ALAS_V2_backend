@@ -19,6 +19,13 @@ public sealed class AdminSeedHostedService(
         {
             logger.LogInformation("Admin seed user already present; existing credentials left unchanged.");
         }
+
+        var requirementSeeder = scope.ServiceProvider.GetRequiredService<Features.LoanProducts.ProductDocumentRequirementSeeder>();
+        var seededRequirements = await requirementSeeder.SeedAsync(cancellationToken);
+        logger.LogInformation(
+            seededRequirements
+                ? "Product document requirements seeded from catalog."
+                : "Product document requirements already present.");
     }
 
     public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;

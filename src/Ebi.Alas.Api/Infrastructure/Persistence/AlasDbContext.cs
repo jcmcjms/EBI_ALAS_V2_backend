@@ -46,6 +46,8 @@ public sealed class AlasDbContext(DbContextOptions<AlasDbContext> options) : DbC
 
     public DbSet<LoanProduct> LoanProducts => Set<LoanProduct>();
 
+    public DbSet<LoanProductDocumentRequirement> LoanProductDocumentRequirements => Set<LoanProductDocumentRequirement>();
+
     public DbSet<UserPresence> UserPresences => Set<UserPresence>();
 
     public DbSet<Branch> Branches => Set<Branch>();
@@ -79,6 +81,16 @@ public sealed class AlasDbContext(DbContextOptions<AlasDbContext> options) : DbC
             b.HasKey(x => x.Id);
             b.Property(x => x.Name).HasMaxLength(200).IsRequired();
             b.HasIndex(x => x.LoanApplicationId);
+        });
+
+        modelBuilder.Entity<LoanProductDocumentRequirement>(b =>
+        {
+            b.ToTable("LoanProductDocumentRequirements");
+            b.HasKey(x => x.Id);
+            b.Property(x => x.ProductCode).HasMaxLength(20).IsRequired();
+            b.Property(x => x.Code).HasMaxLength(50).IsRequired();
+            b.Property(x => x.Description).HasMaxLength(200).IsRequired();
+            b.HasIndex(x => new { x.ProductCode, x.Code }).IsUnique();
         });
 
         modelBuilder.Entity<LoanDeviation>(b =>
