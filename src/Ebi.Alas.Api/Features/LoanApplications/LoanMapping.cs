@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Ebi.Alas.Api.Features.LoanApplications.Domain;
 using Ebi.Alas.Api.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -30,7 +31,33 @@ public static class LoanMapping
         loan.LastActionDate,
         loan.LastActionById,
         lastActionByName,
-        loan.LastActionVerb);
+        loan.LastActionVerb,
+        ParseForm(loan.FormJson),
+        loan.DocumentsFlaggedAt is { } flaggedAt
+            ? new DocumentFlagDto(
+                flaggedAt,
+                loan.DocumentsFlaggedById,
+                loan.DocumentFlagReason,
+                loan.DocumentFlagMissingCount)
+            : null);
+
+    private static JsonElement? ParseForm(string? formJson)
+    {
+        if (string.IsNullOrWhiteSpace(formJson))
+        {
+            return null;
+        }
+
+        try
+        {
+            using var doc = JsonDocument.Parse(formJson);
+            return doc.RootElement.Clone();
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
 
     public static async Task<LoanResponse> ToResponseAsync(
         this LoanApplication loan,

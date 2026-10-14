@@ -54,6 +54,17 @@ public sealed class LoanApplication
 
     public string? LastActionVerb { get; private set; }
 
+    /// <summary>Full approval-form snapshot captured at submit (create-flow preview payload).</summary>
+    public string? FormJson { get; private set; }
+
+    public DateTimeOffset? DocumentsFlaggedAt { get; private set; }
+
+    public Guid? DocumentsFlaggedById { get; private set; }
+
+    public string? DocumentFlagReason { get; private set; }
+
+    public int DocumentFlagMissingCount { get; private set; }
+
     public static LoanApplication Create(
         string lamId,
         string applicationGroupNo,
@@ -100,8 +111,39 @@ public sealed class LoanApplication
             UpdatedAt = now,
             LastActionDate = now,
             LastActionById = createdBy,
-            LastActionVerb = "Encoded"
+            LastActionVerb = "Encoded",
+            FormJson = null
         };
+    }
+
+    public void SetFormSnapshot(string? formJson)
+    {
+        FormJson = formJson;
+    }
+
+    public void FlagDocuments(int missingCount, string reason, Guid actorId, DateTimeOffset now)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(missingCount);
+        if (missingCount == 0)
+        {
+            throw new ArgumentException("At least one missing requirement is required to flag documents.", nameof(missingCount));
+        }
+        ArgumentException.ThrowIfNullOrWhiteSpace(reason);
+
+        DocumentsFlaggedAt = now;
+        DocumentsFlaggedById = actorId;
+        DocumentFlagReason = reason.Trim();
+        DocumentFlagMissingCount = missingCount;
+        UpdatedAt = now;
+    }
+
+    public void ClearDocumentFlag(DateTimeOffset now)
+    {
+        DocumentsFlaggedAt = null;
+        DocumentsFlaggedById = null;
+        DocumentFlagReason = null;
+        DocumentFlagMissingCount = 0;
+        UpdatedAt = now;
     }
 
     public void TransitionTo(LoanStatus next, DateTimeOffset now, Guid? actorId = null, string? verb = null)

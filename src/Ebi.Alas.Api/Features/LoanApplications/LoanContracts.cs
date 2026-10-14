@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Ebi.Alas.Api.Features.LoanApplications.Domain;
 
 namespace Ebi.Alas.Api.Features.LoanApplications;
@@ -24,7 +25,15 @@ public sealed record LoanResponse(
     DateTimeOffset LastActionDate,
     Guid? LastActionById,
     string? LastActionByName,
-    string? LastActionVerb);
+    string? LastActionVerb,
+    JsonElement? Form = null,
+    DocumentFlagDto? DocumentFlag = null);
+
+public sealed record DocumentFlagDto(
+    DateTimeOffset FlaggedAt,
+    Guid? FlaggedById,
+    string? Reason,
+    int MissingCount);
 
 /// <summary>One selected loan in a multi-loan application submission.</summary>
 public sealed record SubmitLoanLine(
@@ -46,7 +55,8 @@ public sealed record SubmitLoanApplicationsRequest(
     string ClientName,
     string BranchId,
     LoanType LoanType,
-    IReadOnlyList<SubmitLoanLine> Loans);
+    IReadOnlyList<SubmitLoanLine> Loans,
+    System.Text.Json.JsonElement? Form = null);
 
 public sealed record CreatedLoanSummary(
     Guid Id,

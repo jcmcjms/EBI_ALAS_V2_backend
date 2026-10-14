@@ -138,6 +138,7 @@ public static class ServiceRegistration
         services.AddScoped<
             Features.LoanApplications.Documents.IChecklistDocumentReader,
             Features.LoanApplications.Documents.ChecklistDocumentReader>();
+        services.AddScoped<Features.LoanApplications.Documents.DocumentFlagHandler>();
         services.AddHostedService<AdminSeedHostedService>();
 
         var webLoanConnectionString = configuration.GetConnectionString("WebLoan");

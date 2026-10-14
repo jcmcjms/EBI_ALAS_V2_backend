@@ -51,6 +51,7 @@ public static class PipelineConfiguration
         app.MapLoanReview();
         app.MapLoanGroups();
         Features.LoanApplications.Documents.ChecklistDocumentEndpoints.MapChecklistDocumentEndpoints(app);
+        Features.LoanApplications.Documents.DocumentFlagEndpoints.MapDocumentFlagEndpoints(app);
         app.MapWorkflow();
         app.MapWorkflowConfigurationEndpoints();
         app.MapDashboardEndpoints();
