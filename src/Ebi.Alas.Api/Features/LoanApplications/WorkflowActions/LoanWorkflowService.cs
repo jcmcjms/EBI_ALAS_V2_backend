@@ -89,6 +89,12 @@ public sealed class LoanWorkflowService(
         RecordAction(loan, "Approved", fromApprove.ToString(), loan.Status.ToString(), null, timeProvider.GetUtcNow());
         await queue.CompleteAsync(await ActiveQueueIdAsync(loanId, WorkflowStage.Approval, cancellationToken), caller.UserId, cancellationToken);
         await NotifyAsync(caller.UserId, "Application approved", $"Loan {loan.LamId} has been approved.", cancellationToken);
+        await NotifyEncoderAsync(
+            loan,
+            caller.UserId,
+            "Application approved",
+            $"Your application {loan.LamId} has been approved.",
+            cancellationToken);
         await db.SaveChangesAsync(cancellationToken);
         await NotifyDashboardAsync(cancellationToken);
         return await loan.ToResponseAsync(db, cancellationToken);
@@ -128,6 +134,15 @@ public sealed class LoanWorkflowService(
             loanId, section, comment, caller.UserId, timeProvider.GetUtcNow()));
         await CompleteActiveQueueAsync(loanId, caller.UserId, cancellationToken);
         await NotifyAsync(caller.UserId, "Application returned for revision", $"Loan {loan.LamId} was sent back to the encoder for revision.", cancellationToken);
+        var encoderBody = string.IsNullOrWhiteSpace(comment)
+            ? $"Your application {loan.LamId} was returned for revision."
+            : $"Your application {loan.LamId} was returned for revision. Remarks: {comment.Trim()}";
+        await NotifyEncoderAsync(
+            loan,
+            caller.UserId,
+            "Application returned for revision",
+            encoderBody,
+            cancellationToken);
         await db.SaveChangesAsync(cancellationToken);
         await NotifyDashboardAsync(cancellationToken);
         return await loan.ToResponseAsync(db, cancellationToken);
@@ -247,5 +262,20 @@ public sealed class LoanWorkflowService(
                 notification.CreatedAt,
                 cancellationToken);
         }
+    }
+
+    private async Task NotifyEncoderAsync(
+        LoanApplication loan,
+        Guid actorId,
+        string title,
+        string body,
+        CancellationToken cancellationToken)
+    {
+        if (loan.CreatedBy == actorId)
+        {
+            return;
+        }
+
+        await NotifyAsync(loan.CreatedBy, title, body, cancellationToken);
     }
 }
