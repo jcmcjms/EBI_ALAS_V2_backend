@@ -251,6 +251,19 @@ namespace Ebi.Alas.Api.Migrations
                     b.Property<Guid>("CreatedBy")
                         .HasColumnType("uniqueidentifier");
 
+                    b.Property<int>("DocumentFlagMissingCount")
+                        .HasColumnType("int");
+
+                    b.Property<string>("DocumentFlagReason")
+                        .HasMaxLength(2000)
+                        .HasColumnType("nvarchar(2000)");
+
+                    b.Property<DateTimeOffset?>("DocumentsFlaggedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<Guid?>("DocumentsFlaggedById")
+                        .HasColumnType("uniqueidentifier");
+
                     b.Property<string>("FormJson")
                         .HasColumnType("nvarchar(max)");
 
