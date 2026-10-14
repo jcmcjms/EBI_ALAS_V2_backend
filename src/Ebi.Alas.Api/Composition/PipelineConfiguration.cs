@@ -48,6 +48,8 @@ public static class PipelineConfiguration
         app.MapBranches();
         app.MapLoans();
         app.MapLoanWorkflow();
+        app.MapLoanReview();
+        app.MapLoanGroups();
         Features.LoanApplications.Documents.ChecklistDocumentEndpoints.MapChecklistDocumentEndpoints(app);
         app.MapWorkflow();
         app.MapWorkflowConfigurationEndpoints();
@@ -56,6 +58,7 @@ public static class PipelineConfiguration
         app.MapWebLoans();
         app.MapPresenceEndpoints();
         app.MapLoanProductEndpoints();
+        Features.LoanProducts.DocumentRequirements.DocumentRequirementEndpoints.MapDocumentRequirementEndpoints(app);
         app.MapSlaPolicyEndpoints();
         app.MapDeviationCatalogEndpoints();
         Features.Notifications.NotificationHubModule.MapNotificationHub(app);
