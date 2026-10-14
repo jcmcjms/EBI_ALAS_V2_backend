@@ -17,6 +17,8 @@ public sealed class DocumentChecklistItem
 
     public Guid LoanApplicationId { get; private set; }
 
+    public string Code { get; private set; } = string.Empty;
+
     public string Name { get; private set; }
 
     public bool IsSubmitted { get; private set; }
@@ -25,13 +27,19 @@ public sealed class DocumentChecklistItem
 
     public DocumentFlag Flag { get; private set; }
 
-    public static DocumentChecklistItem Create(Guid loanApplicationId, string name, DateTimeOffset now)
+    public static DocumentChecklistItem Create(
+        Guid loanApplicationId,
+        string code,
+        string name,
+        DateTimeOffset now)
     {
+        ArgumentException.ThrowIfNullOrWhiteSpace(code);
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
         return new DocumentChecklistItem
         {
             Id = Guid.NewGuid(),
             LoanApplicationId = loanApplicationId,
+            Code = code.Trim(),
             Name = name.Trim(),
             IsSubmitted = false,
             IsVerified = false,

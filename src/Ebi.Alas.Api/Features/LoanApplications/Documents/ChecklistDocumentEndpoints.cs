@@ -62,9 +62,10 @@ public static class ChecklistDocumentEndpoints
 
             var items = await db.DocumentChecklistItems.AsNoTracking()
                 .Where(d => d.LoanApplicationId == id)
-                .OrderBy(d => d.Name)
+                .OrderBy(d => d.Code)
                 .Select(d => new
                 {
+                    d.Code,
                     d.Name,
                     d.IsSubmitted,
                     d.IsVerified
@@ -74,7 +75,7 @@ public static class ChecklistDocumentEndpoints
             var documents = items.Select(item => new LoanChecklistDocumentDto(
                 LoanNo: loan.LamId,
                 LoanProduct: loan.ProductCode,
-                IdCode: item.Name,
+                IdCode: item.Code,
                 ChecklistDescription: item.Name,
                 DocId: item.IsSubmitted ? null : null,
                 DocStr: null,
