@@ -43,6 +43,8 @@ public sealed class User
 
     public bool MustChangePassword { get; private set; }
 
+    public DateTimeOffset? PasswordResetSentAt { get; private set; }
+
     public DateTimeOffset CreatedAt { get; private set; }
 
     public DateTimeOffset UpdatedAt { get; private set; }
@@ -122,6 +124,22 @@ public sealed class User
     {
         MustChangePassword = false;
         UpdatedAt = now;
+    }
+
+    public void MarkPasswordResetSent(DateTimeOffset now)
+    {
+        PasswordResetSentAt = now;
+        UpdatedAt = now;
+    }
+
+    public bool IsPasswordResetCooldownActive(DateTimeOffset now, TimeSpan cooldown)
+    {
+        if (PasswordResetSentAt is null)
+        {
+            return false;
+        }
+
+        return now - PasswordResetSentAt.Value < cooldown;
     }
 
     public void UpdateProfile(

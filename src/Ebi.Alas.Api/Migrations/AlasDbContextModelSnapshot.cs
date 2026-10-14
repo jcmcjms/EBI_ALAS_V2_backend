@@ -639,6 +639,9 @@ namespace Ebi.Alas.Api.Migrations
                         .HasMaxLength(256)
                         .HasColumnType("nvarchar(256)");
 
+                    b.Property<DateTimeOffset?>("PasswordResetSentAt")
+                        .HasColumnType("datetimeoffset");
+
                     b.Property<string>("Phone")
                         .HasMaxLength(20)
                         .HasColumnType("nvarchar(20)");
