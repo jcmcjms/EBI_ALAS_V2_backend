@@ -13,6 +13,7 @@ public sealed class LoanWorkflowService(
     AlasDbContext db,
     WorkflowQueueService queue,
     Notifications.IRealtimeNotifier? notifier,
+    Notifications.ApplicationArrivalNotifier arrivals,
     TimeProvider timeProvider)
 {
     public async Task<LoanResponse> RecommendAsync(
@@ -26,6 +27,13 @@ public sealed class LoanWorkflowService(
         await queue.CompleteAsync(await ActiveQueueIdAsync(loanId, WorkflowStage.Recommendation, cancellationToken), caller.UserId, cancellationToken);
         await queue.EnqueueAsync(loanId, WorkflowStage.Evaluation, loan.BranchId, cancellationToken);
         await NotifyAsync(caller.UserId, $"Loan {loan.LamId} recommended", cancellationToken);
+        await arrivals.NotifyRoleAsync(
+            UserRole.Evaluator,
+            loan.BranchId,
+            "New application ready for evaluation",
+            $"Loan {loan.LamId} was recommended and is ready for evaluation.",
+            link: $"/loans/approval/{loan.Id}",
+            cancellationToken);
         await db.SaveChangesAsync(cancellationToken);
         return await loan.ToResponseAsync(db, cancellationToken);
     }
@@ -86,9 +94,27 @@ public sealed class LoanWorkflowService(
         loan.TransitionTo(LoanStatus.ForRevision, timeProvider.GetUtcNow(), caller.UserId, "PushedBack");
         db.RevisionRequests.Add(Revisions.RevisionRequest.Create(
             loanId, section, comment, caller.UserId, timeProvider.GetUtcNow()));
+        await CompleteActiveQueueAsync(loanId, caller.UserId, cancellationToken);
         await NotifyAsync(caller.UserId, $"Loan {loan.LamId} returned for revision", cancellationToken);
         await db.SaveChangesAsync(cancellationToken);
         return await loan.ToResponseAsync(db, cancellationToken);
+    }
+
+    private async Task CompleteActiveQueueAsync(
+        Guid loanId,
+        Guid userId,
+        CancellationToken cancellationToken)
+    {
+        var active = await db.WorkflowQueueItems
+            .FirstOrDefaultAsync(
+                q => q.LoanApplicationId == loanId && q.State == QueueItemState.Active,
+                cancellationToken);
+        if (active is null)
+        {
+            return;
+        }
+
+        await queue.CompleteAsync(active.Id, userId, cancellationToken);
     }
 
     public async Task<LoanResponse> CancelAsync(
@@ -159,6 +185,7 @@ public sealed class LoanWorkflowService(
                 actorId,
                 title,
                 string.Empty,
+                link: null,
                 notification.CreatedAt,
                 cancellationToken);
         }
