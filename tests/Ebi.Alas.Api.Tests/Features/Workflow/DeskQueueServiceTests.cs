@@ -26,7 +26,10 @@ public sealed class DeskQueueServiceTests
         new(db, new WorkflowQueueService(db, new FixedTimeProvider(now)), new FixedTimeProvider(now));
 
     private static LoanApplication NewLoan(string lamId, DateTimeOffset now) =>
-        LoanApplication.Create(lamId, "GRP-1", "Client", "011", LoanType.New, 1000m, 30, 0.05m, 50m, 10m, 940m, Guid.NewGuid(), now);
+        NewLoan(lamId, Guid.NewGuid(), now);
+
+    private static LoanApplication NewLoan(string lamId, Guid createdBy, DateTimeOffset now) =>
+        LoanApplication.Create(lamId, "GRP-1", "Client", "011", LoanType.New, 1000m, 30, 0.05m, 50m, 10m, 940m, createdBy, now);
 
     [Fact]
     public async Task GetMyDeskAsync_Recommender_SeesQueuedRecommendationItems()
@@ -81,5 +84,80 @@ public sealed class DeskQueueServiceTests
         Assert.Equal(WorkflowStage.Approval, ap);
         Assert.False(DeskQueueService.TryMapStage(UserRole.Admin, out _));
         Assert.False(DeskQueueService.TryMapStage(UserRole.Encoder, out _));
+    }
+
+    [Fact]
+    public async Task Cancel_WhileEvaluatorHoldsClaim_ReleasesDeskAndAllowsNextClaim()
+    {
+        await using var db = Db();
+        var now = DateTimeOffset.UtcNow;
+        var time = new FixedTimeProvider(now);
+        var queue = new WorkflowQueueService(db, time);
+        var desk = new DeskQueueService(db, queue, time);
+
+        var creator = Guid.NewGuid();
+        var loan = NewLoan("LAM-CANCEL", creator, now);
+        loan.TransitionTo(LoanStatus.ForChecking, now);
+        db.LoanApplications.Add(loan);
+        await queue.EnqueueAsync(loan.Id, WorkflowStage.Evaluation, "011", CancellationToken.None);
+
+        var evaluatorId = Guid.NewGuid();
+        var evaluator = new CallerContext(evaluatorId, UserRole.Evaluator, "011");
+        var claimed = await desk.ClaimHeadAsync(evaluator, CancellationToken.None);
+        Assert.NotNull(claimed);
+
+        var next = NewLoan("LAM-NEXT", now);
+        next.TransitionTo(LoanStatus.ForChecking, now);
+        db.LoanApplications.Add(next);
+        await queue.EnqueueAsync(next.Id, WorkflowStage.Evaluation, "011", CancellationToken.None);
+
+        var encoder = new CallerContext(creator, UserRole.Encoder, "011");
+        await new Ebi.Alas.Api.Features.LoanApplications.WorkflowActions.LoanWorkflowService(
+            db,
+            queue,
+            notifier: null,
+            new Ebi.Alas.Api.Features.Notifications.ApplicationArrivalNotifier(db, null, time),
+            time)
+            .CancelAsync(loan.Id, encoder, CancellationToken.None);
+
+        var deskAfter = await desk.GetMyDeskAsync(evaluator, CancellationToken.None);
+        Assert.Null(deskAfter.CurrentClaim);
+        Assert.DoesNotContain(deskAfter.Items, i => i.LamId == "LAM-CANCEL");
+
+        var claimAfter = await desk.ClaimHeadAsync(evaluator, CancellationToken.None);
+        Assert.NotNull(claimAfter);
+        Assert.Equal("LAM-NEXT", claimAfter!.LamId);
+
+        var remaining = await db.WorkflowQueueItems
+            .Where(q => q.LoanApplicationId == loan.Id && q.State != QueueItemState.Completed)
+            .ToListAsync();
+        Assert.Empty(remaining);
+    }
+
+    [Fact]
+    public async Task GetMyDeskAsync_WhenClaimedLoanAlreadyCancelled_DropsStaleClaim()
+    {
+        await using var db = Db();
+        var now = DateTimeOffset.UtcNow;
+        var time = new FixedTimeProvider(now);
+        var queue = new WorkflowQueueService(db, time);
+        var desk = new DeskQueueService(db, queue, time);
+
+        var loan = NewLoan("LAM-STALE", now);
+        loan.TransitionTo(LoanStatus.ForChecking, now);
+        db.LoanApplications.Add(loan);
+        await queue.EnqueueAsync(loan.Id, WorkflowStage.Evaluation, "011", CancellationToken.None);
+
+        var evaluator = new CallerContext(Guid.NewGuid(), UserRole.Evaluator, "011");
+        Assert.NotNull(await desk.ClaimHeadAsync(evaluator, CancellationToken.None));
+
+        loan.Cancel(now);
+        await db.SaveChangesAsync();
+
+        var deskAfter = await desk.GetMyDeskAsync(evaluator, CancellationToken.None);
+        Assert.Null(deskAfter.CurrentClaim);
+
+        var claimAfter = await desk.ClaimHeadAsync(evaluator, CancellationToken.None);
+        Assert.Null(claimAfter);
     }
 }

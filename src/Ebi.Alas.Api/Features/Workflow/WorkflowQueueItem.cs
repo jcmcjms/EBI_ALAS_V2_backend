@@ -92,6 +92,18 @@ public sealed class WorkflowQueueItem
         Version++;
     }
 
+    public void ForceComplete(DateTimeOffset now)
+    {
+        if (State == QueueItemState.Completed)
+        {
+            return;
+        }
+
+        State = QueueItemState.Completed;
+        LeasedAt = now;
+        Version++;
+    }
+
     public bool IsLeaseExpired(DateTimeOffset now) =>
         State == QueueItemState.Active
         && LeasedAt is { } leased
