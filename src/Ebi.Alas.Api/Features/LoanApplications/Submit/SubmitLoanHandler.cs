@@ -16,6 +16,7 @@ public sealed class SubmitLoanHandler(
     IWorkflowConfiguration workflow,
     ApplicationNumberGenerator numbers,
     ApplicationArrivalNotifier arrivals,
+    IRealtimeNotifier? realtime,
     TimeProvider timeProvider)
 {
     public async Task<LoanSubmissionResponse> HandleAsync(
@@ -122,6 +123,11 @@ public sealed class SubmitLoanHandler(
                 $"Loan application(s) {string.Join(", ", branchLamIds)} submitted by {request.ClientName}.",
                 link: null,
                 cancellationToken);
+        }
+
+        if (realtime is not null)
+        {
+            await realtime.NotifyDashboardUpdatedAsync(cancellationToken);
         }
 
         return new LoanSubmissionResponse(

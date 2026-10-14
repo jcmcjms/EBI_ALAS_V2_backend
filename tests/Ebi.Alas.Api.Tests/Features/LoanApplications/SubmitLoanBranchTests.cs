@@ -48,6 +48,7 @@ public sealed class SubmitLoanBranchTests
         Config(requireRecommendation),
         new ApplicationNumberGenerator(db),
         new Ebi.Alas.Api.Features.Notifications.ApplicationArrivalNotifier(db, null, TimeProvider.System),
+        realtime: null,
         TimeProvider.System);
 
     [Fact]
