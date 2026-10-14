@@ -1,8 +1,12 @@
 using Ebi.Alas.Api.Composition.Auth;
 using Ebi.Alas.Api.Features.LoanApplications.Domain;
+using Ebi.Alas.Api.Features.Documents;
 using Ebi.Alas.Api.Features.LoanComputation;
+using Ebi.Alas.Api.Features.Notifications;
+using Ebi.Alas.Api.Features.Users.Domain;
 using Ebi.Alas.Api.Features.Workflow;
 using Ebi.Alas.Api.Infrastructure.Persistence;
+using Microsoft.EntityFrameworkCore;
 
 namespace Ebi.Alas.Api.Features.LoanApplications.Submit;
 
@@ -12,6 +16,7 @@ public sealed class SubmitLoanHandler(
     WorkflowQueueService queue,
     IWorkflowConfiguration workflow,
     ApplicationNumberGenerator numbers,
+    ApplicationArrivalNotifier arrivals,
     TimeProvider timeProvider)
 {
     public async Task<LoanSubmissionResponse> HandleAsync(
@@ -78,6 +83,29 @@ public sealed class SubmitLoanHandler(
 
             db.LoanApplications.Add(loan);
             created.Add(loan);
+
+            var requirements = await db.LoanProductDocumentRequirements.AsNoTracking()
+                .Where(r => r.ProductCode == line.ProductCode)
+                .OrderBy(r => r.Code)
+                .Select(r => new { r.Code, r.Description })
+                .ToListAsync(cancellationToken);
+            foreach (var requirement in requirements)
+            {
+                db.DocumentChecklistItems.Add(DocumentChecklistItem.Create(
+                    loan.Id,
+                    requirement.Code,
+                    requirement.Description,
+                    now));
+            }
+        }
+
+        if (request.Form is { } formSnapshot)
+        {
+            var formJson = formSnapshot.GetRawText();
+            foreach (var loan in created)
+            {
+                loan.SetFormSnapshot(formJson);
+            }
         }
 
         await db.SaveChangesAsync(cancellationToken);
@@ -88,6 +116,27 @@ public sealed class SubmitLoanHandler(
         foreach (var loan in created)
         {
             await queue.EnqueueAsync(loan.Id, stage, loan.BranchId, cancellationToken);
+        }
+
+        var audienceRole = workflow.RequireRecommendation
+            ? UserRole.Recommender
+            : UserRole.Evaluator;
+        var audienceTitle = workflow.RequireRecommendation
+            ? "New application ready for recommendation"
+            : "New application ready for evaluation";
+        foreach (var branch in created.Select(l => l.BranchId).Distinct())
+        {
+            var branchLamIds = created
+                .Where(l => l.BranchId == branch)
+                .Select(l => l.LamId)
+                .ToList();
+            await arrivals.NotifyRoleAsync(
+                audienceRole,
+                branch,
+                audienceTitle,
+                $"Loan application(s) {string.Join(", ", branchLamIds)} submitted by {request.ClientName}.",
+                link: null,
+                cancellationToken);
         }
 
         return new LoanSubmissionResponse(

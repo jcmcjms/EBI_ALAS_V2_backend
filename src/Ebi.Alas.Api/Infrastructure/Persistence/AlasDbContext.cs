@@ -79,6 +79,7 @@ public sealed class AlasDbContext(DbContextOptions<AlasDbContext> options) : DbC
         {
             b.ToTable("DocumentChecklistItems");
             b.HasKey(x => x.Id);
+            b.Property(x => x.Code).HasMaxLength(50).IsRequired();
             b.Property(x => x.Name).HasMaxLength(200).IsRequired();
             b.HasIndex(x => x.LoanApplicationId);
         });
