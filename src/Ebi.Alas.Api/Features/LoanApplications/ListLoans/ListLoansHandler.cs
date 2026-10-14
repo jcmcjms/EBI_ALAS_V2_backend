@@ -37,7 +37,18 @@ public sealed class ListLoansHandler(AlasDbContext db)
 
         if (!caller.CanAccessAllBranches)
         {
-            query = query.Where(l => l.BranchId == caller.BranchId);
+            var jobTitle = await db.Users.AsNoTracking()
+                .Where(u => u.Id == caller.UserId)
+                .Select(u => u.JobTitle)
+                .FirstOrDefaultAsync(cancellationToken);
+            var readable = await Branches.BranchVisibility.GetReadableBranchIdsAsync(
+                db,
+                caller.UserId,
+                caller.Role,
+                caller.BranchId,
+                cancellationToken,
+                jobTitle);
+            query = query.Where(l => readable.Contains(l.BranchId));
         }
         else if (!string.IsNullOrWhiteSpace(branchId))
         {
