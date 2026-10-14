@@ -34,7 +34,7 @@ public sealed class LoanWorkflowService(
         loan.AssignTo(null, timeProvider.GetUtcNow());
         await queue.CompleteAsync(await ActiveQueueIdAsync(loanId, WorkflowStage.Recommendation, cancellationToken), caller.UserId, cancellationToken);
         await queue.EnqueueAsync(loanId, WorkflowStage.Evaluation, loan.BranchId, cancellationToken);
-        await NotifyAsync(caller.UserId, $"Loan {loan.LamId} recommended", cancellationToken);
+        await NotifyAsync(caller.UserId, "Application recommended for checking", $"Loan {loan.LamId} was recommended and is ready for evaluation.", cancellationToken);
         await arrivals.NotifyRoleAsync(
             UserRole.Evaluator,
             loan.BranchId,
@@ -64,7 +64,13 @@ public sealed class LoanWorkflowService(
         loan.AssignTo(null, timeProvider.GetUtcNow());
         await queue.CompleteAsync(await ActiveQueueIdAsync(loanId, WorkflowStage.Evaluation, cancellationToken), caller.UserId, cancellationToken);
         await queue.EnqueueAsync(loanId, WorkflowStage.Approval, loan.BranchId, cancellationToken);
-        await NotifyAsync(caller.UserId, $"Loan {loan.LamId} evaluated (recommend={recommend})", cancellationToken);
+        await NotifyAsync(
+            caller.UserId,
+            recommend ? "Application recommended for approval" : "Application not recommended",
+            recommend
+                ? $"Loan {loan.LamId} was evaluated as Recommended and sent for approval."
+                : $"Loan {loan.LamId} was evaluated as Not Recommended and sent for approval.",
+            cancellationToken);
         await db.SaveChangesAsync(cancellationToken);
         return await loan.ToResponseAsync(db, cancellationToken);
     }
@@ -80,7 +86,7 @@ public sealed class LoanWorkflowService(
         loan.TransitionTo(LoanStatus.Approved, timeProvider.GetUtcNow(), caller.UserId, "Approved");
         RecordAction(loan, "Approved", fromApprove.ToString(), loan.Status.ToString(), null, timeProvider.GetUtcNow());
         await queue.CompleteAsync(await ActiveQueueIdAsync(loanId, WorkflowStage.Approval, cancellationToken), caller.UserId, cancellationToken);
-        await NotifyAsync(caller.UserId, $"Loan {loan.LamId} approved", cancellationToken);
+        await NotifyAsync(caller.UserId, "Application approved", $"Loan {loan.LamId} has been approved.", cancellationToken);
         await db.SaveChangesAsync(cancellationToken);
         return await loan.ToResponseAsync(db, cancellationToken);
     }
@@ -96,7 +102,7 @@ public sealed class LoanWorkflowService(
         loan.TransitionTo(LoanStatus.Rejected, timeProvider.GetUtcNow(), caller.UserId, "Rejected");
         RecordAction(loan, "Rejected", fromReject.ToString(), loan.Status.ToString(), null, timeProvider.GetUtcNow());
         await queue.CompleteAsync(await ActiveQueueIdAsync(loanId, WorkflowStage.Approval, cancellationToken), caller.UserId, cancellationToken);
-        await NotifyAsync(caller.UserId, $"Loan {loan.LamId} rejected", cancellationToken);
+        await NotifyAsync(caller.UserId, "Application rejected", $"Loan {loan.LamId} has been rejected.", cancellationToken);
         await db.SaveChangesAsync(cancellationToken);
         return await loan.ToResponseAsync(db, cancellationToken);
     }
@@ -117,7 +123,7 @@ public sealed class LoanWorkflowService(
         db.RevisionRequests.Add(Revisions.RevisionRequest.Create(
             loanId, section, comment, caller.UserId, timeProvider.GetUtcNow()));
         await CompleteActiveQueueAsync(loanId, caller.UserId, cancellationToken);
-        await NotifyAsync(caller.UserId, $"Loan {loan.LamId} returned for revision", cancellationToken);
+        await NotifyAsync(caller.UserId, "Application returned for revision", $"Loan {loan.LamId} was sent back to the encoder for revision.", cancellationToken);
         await db.SaveChangesAsync(cancellationToken);
         return await loan.ToResponseAsync(db, cancellationToken);
     }
@@ -151,7 +157,7 @@ public sealed class LoanWorkflowService(
         }
 
         loan.Cancel(timeProvider.GetUtcNow(), caller.UserId);
-        await NotifyAsync(caller.UserId, $"Loan {loan.LamId} cancelled", cancellationToken);
+        await NotifyAsync(caller.UserId, "Application cancelled", $"Loan {loan.LamId} has been cancelled.", cancellationToken);
         await db.SaveChangesAsync(cancellationToken);
         return await loan.ToResponseAsync(db, cancellationToken);
     }
@@ -202,12 +208,12 @@ public sealed class LoanWorkflowService(
             loan.Id, loan.LastActionById ?? loan.CreatedBy, action, fromStatus, toStatus, comments, at));
     }
 
-    private async Task NotifyAsync(Guid actorId, string title, CancellationToken cancellationToken)
+    private async Task NotifyAsync(Guid actorId, string title, string body, CancellationToken cancellationToken)
     {
         var notification = Notification.Create(
             actorId,
             title,
-            string.Empty,
+            body,
             NotificationType.Action,
             timeProvider.GetUtcNow());
         db.Notifications.Add(notification);
@@ -218,7 +224,7 @@ public sealed class LoanWorkflowService(
                 notification.Id,
                 actorId,
                 title,
-                string.Empty,
+                body,
                 link: null,
                 notification.CreatedAt,
                 cancellationToken);
