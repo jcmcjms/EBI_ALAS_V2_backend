@@ -57,4 +57,20 @@ public sealed class ChecklistDocumentWebloanTests
         Assert.Equal("Uploaded", uploaded.DocId is null ? "No uploaded documents" : "Uploaded");
         Assert.Equal("No uploaded documents", missing.DocId is null ? "No uploaded documents" : "Uploaded");
     }
+
+    [Fact]
+    public void DocumentFile_UsesDocStr_NotMiniStr()
+    {
+        // Reference GetDocumentContentAsync reads docs.doc_str (base64 payload).
+        // mini_str is list metadata only and may be empty even when the file exists.
+        var file = new ChecklistDocumentContent(
+            DocId: 462880,
+            DocStr: Convert.ToBase64String("pdf-bytes"u8.ToArray()),
+            ContentType: "application/pdf");
+
+        Assert.Equal(462880, file.DocId);
+        Assert.False(string.IsNullOrEmpty(file.DocStr));
+        Assert.Equal("application/pdf", file.ContentType);
+        Assert.Equal("pdf-bytes", System.Text.Encoding.UTF8.GetString(Convert.FromBase64String(file.DocStr!)));
+    }
 }

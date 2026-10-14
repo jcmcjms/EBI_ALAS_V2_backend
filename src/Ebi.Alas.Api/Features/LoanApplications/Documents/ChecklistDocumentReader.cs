@@ -14,6 +14,11 @@ public sealed record ChecklistDocumentUpload(
     DateTimeOffset? Created,
     string? UploadedBy);
 
+public sealed record ChecklistDocumentContent(
+    int DocId,
+    string? DocStr,
+    string ContentType);
+
 /// <summary>
 /// Resolves product document requirements against webloan + binary document store.
 /// Matches the reference join: product codes × loan_data × check_list_all × doc_ref/docs.
@@ -25,7 +30,7 @@ public interface IChecklistDocumentReader
         IReadOnlyCollection<string> idCodes,
         CancellationToken cancellationToken);
 
-    Task<ChecklistDocumentUpload?> GetDocumentContentAsync(
+    Task<ChecklistDocumentContent?> GetDocumentFileAsync(
         int docId,
         CancellationToken cancellationToken);
 }
@@ -90,7 +95,11 @@ public sealed class ChecklistDocumentReader(
         }).ToList();
     }
 
-    public async Task<ChecklistDocumentUpload?> GetDocumentContentAsync(
+    /// <summary>
+    /// Full document bytes come from webloan/binary <c>docs.doc_str</c> (base64), same as the reference.
+    /// List rows use <c>mini_str</c>; view must not.
+    /// </summary>
+    public async Task<ChecklistDocumentContent?> GetDocumentFileAsync(
         int docId,
         CancellationToken cancellationToken)
     {
@@ -103,9 +112,9 @@ public sealed class ChecklistDocumentReader(
         await using var command = connection.CreateCommand();
         // OPENQUERY cannot take parameters; docId is a validated int.
         command.CommandText = $@"
-            SELECT TOP 1 d.mini_str, d.content_type, d.created, d.uploaded_by
+            SELECT TOP 1 d.doc_str, d.content_type
             FROM OPENQUERY(BPB_BINARY_SERVER,
-                'SELECT mini_str, content_type, created, uploaded_by
+                'SELECT doc_str, content_type
                  FROM bpb_binary.dbo.docs
                  WHERE doc_id = {docId}') d";
         command.CommandTimeout = 60;
@@ -116,12 +125,11 @@ public sealed class ChecklistDocumentReader(
             return null;
         }
 
-        return new ChecklistDocumentUpload(
+        var contentType = reader.IsDBNull(1) ? "application/octet-stream" : reader.GetString(1);
+        return new ChecklistDocumentContent(
             DocId: docId,
-            MiniStr: reader.IsDBNull(0) ? null : reader.GetString(0),
-            ContentType: reader.IsDBNull(1) ? null : reader.GetString(1),
-            Created: reader.IsDBNull(2) ? null : reader.GetDateTime(2),
-            UploadedBy: reader.IsDBNull(3) ? null : reader.GetString(3));
+            DocStr: reader.IsDBNull(0) ? null : reader.GetString(0),
+            ContentType: contentType);
     }
 
     private async Task<Dictionary<string, ChecklistDocumentUpload>> LoadUploadsAsync(
