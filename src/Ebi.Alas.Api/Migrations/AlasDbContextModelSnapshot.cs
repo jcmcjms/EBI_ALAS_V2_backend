@@ -337,6 +337,45 @@ namespace Ebi.Alas.Api.Migrations
                     b.ToTable("LoanApplications", (string)null);
                 });
 
+            modelBuilder.Entity("Ebi.Alas.Api.Features.LoanApplications.Domain.LoanApplicationAction", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Action")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)");
+
+                    b.Property<Guid>("ActionByUserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTimeOffset>("ActionDate")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("Comments")
+                        .HasMaxLength(2000)
+                        .HasColumnType("nvarchar(2000)");
+
+                    b.Property<string>("FromStatus")
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)");
+
+                    b.Property<Guid>("LoanApplicationId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("ToStatus")
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("LoanApplicationId");
+
+                    b.ToTable("LoanApplicationActions", (string)null);
+                });
+
             modelBuilder.Entity("Ebi.Alas.Api.Features.LoanProducts.LoanProduct", b =>
                 {
                     b.Property<Guid>("Id")
