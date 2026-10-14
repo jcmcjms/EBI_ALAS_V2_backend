@@ -77,7 +77,8 @@ public sealed class ImportUsersHandler(
                 row.Email ?? string.Empty,
                 row.BranchCode!.Trim(),
                 TryParseRole(row.Role, out var parsedRole) ? parsedRole : throw new InvalidOperationException("Role was validated."),
-                timeProvider.GetUtcNow());
+                timeProvider.GetUtcNow(),
+                row.JobTitle?.Trim());
 
             if (!row.MustChangePassword)
             {
@@ -140,9 +141,6 @@ public sealed class ImportUsersHandler(
         }
     }
 
-    /// <summary>
-    /// Accepts catalog names and common display forms (case, padding, "Role (label)", Administrator).
-    /// </summary>
     public static bool TryParseRole(string? raw, out UserRole role)
     {
         role = default;
