@@ -78,6 +78,7 @@ public static class WorkflowConfigurationEndpoints
                     notification.Id,
                     notification.Title,
                     notification.Body,
+                    link: null,
                     notification.CreatedAt);
 
                 await hubContext.Clients.Group(NotificationHub.UserGroup(notification.UserId))

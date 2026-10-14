@@ -34,7 +34,6 @@ public sealed record CisAccount(
 
 public sealed record CisDetail(CisBorrower Borrower, IReadOnlyList<CisAccount> Accounts);
 
-/// <summary>Catalog row from webloan. Retired when expiration is set.</summary>
 public sealed record LoanProductLookup(
     string ProductCode,
     string ProductName,
