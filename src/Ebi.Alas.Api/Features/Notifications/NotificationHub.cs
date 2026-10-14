@@ -2,6 +2,7 @@ using System.Security.Claims;
 using Ebi.Alas.Api.Features.Presence;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.SignalR;
+using Microsoft.Extensions.Logging;
 
 namespace Ebi.Alas.Api.Features.Notifications;
 
@@ -15,6 +16,8 @@ public interface IRealtimeNotifier
         string? link,
         DateTimeOffset createdAt,
         CancellationToken cancellationToken);
+
+    Task NotifyDashboardUpdatedAsync(CancellationToken cancellationToken);
 }
 
 public sealed record ReceiveNotificationPayload(
@@ -28,6 +31,7 @@ public sealed class NotificationHub(PresenceService presence) : Hub
 {
     public const string Route = "/hubs/notifications";
     public const string ReceiveNotificationEvent = "ReceiveNotification";
+    public const string DashboardUpdatedEvent = "DashboardUpdated";
 
     public static string UserGroup(Guid userId) => $"user:{userId}";
 
@@ -56,7 +60,9 @@ public sealed class NotificationHub(PresenceService presence) : Hub
 }
 
 public sealed class SignalRRealtimeNotifier(
-    IHubContext<NotificationHub> hubContext) : IRealtimeNotifier
+    IHubContext<NotificationHub> hubContext,
+    TimeProvider timeProvider,
+    ILogger<SignalRRealtimeNotifier> logger) : IRealtimeNotifier
 {
     public async Task NotifyUserAsync(
         Guid notificationId,
@@ -76,6 +82,25 @@ public sealed class SignalRRealtimeNotifier(
 
         await hubContext.Clients.Group(NotificationHub.UserGroup(userId))
             .SendAsync(NotificationHub.ReceiveNotificationEvent, payload, cancellationToken);
+    }
+
+    public async Task NotifyDashboardUpdatedAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            await hubContext.Clients.All.SendAsync(
+                NotificationHub.DashboardUpdatedEvent,
+                new { Timestamp = timeProvider.GetUtcNow() },
+                cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "DashboardUpdated broadcast failed");
+        }
     }
 }
 

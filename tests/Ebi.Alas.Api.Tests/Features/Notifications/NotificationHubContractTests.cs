@@ -32,4 +32,10 @@ public sealed class NotificationHubContractTests
         Assert.Null(payload.Link);
         Assert.Equal(createdAt, payload.Timestamp);
     }
+
+    [Fact]
+    public void DashboardUpdatedEventName_MatchesDocumentedContract()
+    {
+        Assert.Equal("DashboardUpdated", NotificationHub.DashboardUpdatedEvent);
+    }
 }
