@@ -47,6 +47,7 @@ public sealed class SubmitLoanBranchTests
         new WorkflowQueueService(db, TimeProvider.System),
         Config(requireRecommendation),
         new ApplicationNumberGenerator(db),
+        new Ebi.Alas.Api.Features.Notifications.ApplicationArrivalNotifier(db, null, TimeProvider.System),
         TimeProvider.System);
 
     [Fact]

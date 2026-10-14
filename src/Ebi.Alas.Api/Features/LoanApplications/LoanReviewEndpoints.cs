@@ -64,6 +64,55 @@ public static class LoanReviewEndpoints
     {
         var group = endpoints.MapGroup("/api/loans").WithTags("Loans").RequireAuthorization();
 
+        group.MapGet("/{id:guid}/history", async (
+            Guid id,
+            AlasDbContext db,
+            ClaimsPrincipal user,
+            CancellationToken ct) =>
+        {
+            var caller = CallerContext.Require(user);
+            var loan = await FindAccessibleLoanAsync(db, id, caller, ct)
+                ?? throw new NotFoundException("Loan", id.ToString());
+
+            var rows = await db.LoanApplicationActions.AsNoTracking()
+                .Where(a => a.LoanApplicationId == loan.Id)
+                .OrderBy(a => a.ActionDate)
+                .Select(a => new
+                {
+                    a.Id,
+                    a.Action,
+                    a.ActionDate,
+                    a.ActionByUserId,
+                    a.FromStatus,
+                    a.ToStatus,
+                    a.Comments,
+                })
+                .ToListAsync(ct);
+
+            var userIds = rows.Select(r => r.ActionByUserId).Distinct().ToList();
+            var names = await db.Users.AsNoTracking()
+                .Where(u => userIds.Contains(u.Id))
+                .ToDictionaryAsync(u => u.Id, u => u.FirstName + " " + u.LastName, ct);
+
+            var result = rows.Select(r =>
+            {
+                names.TryGetValue(r.ActionByUserId, out var name);
+                return new
+                {
+                    id = r.Id,
+                    actionBy = name ?? string.Empty,
+                    action = r.Action,
+                    fromStatus = r.FromStatus,
+                    toStatus = r.ToStatus,
+                    comments = r.Comments,
+                    actionDate = r.ActionDate,
+                };
+            }).ToList();
+
+            return Results.Ok(result);
+        })
+        .WithName("GetLoanHistory");
+
         group.MapGet("/{id:guid}/timeline", async (
             Guid id,
             int? page,
@@ -208,30 +257,41 @@ public static class LoanReviewEndpoints
                 null),
         };
 
-        if (loan.LastActionVerb is { Length: > 0 } verb
-            && !string.Equals(verb, "Encoded", StringComparison.OrdinalIgnoreCase))
+        var actionRows = await db.LoanApplicationActions.AsNoTracking()
+            .Where(a => a.LoanApplicationId == loan.Id)
+            .OrderBy(a => a.ActionDate)
+            .Select(a => new
+            {
+                a.Id,
+                a.Action,
+                a.ActionDate,
+                a.ActionByUserId,
+                a.FromStatus,
+                a.ToStatus,
+                a.Comments,
+            })
+            .ToListAsync(ct);
+
+        foreach (var action in actionRows)
         {
             string? actorName = null;
-            if (loan.LastActionById is { } actorId)
-            {
-                actorName = await db.Users.AsNoTracking()
-                    .Where(u => u.Id == actorId)
-                    .Select(u => u.FirstName + " " + u.LastName)
-                    .FirstOrDefaultAsync(ct);
-            }
+            actorName = await db.Users.AsNoTracking()
+                .Where(u => u.Id == action.ActionByUserId)
+                .Select(u => u.FirstName + " " + u.LastName)
+                .FirstOrDefaultAsync(ct);
 
             events.Add(new TimelineEventDto(
-                $"workflow:last:{loan.Id}",
+                $"workflow:action:{action.Id}",
                 "workflow",
-                loan.LastActionDate,
+                action.ActionDate,
                 actorName,
                 null,
-                verb,
+                action.Action,
                 null,
-                loan.Status.ToString(),
+                action.ToStatus ?? loan.Status.ToString(),
                 null,
                 null,
-                null));
+                action.Comments));
         }
 
         var signatures = await db.SignatureChainEntries.AsNoTracking()

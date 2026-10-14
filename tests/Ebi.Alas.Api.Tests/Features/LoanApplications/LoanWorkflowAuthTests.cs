@@ -39,7 +39,12 @@ public sealed class LoanWorkflowAuthTests
     }
 
     private static LoanWorkflowService Service(AlasDbContext db) =>
-        new(db, new WorkflowQueueService(db, TimeProvider.System), notifier: null, TimeProvider.System);
+        new(
+            db,
+            new WorkflowQueueService(db, TimeProvider.System),
+            notifier: null,
+            new Ebi.Alas.Api.Features.Notifications.ApplicationArrivalNotifier(db, null, TimeProvider.System),
+            TimeProvider.System);
 
     [Fact]
     public async Task Approve_WithEncoderRole_ThrowsForbidden()
