@@ -61,6 +61,19 @@ public sealed class CreateUserHandlerTests
     }
 
     [Fact]
+    public async Task HandleAsync_MissingEmail_ReturnsBadRequest()
+    {
+        await using var db = Db();
+        var request = Request() with { Email = " " };
+
+        var outcome = await Handler(db).HandleAsync(request, CancellationToken.None);
+
+        var failure = Assert.IsType<CreateUserOutcome.Failure>(outcome);
+        Assert.Equal(StatusCodes.Status400BadRequest, failure.StatusCode);
+        Assert.Contains("Email", failure.Detail, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public async Task HandleAsync_ShortPassword_ReturnsBadRequest()
     {
         await using var db = Db();

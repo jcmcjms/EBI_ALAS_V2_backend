@@ -49,4 +49,7 @@ public abstract record CreateUserOutcome
 
     public static CreateUserOutcome InvalidPassword(string detail) =>
         new Failure(detail, StatusCodes.Status400BadRequest);
+
+    public static CreateUserOutcome InvalidEmail(string detail) =>
+        new Failure(detail, StatusCodes.Status400BadRequest);
 }
