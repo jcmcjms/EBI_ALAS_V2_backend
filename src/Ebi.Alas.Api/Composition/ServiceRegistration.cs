@@ -122,6 +122,7 @@ public static class ServiceRegistration
         services.AddScoped<LoginHandler>();
         services.AddScoped<RefreshHandler>();
         services.AddScoped<ChangePasswordHandler>();
+        services.AddScoped<Features.Auth.ForgotPassword.ForgotPasswordHandler>();
         services.AddScoped<CreateUserHandler>();
         services.AddScoped<Features.Users.ImportUsers.ImportUsersHandler>();
         services.AddScoped<ListUsersHandler>();
