@@ -9,7 +9,8 @@ public static class LoanMapping
 {
     public static LoanResponse ToResponse(
         this LoanApplication loan,
-        string? lastActionByName = null) => new(
+        string? lastActionByName = null,
+        string? assignedToName = null) => new(
         loan.Id,
         loan.LamId,
         loan.ApplicationGroupNo,
@@ -39,7 +40,9 @@ public static class LoanMapping
                 loan.DocumentsFlaggedById,
                 loan.DocumentFlagReason,
                 loan.DocumentFlagMissingCount)
-            : null);
+            : null,
+        loan.AssignedToUserId,
+        assignedToName);
 
     private static JsonElement? ParseForm(string? formJson)
     {
@@ -73,6 +76,15 @@ public static class LoanMapping
                 .FirstOrDefaultAsync(cancellationToken);
         }
 
-        return loan.ToResponse(lastActionByName);
+        string? assignedToName = null;
+        if (loan.AssignedToUserId is { } assigneeId)
+        {
+            assignedToName = await db.Users.AsNoTracking()
+                .Where(u => u.Id == assigneeId)
+                .Select(u => u.FirstName + " " + u.LastName)
+                .FirstOrDefaultAsync(cancellationToken);
+        }
+
+        return loan.ToResponse(lastActionByName, assignedToName);
     }
 }

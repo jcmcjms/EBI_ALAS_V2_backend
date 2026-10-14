@@ -3,10 +3,6 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Ebi.Alas.Api.Features.LoanApplications.Submit;
 
-/// <summary>
-/// Allocates LAM / APP numbers as PREFIX-{PH yyyyMMdd}-{000001}, matching the
-/// prior system's daily sequence format.
-/// </summary>
 public sealed class ApplicationNumberGenerator(AlasDbContext db)
 {
     public const string LamPrefix = "LAM-";

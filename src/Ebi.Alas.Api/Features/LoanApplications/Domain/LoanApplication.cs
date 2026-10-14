@@ -54,7 +54,6 @@ public sealed class LoanApplication
 
     public string? LastActionVerb { get; private set; }
 
-    /// <summary>Full approval-form snapshot captured at submit (create-flow preview payload).</summary>
     public string? FormJson { get; private set; }
 
     public DateTimeOffset? DocumentsFlaggedAt { get; private set; }
@@ -64,6 +63,8 @@ public sealed class LoanApplication
     public string? DocumentFlagReason { get; private set; }
 
     public int DocumentFlagMissingCount { get; private set; }
+
+    public Guid? AssignedToUserId { get; private set; }
 
     public static LoanApplication Create(
         string lamId,
@@ -134,6 +135,12 @@ public sealed class LoanApplication
         DocumentsFlaggedById = actorId;
         DocumentFlagReason = reason.Trim();
         DocumentFlagMissingCount = missingCount;
+        UpdatedAt = now;
+    }
+
+    public void AssignTo(Guid? userId, DateTimeOffset now)
+    {
+        AssignedToUserId = userId;
         UpdatedAt = now;
     }
 

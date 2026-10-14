@@ -27,7 +27,9 @@ public sealed record LoanResponse(
     string? LastActionByName,
     string? LastActionVerb,
     JsonElement? Form = null,
-    DocumentFlagDto? DocumentFlag = null);
+    DocumentFlagDto? DocumentFlag = null,
+    Guid? AssignedToUserId = null,
+    string? AssignedToName = null);
 
 public sealed record DocumentFlagDto(
     DateTimeOffset FlaggedAt,
@@ -35,7 +37,6 @@ public sealed record DocumentFlagDto(
     string? Reason,
     int MissingCount);
 
-/// <summary>One selected loan in a multi-loan application submission.</summary>
 public sealed record SubmitLoanLine(
     string ProductCode,
     string Product,
@@ -46,10 +47,6 @@ public sealed record SubmitLoanLine(
     decimal InsuranceFee = 0,
     decimal OtherDeductions = 0);
 
-/// <summary>
-/// Multi-loan submission: one client application group with one or more loans,
-/// matching the reference create-loan contract.
-/// </summary>
 public sealed record SubmitLoanApplicationsRequest(
     string? ApplicationGroupNo,
     string ClientName,

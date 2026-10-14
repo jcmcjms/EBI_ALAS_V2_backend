@@ -235,6 +235,9 @@ namespace Ebi.Alas.Api.Migrations
                         .HasMaxLength(32)
                         .HasColumnType("nvarchar(32)");
 
+                    b.Property<Guid?>("AssignedToUserId")
+                        .HasColumnType("uniqueidentifier");
+
                     b.Property<string>("BranchId")
                         .IsRequired()
                         .HasMaxLength(16)
@@ -325,6 +328,8 @@ namespace Ebi.Alas.Api.Migrations
                         .HasColumnType("datetimeoffset");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("AssignedToUserId");
 
                     b.HasIndex("LamId")
                         .IsUnique();

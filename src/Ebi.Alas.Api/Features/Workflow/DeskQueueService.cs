@@ -7,7 +7,6 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Ebi.Alas.Api.Features.Workflow;
 
-/// <summary>Role-scoped review desk over the workflow queue.</summary>
 public sealed class DeskQueueService(
     AlasDbContext db,
     WorkflowQueueService queue,
@@ -57,11 +56,16 @@ public sealed class DeskQueueService(
         try
         {
             var item = await queue.ClaimNextAsync(stage, caller.BranchId, caller.UserId, cancellationToken);
-            var claimed = await db.LoanApplications.AsNoTracking()
+            var claimed = await db.LoanApplications
                 .FirstOrDefaultAsync(l => l.Id == item.LoanApplicationId, cancellationToken);
-            return claimed is null
-                ? null
-                : new DeskClaimResult(claimed.Id, claimed.LamId, claimed.ClientName, claimed.Status.ToString(), item.LeasedAt ?? timeProvider.GetUtcNow());
+            if (claimed is null)
+            {
+                return null;
+            }
+
+            claimed.AssignTo(caller.UserId, timeProvider.GetUtcNow());
+            await db.SaveChangesAsync(cancellationToken);
+            return new DeskClaimResult(claimed.Id, claimed.LamId, claimed.ClientName, claimed.Status.ToString(), item.LeasedAt ?? timeProvider.GetUtcNow());
         }
         catch (NotFoundException)
         {
@@ -127,11 +131,16 @@ public sealed class DeskQueueService(
             }
         }
 
-        var loan = await db.LoanApplications.AsNoTracking()
+        var loan = await db.LoanApplications
             .FirstOrDefaultAsync(l => l.Id == loanId, cancellationToken);
-        return loan is null
-            ? null
-            : new DeskClaimResult(loan.Id, loan.LamId, loan.ClientName, loan.Status.ToString(), item.LeasedAt ?? timeProvider.GetUtcNow());
+        if (loan is null)
+        {
+            return null;
+        }
+
+        loan.AssignTo(caller.UserId, timeProvider.GetUtcNow());
+        await db.SaveChangesAsync(cancellationToken);
+        return new DeskClaimResult(loan.Id, loan.LamId, loan.ClientName, loan.Status.ToString(), item.LeasedAt ?? timeProvider.GetUtcNow());
     }
 
     private async Task<IReadOnlyList<DeskQueueItemDto>> LoadItemsAsync(

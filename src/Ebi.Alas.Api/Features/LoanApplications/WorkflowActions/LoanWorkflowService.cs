@@ -29,6 +29,7 @@ public sealed class LoanWorkflowService(
 
         EnsureRole(caller, UserRole.Recommender);
         loan.TransitionTo(LoanStatus.ForChecking, timeProvider.GetUtcNow(), caller.UserId, "Recommended");
+        loan.AssignTo(null, timeProvider.GetUtcNow());
         await queue.CompleteAsync(await ActiveQueueIdAsync(loanId, WorkflowStage.Recommendation, cancellationToken), caller.UserId, cancellationToken);
         await queue.EnqueueAsync(loanId, WorkflowStage.Evaluation, loan.BranchId, cancellationToken);
         await NotifyAsync(caller.UserId, $"Loan {loan.LamId} recommended", cancellationToken);
@@ -55,6 +56,7 @@ public sealed class LoanWorkflowService(
         EnsureRole(caller, UserRole.Evaluator);
         var loan = await LoadScopedAsync(loanId, caller, cancellationToken);
         loan.TransitionTo(LoanStatus.ForApproval, timeProvider.GetUtcNow(), caller.UserId, recommend ? "EvaluatedRecommended" : "EvaluatedNotRecommended");
+        loan.AssignTo(null, timeProvider.GetUtcNow());
         await queue.CompleteAsync(await ActiveQueueIdAsync(loanId, WorkflowStage.Evaluation, cancellationToken), caller.UserId, cancellationToken);
         await queue.EnqueueAsync(loanId, WorkflowStage.Approval, loan.BranchId, cancellationToken);
         await NotifyAsync(caller.UserId, $"Loan {loan.LamId} evaluated (recommend={recommend})", cancellationToken);
@@ -100,6 +102,7 @@ public sealed class LoanWorkflowService(
         EnsureRole(caller, UserRole.Recommender, UserRole.Evaluator, UserRole.Approver);
         var loan = await LoadScopedAsync(loanId, caller, cancellationToken);
         loan.TransitionTo(LoanStatus.ForRevision, timeProvider.GetUtcNow(), caller.UserId, "PushedBack");
+        loan.AssignTo(loan.CreatedBy, timeProvider.GetUtcNow());
         db.RevisionRequests.Add(Revisions.RevisionRequest.Create(
             loanId, section, comment, caller.UserId, timeProvider.GetUtcNow()));
         await CompleteActiveQueueAsync(loanId, caller.UserId, cancellationToken);
