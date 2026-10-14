@@ -70,6 +70,7 @@ public sealed class DocumentFlagHandler(
                 $"/loans/review/{loan.Id}",
                 now,
                 cancellationToken);
+            await realtime.NotifyDashboardUpdatedAsync(cancellationToken);
         }
     }
 
@@ -104,6 +105,11 @@ public sealed class DocumentFlagHandler(
             NotificationType.Action,
             now));
         await db.SaveChangesAsync(cancellationToken);
+
+        if (realtime is not null)
+        {
+            await realtime.NotifyDashboardUpdatedAsync(cancellationToken);
+        }
     }
 
     private static void EnsureCanFlag(Domain.LoanApplication loan, CallerContext caller)
