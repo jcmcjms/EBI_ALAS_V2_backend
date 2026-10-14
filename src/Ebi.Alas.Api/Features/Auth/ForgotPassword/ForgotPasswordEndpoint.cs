@@ -23,6 +23,7 @@ public static class ForgotPasswordEndpoint
                     StatusCodes.Status400BadRequest => "Bad Request",
                     StatusCodes.Status404NotFound => "Not Found",
                     StatusCodes.Status429TooManyRequests => "Too Many Requests",
+                    StatusCodes.Status500InternalServerError => "Email Delivery Failed",
                     _ => "Server Error"
                 };
                 return Results.Problem(
