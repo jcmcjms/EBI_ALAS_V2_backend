@@ -1,6 +1,7 @@
 using System.Security.Claims;
+using System.Text.Json;
 using Ebi.Alas.Api.Composition.Auth;
-using Ebi.Alas.Api.Features.Documents;
+using Ebi.Alas.Api.Features.WebLoans;
 using Ebi.Alas.Api.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.EntityFrameworkCore;
@@ -30,11 +31,6 @@ public sealed record DocumentRemarkDto(
 
 public static class ChecklistDocumentEndpoints
 {
-    private static readonly HashSet<string> InlineSafeTypes = new(StringComparer.OrdinalIgnoreCase)
-    {
-        "application/pdf", "image/png", "image/jpeg", "image/jpg", "image/gif",
-    };
-
     public static void MapChecklistDocumentEndpoints(this IEndpointRouteBuilder endpoints)
     {
         var group = endpoints.MapGroup("/api/loans").WithTags("Documents").RequireAuthorization();
@@ -42,13 +38,14 @@ public static class ChecklistDocumentEndpoints
         group.MapGet("/{id:guid}/checklist-documents", async (
             Guid id,
             AlasDbContext db,
+            IWebLoanReader webLoan,
             ClaimsPrincipal user,
             CancellationToken ct) =>
         {
             var caller = CallerContext.Require(user);
             var loan = await db.LoanApplications.AsNoTracking()
                 .Where(l => l.Id == id)
-                .Select(l => new { l.Id, l.LamId, l.ProductCode, l.BranchId })
+                .Select(l => new { l.Id, l.LamId, l.ProductCode, l.BranchId, l.FormJson })
                 .FirstOrDefaultAsync(ct);
             if (loan is null)
             {
@@ -60,46 +57,43 @@ public static class ChecklistDocumentEndpoints
                 throw new Composition.Errors.NotFoundException("Loan", id.ToString());
             }
 
-            var items = await db.DocumentChecklistItems.AsNoTracking()
-                .Where(d => d.LoanApplicationId == id)
-                .OrderBy(d => d.Code)
-                .Select(d => new
-                {
-                    d.Code,
-                    d.Name,
-                    d.IsSubmitted,
-                    d.IsVerified
-                })
+            var requirements = await db.LoanProductDocumentRequirements.AsNoTracking()
+                .Where(r => r.ProductCode == loan.ProductCode)
+                .OrderBy(r => r.Code)
+                .Select(r => new { r.Code, r.Description })
                 .ToListAsync(ct);
 
-            var documents = items.Select(item => new LoanChecklistDocumentDto(
-                LoanNo: loan.LamId,
-                LoanProduct: loan.ProductCode,
-                IdCode: item.Code,
-                ChecklistDescription: item.Name,
-                DocId: item.IsSubmitted ? null : null,
-                DocStr: null,
-                MiniStr: null,
-                ContentType: null,
-                Created: null,
-                UploadedBy: null,
-                UploadStatus: item.IsSubmitted ? "Uploaded" : "No uploaded documents")).ToList();
+            var cisNo = ExtractCisId(loan.FormJson);
+            var webloanItems = cisNo is null
+                ? Array.Empty<WebLoanChecklistRow>()
+                : await webLoan.GetChecklistItemsAsync(cisNo, ct);
+
+            var documents = requirements.Select(requirement =>
+            {
+                var match = webloanItems.FirstOrDefault(w =>
+                    string.Equals(w.CheckListItem, requirement.Code, StringComparison.OrdinalIgnoreCase));
+                var uploaded = match?.Submitted is not null;
+                return new LoanChecklistDocumentDto(
+                    LoanNo: loan.LamId,
+                    LoanProduct: loan.ProductCode,
+                    IdCode: requirement.Code,
+                    ChecklistDescription: match?.Description ?? requirement.Description,
+                    DocId: null,
+                    DocStr: null,
+                    MiniStr: null,
+                    ContentType: null,
+                    Created: match?.Submitted,
+                    UploadedBy: null,
+                    UploadStatus: uploaded ? "Uploaded" : "No uploaded documents");
+            }).ToList();
 
             return Results.Ok(documents);
         })
         .WithName("GetChecklistDocuments");
 
-        group.MapGet("/checklist-documents/{docId:int}/view", async (
-            int docId,
-            string? disposition,
-            AlasDbContext db,
-            ClaimsPrincipal user,
-            CancellationToken ct) =>
+        group.MapGet("/checklist-documents/{docId:int}/view", (
+            int docId) =>
         {
-            _ = disposition;
-            _ = db;
-            _ = user;
-            _ = ct;
             // Binary document store is not wired in this API yet.
             throw new Composition.Errors.NotFoundException("Document", docId.ToString());
         })
@@ -123,5 +117,32 @@ public static class ChecklistDocumentEndpoints
             return Results.Ok(Array.Empty<DocumentRemarkDto>());
         })
         .WithName("GetDocumentRemarks");
+    }
+
+    public static string? ExtractCisId(string? formJson)
+    {
+        if (string.IsNullOrWhiteSpace(formJson))
+        {
+            return null;
+        }
+
+        try
+        {
+            using var doc = JsonDocument.Parse(formJson);
+            if (doc.RootElement.TryGetProperty("client", out var client)
+                && client.ValueKind == JsonValueKind.Object
+                && client.TryGetProperty("cisId", out var cisId)
+                && cisId.ValueKind == JsonValueKind.String)
+            {
+                var value = cisId.GetString()?.Trim();
+                return string.IsNullOrEmpty(value) ? null : value;
+            }
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+
+        return null;
     }
 }
