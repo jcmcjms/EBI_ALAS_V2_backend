@@ -36,6 +36,10 @@ public sealed class LoanProductSyncRetiredTests
             string branchCode, string loanNo, string productCode, CancellationToken cancellationToken)
             => Task.FromResult<string?>(null);
 
+        public Task<WebLoanLoanDataRow?> GetLoanByNoAsync(
+            string loanNo, CancellationToken cancellationToken)
+            => Task.FromResult<WebLoanLoanDataRow?>(null);
+
         public Task<IReadOnlyList<WebLoanChecklistRow>> GetChecklistItemsAsync(
             string cisNo, CancellationToken cancellationToken)
             => Task.FromResult<IReadOnlyList<WebLoanChecklistRow>>([]);

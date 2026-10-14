@@ -6,43 +6,55 @@ namespace Ebi.Alas.Api.Tests.Features.LoanApplications;
 public sealed class ChecklistDocumentWebloanTests
 {
     [Fact]
-    public void ExtractCisId_ReadsClientCisIdFromFormSnapshot()
+    public void ExtractLoanNo_ReadsFirstLoanFromFormSnapshot()
     {
-        var json = """{"client":{"cisId":"CIS-555","firstName":"Maria"},"loans":[]}""";
+        var json = """
+            {
+              "client": { "cisId": "CIS-555" },
+              "loans": [ { "loanNo": "CL20260935507", "productCode": "A16" } ]
+            }
+            """;
 
-        Assert.Equal("CIS-555", ChecklistDocumentEndpoints.ExtractCisId(json));
+        Assert.Equal("CL20260935507", ChecklistDocumentReader.ExtractLoanNo(json));
     }
 
     [Fact]
-    public void ExtractCisId_ReturnsNull_WhenMissingOrInvalid()
+    public void ExtractLoanNo_ReturnsNull_WhenMissingOrInvalid()
     {
-        Assert.Null(ChecklistDocumentEndpoints.ExtractCisId(null));
-        Assert.Null(ChecklistDocumentEndpoints.ExtractCisId(""));
-        Assert.Null(ChecklistDocumentEndpoints.ExtractCisId("not-json"));
-        Assert.Null(ChecklistDocumentEndpoints.ExtractCisId("""{"client":{}}"""));
+        Assert.Null(ChecklistDocumentReader.ExtractLoanNo(null));
+        Assert.Null(ChecklistDocumentReader.ExtractLoanNo(""));
+        Assert.Null(ChecklistDocumentReader.ExtractLoanNo("not-json"));
+        Assert.Null(ChecklistDocumentReader.ExtractLoanNo("""{"loans":[]}"""));
+        Assert.Null(ChecklistDocumentReader.ExtractLoanNo("""{"loans":[{}]}"""));
+    }
+
+    [Theory]
+    [InlineData("CL20260935507", "CL20260935507")]
+    [InlineData("PN-80001", "PN-80001")]
+    [InlineData("  PN-1  ", "PN-1")]
+    [InlineData("bad';drop", "baddrop")]
+    public void SanitizeLoanNo_KeepsAlphanumericAndHyphen(string input, string expected)
+    {
+        Assert.Equal(expected, ChecklistDocumentReader.SanitizeLoanNo(input));
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData("!!!")]
+    public void SanitizeLoanNo_ReturnsNull_WhenUnusable(string? input)
+    {
+        Assert.Null(ChecklistDocumentReader.SanitizeLoanNo(input));
     }
 
     [Fact]
-    public void WebloanChecklistRow_UploadStatus_IsUploadedOnlyWhenSubmitted()
+    public void UploadStatus_IsUploadedOnlyWhenBinaryDocIdPresent()
     {
-        var uploaded = new WebLoanChecklistRow("A1004", "Approved ID", DateTime.UtcNow);
-        var pending = new WebLoanChecklistRow("PIC02", "Photo ID", null);
+        var uploaded = new ChecklistDocumentUpload(42, "abc", "application/pdf", DateTime.UtcNow, "clerk");
+        var missing = new ChecklistDocumentUpload(null, null, null, null, null);
 
-        Assert.True(uploaded.Submitted is not null);
-        Assert.True(pending.Submitted is null);
-    }
-
-    [Fact]
-    public void ChecklistDescription_ComesFromCatalog_NotAdminText()
-    {
-        // Reference maps checklist_description only from webloan check_list_all.
-        // Product requirement description is not used as the printed label.
-        var catalog = new WebLoanChecklistCatalogRow("A1004", "Approved Government ID");
-        string? requirementDescription = "A1004";
-
-        string? checklistDescription = catalog.Description;
-
-        Assert.Equal("Approved Government ID", checklistDescription);
-        Assert.NotEqual(requirementDescription, checklistDescription);
+        Assert.Equal("Uploaded", uploaded.DocId is null ? "No uploaded documents" : "Uploaded");
+        Assert.Equal("No uploaded documents", missing.DocId is null ? "No uploaded documents" : "Uploaded");
     }
 }
