@@ -19,10 +19,6 @@ public sealed record ChecklistDocumentContent(
     string? DocStr,
     string ContentType);
 
-/// <summary>
-/// Resolves product document requirements against webloan + binary document store.
-/// Matches the reference join: product codes × loan_data × check_list_all × doc_ref/docs.
-/// </summary>
 public interface IChecklistDocumentReader
 {
     Task<IReadOnlyList<LoanChecklistDocumentDto>> GetChecklistDocumentsAsync(
@@ -95,10 +91,6 @@ public sealed class ChecklistDocumentReader(
         }).ToList();
     }
 
-    /// <summary>
-    /// Full document bytes come from webloan/binary <c>docs.doc_str</c> (base64), same as the reference.
-    /// List rows use <c>mini_str</c>; view must not.
-    /// </summary>
     public async Task<ChecklistDocumentContent?> GetDocumentFileAsync(
         int docId,
         CancellationToken cancellationToken)

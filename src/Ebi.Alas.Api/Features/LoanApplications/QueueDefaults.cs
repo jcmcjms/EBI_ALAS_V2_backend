@@ -2,7 +2,6 @@ using Ebi.Alas.Api.Features.LoanApplications.Domain;
 
 namespace Ebi.Alas.Api.Features.LoanApplications;
 
-/// <summary>Default monitoring filter statuses (active pipeline only).</summary>
 public static class QueueDefaults
 {
     public static readonly IReadOnlyList<string> Statuses =
