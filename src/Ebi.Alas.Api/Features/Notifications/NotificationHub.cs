@@ -7,7 +7,14 @@ namespace Ebi.Alas.Api.Features.Notifications;
 
 public interface IRealtimeNotifier
 {
-    Task NotifyUserAsync(Guid notificationId, Guid userId, string title, string body, DateTimeOffset createdAt, CancellationToken cancellationToken);
+    Task NotifyUserAsync(
+        Guid notificationId,
+        Guid userId,
+        string title,
+        string body,
+        string? link,
+        DateTimeOffset createdAt,
+        CancellationToken cancellationToken);
 }
 
 public sealed record ReceiveNotificationPayload(
@@ -28,8 +35,9 @@ public sealed class NotificationHub(PresenceService presence) : Hub
         Guid id,
         string title,
         string body,
+        string? link,
         DateTimeOffset createdAt) =>
-        new(id, title, body, Link: null, Timestamp: createdAt);
+        new(id, title, body, link, Timestamp: createdAt);
 
     public override async Task OnConnectedAsync()
     {
@@ -55,6 +63,7 @@ public sealed class SignalRRealtimeNotifier(
         Guid userId,
         string title,
         string body,
+        string? link,
         DateTimeOffset createdAt,
         CancellationToken cancellationToken)
     {
@@ -62,6 +71,7 @@ public sealed class SignalRRealtimeNotifier(
             notificationId,
             title,
             body,
+            link,
             createdAt);
 
         await hubContext.Clients.Group(NotificationHub.UserGroup(userId))

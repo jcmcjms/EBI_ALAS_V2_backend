@@ -91,5 +91,33 @@ public static class WebLoanEndpoints
             var items = await reader.GetOutstandingAsync(cifNo, max ?? 20, cancellationToken);
             return Results.Ok(items);
         });
+
+        group.MapGet("/loan-class", async (
+            string bch,
+            string loanNo,
+            string loanProduct,
+            IWebLoanReader reader,
+            CancellationToken cancellationToken) =>
+        {
+            if (string.IsNullOrWhiteSpace(bch)
+                || string.IsNullOrWhiteSpace(loanNo)
+                || string.IsNullOrWhiteSpace(loanProduct))
+            {
+                return Results.Problem(
+                    title: "Bad Request",
+                    detail: "bch, loanNo, and loanProduct are all required.",
+                    statusCode: 400);
+            }
+
+            var catLoanClass = await reader.GetCatLoanClassAsync(bch, loanNo, loanProduct, cancellationToken);
+            return Results.Ok(new CatLoanClassResponse(bch, loanNo, loanProduct, catLoanClass));
+        })
+        .WithName("GetLoanClass");
     }
 }
+
+public sealed record CatLoanClassResponse(
+    string Bch,
+    string LoanNo,
+    string LoanProduct,
+    string? CatLoanClass);
