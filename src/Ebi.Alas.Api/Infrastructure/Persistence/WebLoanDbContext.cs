@@ -15,6 +15,8 @@ public sealed class WebLoanDbContext(DbContextOptions<WebLoanDbContext> options)
 
     public DbSet<WebLoanCheckList> CheckLists => Set<WebLoanCheckList>();
 
+    public DbSet<WebLoanCheckListCatalog> CheckListCatalogs => Set<WebLoanCheckListCatalog>();
+
     public DbSet<WebLoanMisGroup> MisGroups => Set<WebLoanMisGroup>();
 
     public DbSet<WebLoanPurpose> LoanPurposes => Set<WebLoanPurpose>();
@@ -89,6 +91,14 @@ public sealed class WebLoanDbContext(DbContextOptions<WebLoanDbContext> options)
             b.Property(x => x.Description).HasColumnName("description");
             b.Property(x => x.Submitted).HasColumnName("submitted");
             b.Property(x => x.Expiration).HasColumnName("expiration");
+        });
+
+        modelBuilder.Entity<WebLoanCheckListCatalog>(b =>
+        {
+            b.ToTable("check_list_all", "dbo");
+            b.HasKey(x => x.IdCode);
+            b.Property(x => x.IdCode).HasColumnName("id_code").HasMaxLength(50);
+            b.Property(x => x.Description).HasColumnName("description");
         });
 
         modelBuilder.Entity<WebLoanMisGroup>(b =>
@@ -217,6 +227,14 @@ public sealed class WebLoanCheckList
     public DateTime? Submitted { get; set; }
 
     public DateTime? Expiration { get; set; }
+}
+
+/// <summary>webloan check_list_all — catalog of checklist codes and official descriptions.</summary>
+public sealed class WebLoanCheckListCatalog
+{
+    public string IdCode { get; set; } = string.Empty;
+
+    public string? Description { get; set; }
 }
 
 public sealed class WebLoanMisGroup

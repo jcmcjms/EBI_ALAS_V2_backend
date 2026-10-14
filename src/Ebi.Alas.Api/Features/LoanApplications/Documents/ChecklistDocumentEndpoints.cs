@@ -60,24 +60,31 @@ public static class ChecklistDocumentEndpoints
             var requirements = await db.LoanProductDocumentRequirements.AsNoTracking()
                 .Where(r => r.ProductCode == loan.ProductCode)
                 .OrderBy(r => r.Code)
-                .Select(r => new { r.Code, r.Description })
+                .Select(r => r.Code)
                 .ToListAsync(ct);
 
             var cisNo = ExtractCisId(loan.FormJson);
             var webloanItems = cisNo is null
                 ? Array.Empty<WebLoanChecklistRow>()
                 : await webLoan.GetChecklistItemsAsync(cisNo, ct);
+            var catalog = await webLoan.GetChecklistCatalogAsync(requirements, ct);
+            var descriptionByCode = catalog
+                .Where(c => !string.IsNullOrWhiteSpace(c.Description))
+                .GroupBy(c => c.IdCode, StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(g => g.Key, g => g.First().Description, StringComparer.OrdinalIgnoreCase);
 
-            var documents = requirements.Select(requirement =>
+            var documents = requirements.Select(code =>
             {
                 var match = webloanItems.FirstOrDefault(w =>
-                    string.Equals(w.CheckListItem, requirement.Code, StringComparison.OrdinalIgnoreCase));
+                    string.Equals(w.CheckListItem, code, StringComparison.OrdinalIgnoreCase));
                 var uploaded = match?.Submitted is not null;
+                // Reference: checklist_description comes only from webloan check_list_all.
+                descriptionByCode.TryGetValue(code, out var checklistDescription);
                 return new LoanChecklistDocumentDto(
                     LoanNo: loan.LamId,
                     LoanProduct: loan.ProductCode,
-                    IdCode: requirement.Code,
-                    ChecklistDescription: match?.Description ?? requirement.Description,
+                    IdCode: code,
+                    ChecklistDescription: checklistDescription,
                     DocId: null,
                     DocStr: null,
                     MiniStr: null,

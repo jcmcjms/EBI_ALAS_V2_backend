@@ -21,6 +21,35 @@ public sealed class WebLoanReader(WebLoanDbContext db) : IWebLoanReader
             .Select(r => new WebLoanChecklistRow(r.CheckListItem, r.Description, r.Submitted))
             .ToList();
     }
+
+    public async Task<IReadOnlyList<WebLoanChecklistCatalogRow>> GetChecklistCatalogAsync(
+        IReadOnlyCollection<string> idCodes,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(idCodes);
+        if (idCodes.Count == 0)
+        {
+            return [];
+        }
+
+        var codes = idCodes
+            .Where(c => !string.IsNullOrWhiteSpace(c))
+            .Select(c => c.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        if (codes.Count == 0)
+        {
+            return [];
+        }
+
+        var rows = await db.CheckListCatalogs.AsNoTracking()
+            .Where(c => codes.Contains(c.IdCode))
+            .Select(c => new { c.IdCode, c.Description })
+            .ToListAsync(cancellationToken);
+        return rows
+            .Select(r => new WebLoanChecklistCatalogRow(r.IdCode, r.Description))
+            .ToList();
+    }
     public async Task<IReadOnlyList<CisSearchResult>> SearchCisAsync(
         string keyword,
         int max,
