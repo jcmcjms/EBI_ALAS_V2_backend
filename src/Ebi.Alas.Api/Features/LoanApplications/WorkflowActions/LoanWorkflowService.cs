@@ -21,8 +21,13 @@ public sealed class LoanWorkflowService(
         CallerContext caller,
         CancellationToken cancellationToken)
     {
-        EnsureRole(caller, UserRole.Recommender);
         var loan = await LoadScopedAsync(loanId, caller, cancellationToken);
+        if (loan.Status == LoanStatus.ForChecking && IsEvaluator(caller))
+        {
+            return await EvaluateAsync(loanId, recommend: true, caller, cancellationToken);
+        }
+
+        EnsureRole(caller, UserRole.Recommender);
         loan.TransitionTo(LoanStatus.ForChecking, timeProvider.GetUtcNow(), caller.UserId, "Recommended");
         await queue.CompleteAsync(await ActiveQueueIdAsync(loanId, WorkflowStage.Recommendation, cancellationToken), caller.UserId, cancellationToken);
         await queue.EnqueueAsync(loanId, WorkflowStage.Evaluation, loan.BranchId, cancellationToken);
@@ -37,6 +42,9 @@ public sealed class LoanWorkflowService(
         await db.SaveChangesAsync(cancellationToken);
         return await loan.ToResponseAsync(db, cancellationToken);
     }
+
+    private static bool IsEvaluator(CallerContext caller) =>
+        caller.Role == UserRole.Evaluator || caller.CanAccessAllBranches;
 
     public async Task<LoanResponse> EvaluateAsync(
         Guid loanId,
