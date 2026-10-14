@@ -110,6 +110,28 @@ public sealed class WorkflowQueueService(AlasDbContext db, TimeProvider timeProv
         await db.SaveChangesAsync(cancellationToken);
     }
 
+    public async Task CompleteOpenForApplicationAsync(
+        Guid loanApplicationId,
+        CancellationToken cancellationToken)
+    {
+        var items = await db.WorkflowQueueItems
+            .Where(q => q.LoanApplicationId == loanApplicationId
+                && (q.State == QueueItemState.Queued || q.State == QueueItemState.Active))
+            .ToListAsync(cancellationToken);
+        if (items.Count == 0)
+        {
+            return;
+        }
+
+        var now = timeProvider.GetUtcNow();
+        foreach (var item in items)
+        {
+            item.ForceComplete(now);
+        }
+
+        await db.SaveChangesAsync(cancellationToken);
+    }
+
     public async Task<int> ReapExpiredAsync(
         WorkflowStage stage,
         string partitionKey,

@@ -23,6 +23,7 @@ public sealed class DeskQueueService(
 
         var partition = caller.BranchId;
         await queue.ReapExpiredAsync(stage, partition, cancellationToken);
+        await ReleaseCancelledClaimsAsync(stage, partition, cancellationToken);
 
         var items = await LoadItemsAsync(stage, partition, cancellationToken);
         var current = items.FirstOrDefault(i => i.OwnerUserId == caller.UserId);
@@ -42,13 +43,15 @@ public sealed class DeskQueueService(
             return null;
         }
 
+        await ReleaseCancelledClaimsAsync(stage, caller.BranchId, cancellationToken);
+
         var existing = await db.WorkflowQueueItems
             .FirstOrDefaultAsync(q => q.OwnerUserId == caller.UserId && q.State == QueueItemState.Active, cancellationToken);
         if (existing is not null)
         {
             var loan = await db.LoanApplications.AsNoTracking()
                 .FirstOrDefaultAsync(l => l.Id == existing.LoanApplicationId, cancellationToken);
-            return loan is null
+            return loan is null || loan.Status == LoanStatus.Cancelled
                 ? null
                 : new DeskClaimResult(loan.Id, loan.LamId, loan.ClientName, loan.Status.ToString(), existing.LeasedAt ?? timeProvider.GetUtcNow());
         }
@@ -143,6 +146,34 @@ public sealed class DeskQueueService(
         return new DeskClaimResult(loan.Id, loan.LamId, loan.ClientName, loan.Status.ToString(), item.LeasedAt ?? timeProvider.GetUtcNow());
     }
 
+    private async Task ReleaseCancelledClaimsAsync(
+        WorkflowStage stage,
+        string partition,
+        CancellationToken cancellationToken)
+    {
+        var items = await (
+            from q in db.WorkflowQueueItems
+            where q.Stage == stage
+                && q.PartitionKey == partition
+                && (q.State == QueueItemState.Queued || q.State == QueueItemState.Active)
+            join l in db.LoanApplications on q.LoanApplicationId equals l.Id
+            where l.Status == LoanStatus.Cancelled
+            select q
+        ).ToListAsync(cancellationToken);
+        if (items.Count == 0)
+        {
+            return;
+        }
+
+        var now = timeProvider.GetUtcNow();
+        foreach (var item in items)
+        {
+            item.ForceComplete(now);
+        }
+
+        await db.SaveChangesAsync(cancellationToken);
+    }
+
     private async Task<IReadOnlyList<DeskQueueItemDto>> LoadItemsAsync(
         WorkflowStage stage,
         string partition,
@@ -150,7 +181,9 @@ public sealed class DeskQueueService(
     {
         var rows = await (
             from q in db.WorkflowQueueItems.AsNoTracking()
-            where q.Stage == stage && q.PartitionKey == partition
+            where q.Stage == stage
+                && q.PartitionKey == partition
+                && (q.State == QueueItemState.Queued || q.State == QueueItemState.Active)
             join l in db.LoanApplications.AsNoTracking() on q.LoanApplicationId equals l.Id
             orderby q.Sequence
             select new { q, l }
