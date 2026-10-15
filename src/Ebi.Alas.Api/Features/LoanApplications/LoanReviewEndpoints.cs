@@ -215,6 +215,7 @@ public static class LoanReviewEndpoints
             Guid deviationId,
             CreateDeviationRemarkRequest request,
             AlasDbContext db,
+            DeviationRemarkService remarkService,
             ClaimsPrincipal user,
             TimeProvider timeProvider,
             CancellationToken ct) =>
@@ -232,30 +233,18 @@ public static class LoanReviewEndpoints
 
             var loan = await FindAccessibleLoanAsync(db, id, caller, ct)
                 ?? throw new NotFoundException("Loan", id.ToString());
-            _ = loan;
 
             var deviation = await db.LoanDeviations.AsNoTracking()
                 .FirstOrDefaultAsync(d => d.Id == deviationId && d.LoanApplicationId == id, ct)
                 ?? throw new NotFoundException("Deviation", deviationId.ToString());
 
-            if (request.ParentRemarkId is { } parentId)
-            {
-                var parentExists = await db.DeviationRemarks.AsNoTracking()
-                    .AnyAsync(r => r.Id == parentId && r.LoanDeviationId == deviationId, ct);
-                if (!parentExists)
-                {
-                    throw new ValidationException("Parent remark was not found.");
-                }
-            }
-
-            var remark = DeviationRemark.Create(
-                deviationId,
-                request.ParentRemarkId,
+            var remark = await remarkService.CreateAsync(
+                loan,
+                deviation,
                 request.Body,
+                request.ParentRemarkId,
                 caller.UserId,
-                timeProvider.GetUtcNow());
-            db.DeviationRemarks.Add(remark);
-            await db.SaveChangesAsync(ct);
+                ct);
 
             var author = await db.Users.AsNoTracking()
                 .Where(u => u.Id == caller.UserId)
