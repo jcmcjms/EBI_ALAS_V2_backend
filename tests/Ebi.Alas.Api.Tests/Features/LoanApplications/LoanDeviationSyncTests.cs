@@ -55,29 +55,34 @@ public sealed class LoanDeviationSyncTests
     }
 
     [Fact]
-    public async Task GetLoanDeviations_IncludesSyncedRowsAndRemarks()
+    public async Task SyncFromForm_HydratesRowsFromFormJsonOnly()
     {
         await using var db = Db();
         var now = DateTimeOffset.UtcNow;
-        var author = User.Create("ana", "cruz", "Ana", "Cruz", "", "ana@example.com", "BR-A", UserRole.Encoder, now, "Clerk");
         var loan = LoanApplication.Create(
-            "LAM-DEV2", "G-1", "Client", "BR-A", LoanType.New,
-            1000m, 30, 0.05m, 50m, 10m, 940m, author.Id, now);
-        loan.SetFormSnapshot("""{"loans":[{"deviations":{"deviationDetails":["Lacking CIBI"]}}]}""");
-        db.Users.Add(author);
+            "LAM-DEV3", "G-1", "Client", "BR-A", LoanType.New,
+            1000m, 30, 0.05m, 50m, 10m, 940m, Guid.NewGuid(), now);
+        loan.SetFormSnapshot("""
+            {
+              "loans": [{
+                "deviations": {
+                  "deviationDetails": ["Lacking CIBI", "Lacking latest payslip"],
+                  "deviationJustifications": { "Lacking CIBI": "Requested from bureau" }
+                }
+              }]
+            }
+            """);
         db.LoanApplications.Add(loan);
         await db.SaveChangesAsync();
+        Assert.Empty(await db.LoanDeviations.Where(d => d.LoanApplicationId == loan.Id).ToListAsync());
+
         await LoanDeviationSync.SyncFromFormAsync(db, loan, loan.FormJson, CancellationToken.None);
 
-        var deviation = await db.LoanDeviations.SingleAsync(d => d.LoanApplicationId == loan.Id);
-        db.DeviationRemarks.Add(DeviationRemark.Create(
-            deviation.Id, null, "CIBI request filed", author.Id, now));
-        await db.SaveChangesAsync();
-
-        var remarks = await db.DeviationRemarks
-            .Where(r => r.LoanDeviationId == deviation.Id)
+        var rows = await db.LoanDeviations
+            .Where(d => d.LoanApplicationId == loan.Id)
             .ToListAsync();
-        Assert.Single(remarks);
-        Assert.Equal("CIBI request filed", remarks[0].Body);
+        Assert.Equal(2, rows.Count);
+        var justifications = LoanDeviationSync.ExtractJustifications(loan.FormJson);
+        Assert.Equal("Requested from bureau", justifications["Lacking CIBI"]);
     }
 }
