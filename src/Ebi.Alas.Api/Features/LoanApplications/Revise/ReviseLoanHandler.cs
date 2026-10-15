@@ -108,6 +108,8 @@ public sealed class ReviseLoanHandler(
 
         await db.SaveChangesAsync(cancellationToken);
 
+        await Deviations.LoanDeviationSync.SyncFromFormAsync(db, loan, loan.FormJson, cancellationToken);
+
         var stage = workflow.RequireRecommendation
             ? WorkflowStage.Recommendation
             : WorkflowStage.Evaluation;

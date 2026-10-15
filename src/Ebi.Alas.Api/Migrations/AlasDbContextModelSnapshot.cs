@@ -160,6 +160,36 @@ namespace Ebi.Alas.Api.Migrations
                     b.ToTable("Branches", (string)null);
                 });
 
+            modelBuilder.Entity("Ebi.Alas.Api.Features.Deviations.DeviationRemark", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("AuthorId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Body")
+                        .IsRequired()
+                        .HasMaxLength(2000)
+                        .HasColumnType("nvarchar(2000)");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<Guid>("LoanDeviationId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("ParentRemarkId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("LoanDeviationId");
+
+                    b.ToTable("DeviationRemarks", (string)null);
+                });
+
             modelBuilder.Entity("Ebi.Alas.Api.Features.Deviations.LoanDeviation", b =>
                 {
                     b.Property<Guid>("Id")

@@ -3,6 +3,7 @@ using System.Text.Json;
 using Ebi.Alas.Api.Composition.Auth;
 using Ebi.Alas.Api.Composition.Errors;
 using Ebi.Alas.Api.Composition.Pagination;
+using Ebi.Alas.Api.Features.Deviations;
 using Ebi.Alas.Api.Features.LoanApplications.Domain;
 using Ebi.Alas.Api.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -30,6 +31,10 @@ public sealed record DeviationRemarkDto(
     string AuthorRole,
     string Body,
     DateTimeOffset CreatedAt);
+
+public sealed record CreateDeviationRemarkRequest(
+    string Body,
+    Guid? ParentRemarkId);
 
 public sealed record LoanDeviationDto(
     Guid Id,
@@ -155,22 +160,112 @@ public static class LoanReviewEndpoints
             var loan = await FindAccessibleLoanAsync(db, id, caller, ct)
                 ?? throw new NotFoundException("Loan", id.ToString());
 
-            var deviations = await db.LoanDeviations.AsNoTracking()
+            var rows = await db.LoanDeviations.AsNoTracking()
                 .Where(d => d.LoanApplicationId == loan.Id)
                 .OrderBy(d => d.Severity)
                 .ThenBy(d => d.Code)
-                .Select(d => new LoanDeviationDto(
-                    d.Id,
-                    d.Description,
-                    d.Description,
-                    false,
-                    0,
-                    Array.Empty<DeviationRemarkDto>()))
                 .ToListAsync(ct);
+
+            var remarkRows = await db.DeviationRemarks.AsNoTracking()
+                .Where(r => rows.Select(d => d.Id).Contains(r.LoanDeviationId))
+                .OrderBy(r => r.CreatedAt)
+                .ToListAsync(ct);
+
+            var authorIds = remarkRows.Select(r => r.AuthorId).Distinct().ToList();
+            var authors = await db.Users.AsNoTracking()
+                .Where(u => authorIds.Contains(u.Id))
+                .Select(u => new { u.Id, Name = u.FirstName + " " + u.LastName, Role = u.Role.ToString() })
+                .ToDictionaryAsync(u => u.Id, ct);
+
+            var deviations = rows.Select(d => new LoanDeviationDto(
+                d.Id,
+                d.Description,
+                d.Description,
+                false,
+                d.Severity,
+                remarkRows
+                    .Where(r => r.LoanDeviationId == d.Id)
+                    .Select(r =>
+                    {
+                        authors.TryGetValue(r.AuthorId, out var author);
+                        return new DeviationRemarkDto(
+                            r.Id,
+                            r.LoanDeviationId,
+                            r.ParentRemarkId,
+                            author?.Name ?? "Unknown",
+                            author?.Role ?? string.Empty,
+                            r.Body,
+                            r.CreatedAt);
+                    })
+                    .ToList())).ToList();
 
             return Results.Ok(deviations);
         })
         .WithName("GetLoanDeviations");
+
+        group.MapPost("/{id:guid}/deviations/{deviationId:guid}/remarks", async (
+            Guid id,
+            Guid deviationId,
+            CreateDeviationRemarkRequest request,
+            AlasDbContext db,
+            ClaimsPrincipal user,
+            TimeProvider timeProvider,
+            CancellationToken ct) =>
+        {
+            var caller = CallerContext.Require(user);
+            if (string.IsNullOrWhiteSpace(request.Body) || request.Body.Trim().Length < 2)
+            {
+                throw new ValidationException("Remark body is required.");
+            }
+
+            if (request.Body.Length > 2000)
+            {
+                throw new ValidationException("Remark body must not exceed 2000 characters.");
+            }
+
+            var loan = await FindAccessibleLoanAsync(db, id, caller, ct)
+                ?? throw new NotFoundException("Loan", id.ToString());
+            _ = loan;
+
+            var deviation = await db.LoanDeviations.AsNoTracking()
+                .FirstOrDefaultAsync(d => d.Id == deviationId && d.LoanApplicationId == id, ct)
+                ?? throw new NotFoundException("Deviation", deviationId.ToString());
+
+            if (request.ParentRemarkId is { } parentId)
+            {
+                var parentExists = await db.DeviationRemarks.AsNoTracking()
+                    .AnyAsync(r => r.Id == parentId && r.LoanDeviationId == deviationId, ct);
+                if (!parentExists)
+                {
+                    throw new ValidationException("Parent remark was not found.");
+                }
+            }
+
+            var remark = DeviationRemark.Create(
+                deviationId,
+                request.ParentRemarkId,
+                request.Body,
+                caller.UserId,
+                timeProvider.GetUtcNow());
+            db.DeviationRemarks.Add(remark);
+            await db.SaveChangesAsync(ct);
+
+            var author = await db.Users.AsNoTracking()
+                .Where(u => u.Id == caller.UserId)
+                .Select(u => new { Name = u.FirstName + " " + u.LastName, Role = u.Role.ToString() })
+                .FirstOrDefaultAsync(ct);
+
+            return Results.Ok(new DeviationRemarkDto(
+                remark.Id,
+                remark.LoanDeviationId,
+                remark.ParentRemarkId,
+                author?.Name ?? "Unknown",
+                author?.Role ?? string.Empty,
+                remark.Body,
+                remark.CreatedAt));
+        })
+        .RequireRateLimiting("write")
+        .WithName("CreateDeviationRemark");
 
         group.MapGet("/{id:guid}/routing", async (
             Guid id,
