@@ -1,5 +1,6 @@
 using Ebi.Alas.Api.Composition.Auth;
 using Ebi.Alas.Api.Features.LoanApplications.Domain;
+using Ebi.Alas.Api.Features.Users.Domain;
 using Ebi.Alas.Api.Features.Workflow;
 using Ebi.Alas.Api.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -97,10 +98,18 @@ public sealed class DashboardService(AlasDbContext db, TimeProvider timeProvider
             scoped = scoped.Where(l => l.BranchId == caller.BranchId);
         }
 
-        var pendingRows = await scoped
+        var isEncoderScope = caller.Role == UserRole.Encoder;
+
+        var pendingQuery = scoped
             .Where(l => l.Status == LoanStatus.ForRecommendation
                 || l.Status == LoanStatus.ForChecking
-                || l.Status == LoanStatus.ForApproval)
+                || l.Status == LoanStatus.ForApproval);
+        if (isEncoderScope)
+        {
+            pendingQuery = pendingQuery.Where(l => l.CreatedBy == caller.UserId);
+        }
+
+        var pendingRows = await pendingQuery
             .OrderBy(l => l.LastActionDate)
             .Take(ListCap)
             .Select(l => new
@@ -119,7 +128,8 @@ public sealed class DashboardService(AlasDbContext db, TimeProvider timeProvider
             from q in db.WorkflowQueueItems.AsNoTracking()
             where q.State == QueueItemState.Active && q.OwnerUserId != null
             join l in db.LoanApplications.AsNoTracking() on q.LoanApplicationId equals l.Id
-            where caller.CanAccessAllBranches || l.BranchId == caller.BranchId
+            where (caller.CanAccessAllBranches || l.BranchId == caller.BranchId)
+                && (!isEncoderScope || q.OwnerUserId == caller.UserId)
             orderby q.LeasedAt
             select new
             {
@@ -131,8 +141,13 @@ public sealed class DashboardService(AlasDbContext db, TimeProvider timeProvider
         .Take(ListCap)
         .ToListAsync(cancellationToken);
 
-        var pushbackRows = await scoped
-            .Where(l => l.Status == LoanStatus.ForRevision)
+        var pushbackQuery = scoped.Where(l => l.Status == LoanStatus.ForRevision);
+        if (isEncoderScope)
+        {
+            pushbackQuery = pushbackQuery.Where(l => l.CreatedBy == caller.UserId);
+        }
+
+        var pushbackRows = await pushbackQuery
             .OrderByDescending(l => l.LastActionDate)
             .Take(ListCap)
             .Select(l => new
@@ -145,8 +160,13 @@ public sealed class DashboardService(AlasDbContext db, TimeProvider timeProvider
             })
             .ToListAsync(cancellationToken);
 
-        var approvedRows = await scoped
-            .Where(l => l.Status == LoanStatus.Approved)
+        var approvedQuery = scoped.Where(l => l.Status == LoanStatus.Approved);
+        if (isEncoderScope)
+        {
+            approvedQuery = approvedQuery.Where(l => l.CreatedBy == caller.UserId);
+        }
+
+        var approvedRows = await approvedQuery
             .OrderByDescending(l => l.LastActionDate)
             .Take(ListCap)
             .Select(l => new
@@ -255,6 +275,11 @@ public sealed class DashboardService(AlasDbContext db, TimeProvider timeProvider
         if (!caller.CanAccessAllBranches)
         {
             flaggedQuery = flaggedQuery.Where(l => l.BranchId == caller.BranchId);
+        }
+
+        if (caller.Role == UserRole.Encoder)
+        {
+            flaggedQuery = flaggedQuery.Where(l => l.CreatedBy == caller.UserId);
         }
 
         var flaggedRows = await flaggedQuery
