@@ -241,6 +241,7 @@ public sealed class LoanApplication
         (LoanStatus.ForApproval, LoanStatus.Rejected) => true,
         (LoanStatus.ForApproval, LoanStatus.ForRevision) => true,
         (LoanStatus.ForRevision, LoanStatus.ForRecommendation) => true,
+        (LoanStatus.ForRevision, LoanStatus.ForChecking) => true,
         (LoanStatus.Approved, LoanStatus.ForDisbursement) => true,
         (LoanStatus.ForDisbursement, LoanStatus.Disbursed) => true,
         (LoanStatus.Disbursed, LoanStatus.OnGoing) => true,

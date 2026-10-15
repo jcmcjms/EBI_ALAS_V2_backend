@@ -128,6 +128,21 @@ public sealed class ReviseLoanHandlerTests
     }
 
     [Fact]
+    public async Task Handle_WhenRecommendationSkipped_TransitionsToForChecking()
+    {
+        await using var db = Db();
+        var loan = SeedForRevision(db);
+        var handler = Handler(db, requireRecommendation: false);
+
+        var result = await handler.HandleAsync(loan.Id, Cmd(), Encoder(), CancellationToken.None);
+
+        Assert.Equal(nameof(LoanStatus.ForChecking), result.Status);
+        var action = await db.LoanApplicationActions.SingleAsync(a => a.LoanApplicationId == loan.Id);
+        Assert.Equal(nameof(LoanStatus.ForRevision), action.FromStatus);
+        Assert.Equal(nameof(LoanStatus.ForChecking), action.ToStatus);
+    }
+
+    [Fact]
     public async Task Handle_RejectsWrongStatus()
     {
         await using var db = Db();
