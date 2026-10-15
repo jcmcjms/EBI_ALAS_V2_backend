@@ -92,6 +92,9 @@ public static class UserEndpoints
         group.MapGet("/", async (
             int? page,
             int? pageSize,
+            string? search,
+            string? role,
+            string? branchId,
             ListUsersHandler handler,
             IConfiguration configuration,
             CancellationToken cancellationToken) =>
@@ -102,6 +105,9 @@ public static class UserEndpoints
                 new PageRequest { Page = page ?? 1, PageSize = pageSize ?? options.DefaultPageSize },
                 options.MaxPageSize,
                 options.DefaultPageSize,
+                search,
+                role,
+                branchId,
                 cancellationToken);
             return Results.Ok(result);
         });
