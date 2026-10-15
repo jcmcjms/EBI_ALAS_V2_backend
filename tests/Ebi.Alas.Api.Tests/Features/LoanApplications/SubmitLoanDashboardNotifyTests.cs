@@ -32,6 +32,11 @@ public sealed class SubmitLoanDashboardNotifyTests
             DashboardUpdates++;
             return Task.CompletedTask;
         }
+
+        public Task NotifyLoanAssignedAsync(
+            Guid loanId,
+            Guid userId,
+            CancellationToken cancellationToken) => Task.CompletedTask;
     }
 
     private static AlasDbContext Db()
