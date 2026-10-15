@@ -194,19 +194,14 @@ public sealed class User
             return;
         }
 
-        var trimmed = signatureDataUrl.Trim();
-        if (!trimmed.StartsWith("data:image/", StringComparison.OrdinalIgnoreCase)
-            || !trimmed.Contains(";base64,", StringComparison.OrdinalIgnoreCase))
+        if (!ESignaturePolicy.IsValid(signatureDataUrl))
         {
-            throw new ArgumentException("Signature must be a base64 image data URL.", nameof(signatureDataUrl));
+            throw new ArgumentException(
+                "Signature must be a base64 PNG/JPEG/WEBP data URL within the size limit.",
+                nameof(signatureDataUrl));
         }
 
-        if (trimmed.Length > 2_000_000)
-        {
-            throw new ArgumentOutOfRangeException(nameof(signatureDataUrl), "Signature must not exceed 2MB.");
-        }
-
-        ESignature = trimmed;
+        ESignature = signatureDataUrl.Trim();
         UpdatedAt = now;
     }
 

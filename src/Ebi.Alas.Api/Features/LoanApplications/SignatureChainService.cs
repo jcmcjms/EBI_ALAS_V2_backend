@@ -17,7 +17,8 @@ public static class SignatureChainService
         string JobTitle,
         string? SignedByName,
         string? SignedByJobTitle,
-        DateTimeOffset? SignedAt);
+        DateTimeOffset? SignedAt,
+        string? SignatureUrl);
 
     private sealed record SlotTemplate(int Order, string Action, string Role, string JobTitle);
 
@@ -75,7 +76,14 @@ public static class SignatureChainService
             return;
         }
 
-        entry.Sign(userId, now);
+        // Snapshot the signer's ink at the moment of signing so the loan record
+        // preserves exactly what was signed, even if the profile signature changes later.
+        var ink = await db.Users.AsNoTracking()
+            .Where(u => u.Id == userId)
+            .Select(u => u.ESignature)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        entry.Sign(userId, now, ink);
         await db.SaveChangesAsync(cancellationToken);
     }
 
@@ -120,7 +128,10 @@ public static class SignatureChainService
                 slot.JobTitle,
                 signedByName,
                 signedByJobTitle,
-                entry?.SignedAt));
+                entry?.SignedAt,
+                SignatureUrl: entry is null
+                    ? null
+                    : Users.Domain.ESignaturePolicy.Sanitize(entry.SignatureImage)));
         }
 
         return result;

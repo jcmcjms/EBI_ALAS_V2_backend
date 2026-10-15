@@ -1,6 +1,8 @@
 using System.Security.Claims;
 using Ebi.Alas.Api.Composition.Auth;
+using Ebi.Alas.Api.Composition.Errors;
 using Ebi.Alas.Api.Features.Auth;
+using Ebi.Alas.Api.Features.Users.Domain;
 
 namespace Ebi.Alas.Api.Features.Account;
 
@@ -33,6 +35,12 @@ public static class AccountEndpoints
             AccountService service,
             CancellationToken cancellationToken) =>
         {
+            if (request.ESignature is not null && !ESignaturePolicy.IsValid(request.ESignature))
+            {
+                throw new ValidationException(
+                    "E-signature must be a base64 PNG, JPEG or WEBP data URL under 2 MB.");
+            }
+
             var caller = CallerContext.Require(user);
             var ok = await service.UpdateContactAsync(
                 caller.UserId,

@@ -69,4 +69,38 @@ public sealed class SignatureChainDisplayTests
         Assert.NotNull(signed.SignedAt);
         Assert.Null(slots.Single(s => s.Role == "Evaluator").SignedByName);
     }
+
+    [Fact]
+    public async Task Sign_SnapshotsInkAndDisplayExposesIt()
+    {
+        await using var db = Db();
+        var now = DateTimeOffset.UtcNow;
+        var ink = "data:image/png;base64,iVBORw0KGgo=";
+        var encoder = User.Create("ana", "cruz", "Ana", "Cruz", "", "ana@example.com", "BR-A", UserRole.Encoder, now, "Account Officer");
+        encoder.SetSignature(ink, now);
+        var loan = LoanApplication.Create(
+            "LAM-INK", "G-1", "Client", "BR-A", LoanType.New,
+            1000m, 30, 0.05m, 50m, 10m, 940m, encoder.Id, now);
+        db.Users.Add(encoder);
+        db.LoanApplications.Add(loan);
+        await db.SaveChangesAsync();
+        await SignatureChainService.EnsureCreatedAsync(
+            db, loan.Id, requireRecommendation: false, now, CancellationToken.None);
+
+        await SignatureChainService.SignAsync(db, loan.Id, "Encoder", encoder.Id, now, CancellationToken.None);
+
+        var slots = await SignatureChainService.GetDisplayChainAsync(
+            db, loan.Id, requireRecommendation: false, CancellationToken.None);
+        Assert.Equal(ink, slots.Single(s => s.Role == "Encoder").SignatureUrl);
+        Assert.Null(slots.Single(s => s.Role == "Evaluator").SignatureUrl);
+    }
+
+    [Fact]
+    public void Sign_IgnoresUnsafeInkSnapshot()
+    {
+        var entry = Ebi.Alas.Api.Features.Approvals.SignatureChainEntry.Create(
+            Guid.NewGuid(), 1, "Encoder", DateTimeOffset.UtcNow);
+        entry.Sign(Guid.NewGuid(), DateTimeOffset.UtcNow, "data:image/svg+xml;base64,PHN2Zz4=");
+        Assert.Null(entry.SignatureImage);
+    }
 }

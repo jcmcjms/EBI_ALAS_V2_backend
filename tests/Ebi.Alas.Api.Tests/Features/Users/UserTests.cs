@@ -71,6 +71,16 @@ public sealed class UserTests
     }
 
     [Fact]
+    public void SetSignature_RejectsSvgInk()
+    {
+        var user = User.Create(
+            "ada", "hash", "Ada", "Lovelace", "", "a@x.com", "011", UserRole.Encoder, DateTimeOffset.UtcNow);
+
+        Assert.ThrowsAny<ArgumentException>(() =>
+            user.SetSignature("data:image/svg+xml;base64,PHN2Zz4=", DateTimeOffset.UtcNow));
+    }
+
+    [Fact]
     public void Suspend_ActiveUser_SetsSuspended()
     {
         var user = User.Create("ada", "hash", "Ada", "Ada", "", "ada@example.com", "011", UserRole.Encoder, DateTimeOffset.UtcNow);
