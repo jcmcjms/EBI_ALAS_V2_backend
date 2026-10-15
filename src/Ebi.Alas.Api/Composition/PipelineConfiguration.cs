@@ -45,7 +45,7 @@ public static class PipelineConfiguration
         app.MapRefresh();
         app.MapLogout();
         app.MapChangePassword();
-        app.MapForgotPassword();
+        // Forgot-password endpoint disabled until an approved email delivery path is available.
         app.MapUsers();
         app.MapAccountEndpoints();
         app.MapRoles();
