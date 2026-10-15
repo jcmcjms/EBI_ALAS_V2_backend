@@ -110,6 +110,11 @@ public sealed class SubmitLoanHandler(
         var audienceTitle = workflow.RequireRecommendation
             ? "New application ready for recommendation"
             : "New application ready for evaluation";
+        var encoderTitle = workflow.RequireRecommendation
+            ? "Application submitted for recommendation"
+            : "Application submitted for evaluation";
+        var firstLoanId = created[0].Id;
+        var approvalLink = $"/loans/approval/{firstLoanId}";
         foreach (var branch in created.Select(l => l.BranchId).Distinct())
         {
             var branchLamIds = created
@@ -121,9 +126,16 @@ public sealed class SubmitLoanHandler(
                 branch,
                 audienceTitle,
                 $"Loan application(s) {string.Join(", ", branchLamIds)} submitted by {request.ClientName}.",
-                link: null,
+                link: approvalLink,
                 cancellationToken);
         }
+
+        await NotifyUserAsync(
+            caller.UserId,
+            encoderTitle,
+            $"Application {string.Join(", ", created.Select(l => l.LamId))} was submitted and is awaiting review.",
+            approvalLink,
+            cancellationToken);
 
         if (realtime is not null)
         {
@@ -139,5 +151,36 @@ public sealed class SubmitLoanHandler(
                 l.Product,
                 l.Principal,
                 l.Status.ToString())).ToList());
+    }
+
+    private async Task NotifyUserAsync(
+        Guid userId,
+        string title,
+        string body,
+        string? link,
+        CancellationToken cancellationToken)
+    {
+        var now = timeProvider.GetUtcNow();
+        var notification = Notification.Create(
+            userId,
+            title,
+            body,
+            NotificationType.Application,
+            now);
+        db.Notifications.Add(notification);
+        await db.SaveChangesAsync(cancellationToken);
+        if (realtime is null)
+        {
+            return;
+        }
+
+        await realtime.NotifyUserAsync(
+            notification.Id,
+            userId,
+            title,
+            body,
+            link,
+            notification.CreatedAt,
+            cancellationToken);
     }
 }
