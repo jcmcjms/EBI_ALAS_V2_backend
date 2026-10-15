@@ -4,6 +4,7 @@ using Ebi.Alas.Api.Composition.Errors;
 using Ebi.Alas.Api.Features.LoanApplications.Domain;
 using Ebi.Alas.Api.Features.LoanApplications.Revise;
 using Ebi.Alas.Api.Features.LoanComputation;
+using Ebi.Alas.Api.Features.Notifications;
 using Ebi.Alas.Api.Features.SystemSettings;
 using Ebi.Alas.Api.Features.Users.Domain;
 using Ebi.Alas.Api.Features.Workflow;
@@ -92,12 +93,16 @@ public sealed class ReviseLoanHandlerTests
             store);
     }
 
-    private static ReviseLoanHandler Handler(AlasDbContext db, bool requireRecommendation = true) => new(
+    private static ReviseLoanHandler Handler(
+        AlasDbContext db,
+        bool requireRecommendation = true,
+        IRealtimeNotifier? realtime = null) => new(
         db,
         new LoanComputationService(),
         new WorkflowQueueService(db, TimeProvider.System),
         Config(requireRecommendation),
-        realtime: null,
+        new ApplicationArrivalNotifier(db, realtime, TimeProvider.System),
+        realtime,
         TimeProvider.System);
 
     private static CallerContext Encoder(string branchId = "BR-A") =>
@@ -187,6 +192,93 @@ public sealed class ReviseLoanHandlerTests
 
         await Assert.ThrowsAsync<NotFoundException>(() =>
             Handler(db).HandleAsync(loan.Id, Cmd(), Encoder(branchId: "BR-A"), CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task Handle_NotifiesNextDeskAndPushbackRequester()
+    {
+        await using var db = Db();
+        var now = DateTimeOffset.UtcNow;
+        var encoder = User.Create("ana", "cruz", "Ana", "Cruz", "", "ana@example.com", "BR-A", UserRole.Encoder, now, "Clerk");
+        var recommender = User.Create("ben", "reyes", "Ben", "Reyes", "", "ben@example.com", "BR-A", UserRole.Recommender, now, "AO");
+        var loan = LoanApplication.Create(
+            "LAM-NOTIFY", "G-1", "Client", "BR-A", LoanType.New,
+            1000m, 30, 0.05m, 50m, 10m, 940m, encoder.Id, now);
+        loan.TransitionTo(LoanStatus.ForRevision, now, recommender.Id, "PushedBack");
+        db.RevisionRequests.Add(Ebi.Alas.Api.Features.Revisions.RevisionRequest.Create(
+            loan.Id, "loan-params", "Fix amount", recommender.Id, now));
+        db.Users.AddRange(encoder, recommender);
+        db.LoanApplications.Add(loan);
+        await db.SaveChangesAsync();
+
+        var notifier = new CapturingNotifier();
+        var handler = Handler(db, requireRecommendation: true, realtime: notifier);
+
+        await handler.HandleAsync(
+            loan.Id,
+            Cmd(),
+            new CallerContext(encoder.Id, UserRole.Encoder, "BR-A"),
+            CancellationToken.None);
+
+        Assert.Contains(notifier.Sent, s =>
+            s.UserId == recommender.Id
+            && s.Title.Contains("resubmitted", StringComparison.OrdinalIgnoreCase)
+            && s.Link == $"/loans/approval/{loan.Id}");
+    }
+
+    [Fact]
+    public async Task Handle_WhenRecommendationSkipped_NotifiesEvaluatorDesk()
+    {
+        await using var db = Db();
+        var now = DateTimeOffset.UtcNow;
+        var encoder = User.Create("ana", "cruz", "Ana", "Cruz", "", "ana@example.com", "BR-A", UserRole.Encoder, now, "Clerk");
+        var evaluator = User.Create("bea", "reyes", "Bea", "Reyes", "", "bea@example.com", "BR-A", UserRole.Evaluator, now, "CI");
+        var loan = LoanApplication.Create(
+            "LAM-NOTIFY2", "G-1", "Client", "BR-A", LoanType.New,
+            1000m, 30, 0.05m, 50m, 10m, 940m, encoder.Id, now);
+        loan.TransitionTo(LoanStatus.ForRevision, now, evaluator.Id, "PushedBack");
+        db.Users.AddRange(encoder, evaluator);
+        db.LoanApplications.Add(loan);
+        await db.SaveChangesAsync();
+
+        var notifier = new CapturingNotifier();
+        var handler = Handler(db, requireRecommendation: false, realtime: notifier);
+
+        await handler.HandleAsync(
+            loan.Id,
+            Cmd(),
+            new CallerContext(encoder.Id, UserRole.Encoder, "BR-A"),
+            CancellationToken.None);
+
+        Assert.Contains(notifier.Sent, s =>
+            s.UserId == evaluator.Id
+            && s.Title.Contains("resubmitted", StringComparison.OrdinalIgnoreCase));
+    }
+
+    private sealed class CapturingNotifier : IRealtimeNotifier
+    {
+        public List<(Guid UserId, string Title, string? Link)> Sent { get; } = [];
+
+        public Task NotifyUserAsync(
+            Guid notificationId,
+            Guid userId,
+            string title,
+            string body,
+            string? link,
+            DateTimeOffset createdAt,
+            CancellationToken cancellationToken)
+        {
+            Sent.Add((userId, title, link));
+            return Task.CompletedTask;
+        }
+
+        public Task NotifyDashboardUpdatedAsync(CancellationToken cancellationToken) =>
+            Task.CompletedTask;
+
+        public Task NotifyLoanAssignedAsync(
+            Guid loanId,
+            Guid userId,
+            CancellationToken cancellationToken) => Task.CompletedTask;
     }
 
     private sealed class FakeSettingsStore(SettingSnapshot snapshot) : ISystemSettingsStore
