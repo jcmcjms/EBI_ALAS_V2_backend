@@ -100,4 +100,31 @@ public sealed class LoanTimelineRemarkLogsTests
         Assert.Equal("Please clarify this payslip", docRemark.Comment);
         Assert.Equal("Ana Cruz", docRemark.ActorName);
     }
+
+    [Fact]
+    public async Task Timeline_IncludesPersistedDeviationRemarks()
+    {
+        await using var db = Db();
+        var now = DateTimeOffset.UtcNow;
+        var author = Ebi.Alas.Api.Features.Users.Domain.User.Create(
+            "ana", "cruz", "Ana", "Cruz", "", "ana@example.com", "BR-A",
+            Ebi.Alas.Api.Features.Users.Domain.UserRole.Evaluator, now, "CI");
+        var loan = LoanWithForm(FormJson());
+        db.Users.Add(author);
+        db.LoanApplications.Add(loan);
+        var deviation = Ebi.Alas.Api.Features.Deviations.LoanDeviation.Create(
+            loan.Id, "6", "Lacking CIBI", 1, now);
+        db.LoanDeviations.Add(deviation);
+        await db.SaveChangesAsync();
+        db.DeviationRemarks.Add(Ebi.Alas.Api.Features.Deviations.DeviationRemark.Create(
+            deviation.Id, null, "CIBI requested from bureau", author.Id, now));
+        await db.SaveChangesAsync();
+
+        var events = await LoanReviewEndpoints.BuildTimelineEventsAsync(db, loan, CancellationToken.None);
+
+        var remark = Assert.Single(events, e =>
+            e.Type == "deviationRemark" && e.Comment!.Contains("CIBI requested from bureau"));
+        Assert.Equal("Ana Cruz", remark.ActorName);
+        Assert.Equal("Lacking CIBI", remark.Subject);
+    }
 }

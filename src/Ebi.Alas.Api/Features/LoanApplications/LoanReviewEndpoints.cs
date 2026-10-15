@@ -507,6 +507,53 @@ public static class LoanReviewEndpoints
                 docRemark.ChecklistIdCode));
         }
 
+        var deviationRemarks = await db.DeviationRemarks.AsNoTracking()
+            .Where(r => deviations.Select(d => d.Id).Contains(r.LoanDeviationId))
+            .OrderBy(r => r.CreatedAt)
+            .Select(r => new
+            {
+                r.Id,
+                r.LoanDeviationId,
+                r.Body,
+                r.CreatedAt,
+                r.AuthorId,
+            })
+            .ToListAsync(ct);
+
+        var deviationById = deviations.ToDictionary(d => d.Id);
+        foreach (var devRemark in deviationRemarks)
+        {
+            string? authorName = null;
+            string? authorRole = null;
+            if (actorNames.TryGetValue(devRemark.AuthorId, out var cachedDevAuthor))
+            {
+                authorName = cachedDevAuthor;
+            }
+            else
+            {
+                var author = await db.Users.AsNoTracking()
+                    .Where(u => u.Id == devRemark.AuthorId)
+                    .Select(u => new { Name = u.FirstName + " " + u.LastName, Role = u.Role.ToString() })
+                    .FirstOrDefaultAsync(ct);
+                authorName = author?.Name;
+                authorRole = author?.Role;
+            }
+
+            deviationById.TryGetValue(devRemark.LoanDeviationId, out var parentDeviation);
+            events.Add(new TimelineEventDto(
+                $"deviationRemark:{devRemark.Id}",
+                "deviationRemark",
+                devRemark.CreatedAt,
+                authorName,
+                authorRole,
+                "DeviationRemarkAdded",
+                null,
+                null,
+                devRemark.Body,
+                parentDeviation?.Description,
+                parentDeviation?.Code));
+        }
+
         var revisions = await db.RevisionRequests.AsNoTracking()
             .Where(r => r.LoanApplicationId == loan.Id)
             .OrderBy(r => r.RequestedAt)
