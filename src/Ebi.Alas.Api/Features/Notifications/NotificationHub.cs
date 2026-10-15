@@ -18,6 +18,11 @@ public interface IRealtimeNotifier
         CancellationToken cancellationToken);
 
     Task NotifyDashboardUpdatedAsync(CancellationToken cancellationToken);
+
+    Task NotifyLoanAssignedAsync(
+        Guid loanId,
+        Guid userId,
+        CancellationToken cancellationToken);
 }
 
 public sealed record ReceiveNotificationPayload(
@@ -32,6 +37,7 @@ public sealed class NotificationHub(PresenceService presence) : Hub
     public const string Route = "/hubs/notifications";
     public const string ReceiveNotificationEvent = "ReceiveNotification";
     public const string DashboardUpdatedEvent = "DashboardUpdated";
+    public const string LoanAssignedEvent = "LoanAssigned";
 
     public static string UserGroup(Guid userId) => $"user:{userId}";
 
@@ -101,6 +107,18 @@ public sealed class SignalRRealtimeNotifier(
         {
             logger.LogWarning(ex, "DashboardUpdated broadcast failed");
         }
+    }
+
+    public async Task NotifyLoanAssignedAsync(
+        Guid loanId,
+        Guid userId,
+        CancellationToken cancellationToken)
+    {
+        await hubContext.Clients.Group(NotificationHub.UserGroup(userId))
+            .SendAsync(
+                NotificationHub.LoanAssignedEvent,
+                new { loanId, userId, escalated = false },
+                cancellationToken);
     }
 }
 

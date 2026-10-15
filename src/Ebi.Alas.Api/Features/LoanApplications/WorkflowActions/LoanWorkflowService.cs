@@ -133,7 +133,12 @@ public sealed class LoanWorkflowService(
         db.RevisionRequests.Add(Revisions.RevisionRequest.Create(
             loanId, section, comment, caller.UserId, timeProvider.GetUtcNow()));
         await CompleteActiveQueueAsync(loanId, caller.UserId, cancellationToken);
-        await NotifyAsync(caller.UserId, "Application returned for revision", $"Loan {loan.LamId} was sent back to the encoder for revision.", cancellationToken);
+        await NotifyAsync(
+            caller.UserId,
+            "Application returned for revision",
+            $"Loan {loan.LamId} was sent back to the encoder for revision.",
+            cancellationToken,
+            link: $"/loans/approval/{loan.Id}");
         var encoderBody = string.IsNullOrWhiteSpace(comment)
             ? $"Your application {loan.LamId} was returned for revision."
             : $"Your application {loan.LamId} was returned for revision. Remarks: {comment.Trim()}";
@@ -142,8 +147,13 @@ public sealed class LoanWorkflowService(
             caller.UserId,
             "Application returned for revision",
             encoderBody,
-            cancellationToken);
+            cancellationToken,
+            link: $"/loans/create?loanId={loan.Id}");
         await db.SaveChangesAsync(cancellationToken);
+        if (notifier is not null)
+        {
+            await notifier.NotifyLoanAssignedAsync(loan.Id, loan.CreatedBy, cancellationToken);
+        }
         await NotifyDashboardAsync(cancellationToken);
         return await loan.ToResponseAsync(db, cancellationToken);
     }
@@ -241,7 +251,12 @@ public sealed class LoanWorkflowService(
             loan.Id, loan.LastActionById ?? loan.CreatedBy, action, fromStatus, toStatus, comments, at));
     }
 
-    private async Task NotifyAsync(Guid actorId, string title, string body, CancellationToken cancellationToken)
+    private async Task NotifyAsync(
+        Guid actorId,
+        string title,
+        string body,
+        CancellationToken cancellationToken,
+        string? link = null)
     {
         var notification = Notification.Create(
             actorId,
@@ -258,7 +273,7 @@ public sealed class LoanWorkflowService(
                 actorId,
                 title,
                 body,
-                link: null,
+                link,
                 notification.CreatedAt,
                 cancellationToken);
         }
@@ -269,13 +284,14 @@ public sealed class LoanWorkflowService(
         Guid actorId,
         string title,
         string body,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        string? link = null)
     {
         if (loan.CreatedBy == actorId)
         {
             return;
         }
 
-        await NotifyAsync(loan.CreatedBy, title, body, cancellationToken);
+        await NotifyAsync(loan.CreatedBy, title, body, cancellationToken, link);
     }
 }
