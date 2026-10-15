@@ -7,7 +7,8 @@ namespace Ebi.Alas.Api.Features.Account;
 public sealed record UpdateAccountContactRequest(
     string? Email,
     string? Phone,
-    string? EmergencyContact);
+    string? EmergencyContact,
+    string? ESignature);
 
 public static class AccountEndpoints
 {
@@ -38,6 +39,7 @@ public static class AccountEndpoints
                 request.Email,
                 request.Phone,
                 request.EmergencyContact,
+                request.ESignature,
                 cancellationToken);
             return ok ? Results.NoContent() : Results.NotFound();
         })

@@ -33,6 +33,9 @@ public sealed class User
 
     public string? EmergencyContact { get; private set; }
 
+    /// <summary>Canvas-stored e-signature as a data URL (PNG). Owner-only; never log.</summary>
+    public string? ESignature { get; private set; }
+
     public string BranchId { get; private set; }
 
     public string? JobTitle { get; private set; }
@@ -179,6 +182,31 @@ public sealed class User
         Email = email?.Trim() ?? string.Empty;
         Phone = NormalizeContact(phone, 20);
         EmergencyContact = NormalizeContact(emergencyContact, 200);
+        UpdatedAt = now;
+    }
+
+    public void SetSignature(string? signatureDataUrl, DateTimeOffset now)
+    {
+        if (string.IsNullOrWhiteSpace(signatureDataUrl))
+        {
+            ESignature = null;
+            UpdatedAt = now;
+            return;
+        }
+
+        var trimmed = signatureDataUrl.Trim();
+        if (!trimmed.StartsWith("data:image/", StringComparison.OrdinalIgnoreCase)
+            || !trimmed.Contains(";base64,", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new ArgumentException("Signature must be a base64 image data URL.", nameof(signatureDataUrl));
+        }
+
+        if (trimmed.Length > 2_000_000)
+        {
+            throw new ArgumentOutOfRangeException(nameof(signatureDataUrl), "Signature must not exceed 2MB.");
+        }
+
+        ESignature = trimmed;
         UpdatedAt = now;
     }
 

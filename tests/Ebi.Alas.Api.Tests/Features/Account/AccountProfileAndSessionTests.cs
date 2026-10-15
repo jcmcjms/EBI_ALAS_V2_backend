@@ -36,6 +36,7 @@ public sealed class AccountProfileAndSessionTests
             email: "new@x.com",
             phone: "09171234567",
             emergencyContact: "Jane Doe — 0918",
+            eSignature: null,
             CancellationToken.None);
 
         Assert.True(ok);
@@ -59,6 +60,28 @@ public sealed class AccountProfileAndSessionTests
         Assert.Equal("a@x.com", profile!.Email);
         Assert.Equal("09170001111", profile.Phone);
         Assert.Equal("ICE", profile.EmergencyContact);
+    }
+
+    [Fact]
+    public async Task UpdateProfile_PersistsESignature()
+    {
+        await using var db = Db();
+        var user = SeedUser(db);
+        await db.SaveChangesAsync();
+        var signature = "data:image/png;base64,iVBORw0KGgo=";
+
+        var service = new AccountService(db, TimeProvider.System);
+        var ok = await service.UpdateContactAsync(
+            user.Id,
+            email: "new@x.com",
+            phone: null,
+            emergencyContact: null,
+            eSignature: signature,
+            CancellationToken.None);
+
+        Assert.True(ok);
+        var profile = await service.GetProfileAsync(user.Id, CancellationToken.None);
+        Assert.Equal(signature, profile!.ESignature);
     }
 
     [Fact]

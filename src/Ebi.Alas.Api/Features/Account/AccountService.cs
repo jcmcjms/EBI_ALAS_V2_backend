@@ -29,6 +29,7 @@ public sealed record AccountProfileDto(
     string? Email,
     string? Phone,
     string? EmergencyContact,
+    string? ESignature,
     string? ProfilePhotoUrl,
     DateTimeOffset CreatedAt,
     DateTimeOffset? PasswordChangedAt,
@@ -103,6 +104,7 @@ public sealed class AccountService(AlasDbContext db, TimeProvider timeProvider)
             string.IsNullOrWhiteSpace(user.Email) ? null : user.Email,
             user.Phone,
             user.EmergencyContact,
+            user.ESignature,
             ProfilePhotoUrl: null,
             user.CreatedAt,
             PasswordChangedAt: null,
@@ -114,6 +116,7 @@ public sealed class AccountService(AlasDbContext db, TimeProvider timeProvider)
         string? email,
         string? phone,
         string? emergencyContact,
+        string? eSignature,
         CancellationToken cancellationToken)
     {
         var user = await db.Users.FirstOrDefaultAsync(u => u.Id == userId, cancellationToken);
@@ -123,6 +126,7 @@ public sealed class AccountService(AlasDbContext db, TimeProvider timeProvider)
         }
 
         user.UpdateContact(email, phone, emergencyContact, timeProvider.GetUtcNow());
+        user.SetSignature(eSignature, timeProvider.GetUtcNow());
         await db.SaveChangesAsync(cancellationToken);
         return true;
     }
