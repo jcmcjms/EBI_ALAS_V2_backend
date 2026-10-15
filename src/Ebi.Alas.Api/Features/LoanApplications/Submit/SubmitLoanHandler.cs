@@ -107,7 +107,10 @@ public sealed class SubmitLoanHandler(
         foreach (var loan in created)
         {
             await queue.EnqueueAsync(loan.Id, stage, loan.BranchId, cancellationToken);
-            await SignatureChainService.EnsureCreatedAsync(db, loan.Id, now, cancellationToken);
+            await SignatureChainService.EnsureCreatedAsync(
+                db, loan.Id, workflow.RequireRecommendation, now, cancellationToken);
+            await SignatureChainService.SignAsync(
+                db, loan.Id, "Encoder", caller.UserId, now, cancellationToken);
         }
 
         var audienceRole = workflow.RequireRecommendation

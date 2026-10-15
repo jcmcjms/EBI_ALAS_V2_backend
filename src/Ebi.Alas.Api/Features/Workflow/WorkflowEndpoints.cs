@@ -53,13 +53,24 @@ public static class WorkflowEndpoints
 
         var group = endpoints.MapGroup("/api/workflow").WithTags("Workflow").RequireAuthorization();
 
-        group.MapGet("/signature-chain", () => Results.Ok(
-            new object[]
-            {
-                new { order = 1, action = "Recommend", role = "Recommender", jobTitle = "Branch Head", signedByName = (string?)null, signedByJobTitle = (string?)null, signedAt = (string?)null },
-                new { order = 2, action = "Evaluate", role = "Evaluator", jobTitle = "Credit Checker", signedByName = (string?)null, signedByJobTitle = (string?)null, signedAt = (string?)null },
-                new { order = 3, action = "Approve", role = "Approver", jobTitle = "Area Head", signedByName = (string?)null, signedByJobTitle = (string?)null, signedAt = (string?)null },
-            }));
+        group.MapGet("/signature-chain", (IWorkflowConfiguration workflow) =>
+        {
+            var slots = workflow.RequireRecommendation
+                ? new object[]
+                {
+                    new { order = 1, action = "Encode", role = "Encoder", jobTitle = "Account Officer", signedByName = (string?)null, signedByJobTitle = (string?)null, signedAt = (string?)null },
+                    new { order = 2, action = "Recommend", role = "Recommender", jobTitle = "Branch Head", signedByName = (string?)null, signedByJobTitle = (string?)null, signedAt = (string?)null },
+                    new { order = 3, action = "Evaluate", role = "Evaluator", jobTitle = "Credit Checker", signedByName = (string?)null, signedByJobTitle = (string?)null, signedAt = (string?)null },
+                    new { order = 4, action = "Approve", role = "Approver", jobTitle = "Area Head", signedByName = (string?)null, signedByJobTitle = (string?)null, signedAt = (string?)null },
+                }
+                : new object[]
+                {
+                    new { order = 1, action = "Encode", role = "Encoder", jobTitle = "Account Officer", signedByName = (string?)null, signedByJobTitle = (string?)null, signedAt = (string?)null },
+                    new { order = 2, action = "Evaluate", role = "Evaluator", jobTitle = "Credit Checker", signedByName = (string?)null, signedByJobTitle = (string?)null, signedAt = (string?)null },
+                    new { order = 3, action = "Approve", role = "Approver", jobTitle = "Area Head", signedByName = (string?)null, signedByJobTitle = (string?)null, signedAt = (string?)null },
+                };
+            return Results.Ok(slots);
+        });
 
         group.MapGet("/queue", async (
             WorkflowStage stage,
