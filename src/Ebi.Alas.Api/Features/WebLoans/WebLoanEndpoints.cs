@@ -1,3 +1,7 @@
+using System.Security.Claims;
+using Ebi.Alas.Api.Composition.Auth;
+using Ebi.Alas.Api.Composition.Errors;
+
 namespace Ebi.Alas.Api.Features.WebLoans;
 
 public static class WebLoanEndpoints
@@ -24,12 +28,19 @@ public static class WebLoanEndpoints
         group.MapGet("/cis/{cisNo}/search", async (
             string cisNo,
             IWebLoanReader reader,
+            ClaimsPrincipal user,
             CancellationToken cancellationToken) =>
         {
+            var caller = CallerContext.Require(user);
             var detail = await reader.GetCisDetailAsync(cisNo, cancellationToken);
-            return detail is null
-                ? Results.NotFound(new { title = "Not Found", detail = $"CIS '{cisNo}' was not found." })
-                : Results.Ok(detail);
+            if (detail is null)
+            {
+                return Results.NotFound(new { title = "Not Found", detail = $"CIS '{cisNo}' was not found." });
+            }
+
+            // Encoders must not see LAI accounts belonging to other branches.
+            var scoped = WebLoanAccess.FilterAccountsForCaller(detail, caller);
+            return Results.Ok(scoped);
         });
 
         group.MapGet("/loan-products", async (
@@ -47,10 +58,18 @@ public static class WebLoanEndpoints
             int? pageSize,
             int? pageNumber,
             IWebLoanReader reader,
+            ClaimsPrincipal user,
             CancellationToken cancellationToken) =>
         {
             try
             {
+                var caller = CallerContext.Require(user);
+                var (accountBranch, _) = WebLoanAccountId.Parse(accountId);
+                if (!WebLoanAccess.CanUseAccount(caller, accountBranch))
+                {
+                    throw new NotFoundException("Account", accountId);
+                }
+
                 var result = await reader.GetAccountOutstandingLoansAsync(
                     cisNo, accountId, pageSize ?? 50, pageNumber ?? 1, cancellationToken);
                 return result is null
@@ -67,10 +86,18 @@ public static class WebLoanEndpoints
             string cisNo,
             string accountId,
             IWebLoanReader reader,
+            ClaimsPrincipal user,
             CancellationToken cancellationToken) =>
         {
             try
             {
+                var caller = CallerContext.Require(user);
+                var (accountBranch, _) = WebLoanAccountId.Parse(accountId);
+                if (!WebLoanAccess.CanUseAccount(caller, accountBranch))
+                {
+                    throw new NotFoundException("Account", accountId);
+                }
+
                 var result = await reader.GetAccountPendingLoanAsync(cisNo, accountId, cancellationToken);
                 return result is null
                     ? Results.NotFound(new { title = "Not Found", detail = "Account not found for the given CIS." })
