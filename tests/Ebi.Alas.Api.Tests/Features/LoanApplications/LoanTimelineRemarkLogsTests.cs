@@ -77,4 +77,27 @@ public sealed class LoanTimelineRemarkLogsTests
             && e.Subject == "Fee deviation"
             && e.Comment!.Contains("Notary charged extra"));
     }
+
+    [Fact]
+    public async Task Timeline_IncludesPersistedDocumentRemarks()
+    {
+        await using var db = Db();
+        var now = DateTimeOffset.UtcNow;
+        var author = Ebi.Alas.Api.Features.Users.Domain.User.Create(
+            "ana", "cruz", "Ana", "Cruz", "", "ana@example.com", "BR-A",
+            Ebi.Alas.Api.Features.Users.Domain.UserRole.Evaluator, now, "CI");
+        var loan = LoanWithForm(FormJson());
+        db.Users.Add(author);
+        db.LoanApplications.Add(loan);
+        db.DocumentRemarks.Add(Ebi.Alas.Api.Features.Documents.DocumentRemark.Create(
+            loan.Id, "PAYSIP", 42, null, "Please clarify this payslip", author.Id, now));
+        await db.SaveChangesAsync();
+
+        var events = await LoanReviewEndpoints.BuildTimelineEventsAsync(db, loan, CancellationToken.None);
+
+        var docRemark = Assert.Single(events, e => e.Type == "documentRemark");
+        Assert.Equal("PAYSIP", docRemark.Subject);
+        Assert.Equal("Please clarify this payslip", docRemark.Comment);
+        Assert.Equal("Ana Cruz", docRemark.ActorName);
+    }
 }

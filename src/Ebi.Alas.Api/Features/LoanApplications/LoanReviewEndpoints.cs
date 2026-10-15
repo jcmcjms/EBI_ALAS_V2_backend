@@ -371,6 +371,51 @@ public static class LoanReviewEndpoints
 
         AddFormRemarkEvents(events, loan, creatorName);
 
+        var documentRemarks = await db.DocumentRemarks.AsNoTracking()
+            .Where(r => r.LoanApplicationId == loan.Id)
+            .OrderBy(r => r.CreatedAt)
+            .Select(r => new
+            {
+                r.Id,
+                r.ChecklistIdCode,
+                r.Body,
+                r.CreatedAt,
+                r.AuthorId,
+            })
+            .ToListAsync(ct);
+
+        foreach (var docRemark in documentRemarks)
+        {
+            string? authorName = null;
+            string? authorRole = null;
+            if (actorNames.TryGetValue(docRemark.AuthorId, out var cachedAuthor))
+            {
+                authorName = cachedAuthor;
+            }
+            else
+            {
+                var author = await db.Users.AsNoTracking()
+                    .Where(u => u.Id == docRemark.AuthorId)
+                    .Select(u => new { Name = u.FirstName + " " + u.LastName, Role = u.Role.ToString() })
+                    .FirstOrDefaultAsync(ct);
+                authorName = author?.Name;
+                authorRole = author?.Role;
+            }
+
+            events.Add(new TimelineEventDto(
+                $"documentRemark:{docRemark.Id}",
+                "documentRemark",
+                docRemark.CreatedAt,
+                authorName,
+                authorRole,
+                "DocumentRemarkAdded",
+                null,
+                null,
+                docRemark.Body,
+                docRemark.ChecklistIdCode,
+                docRemark.ChecklistIdCode));
+        }
+
         var revisions = await db.RevisionRequests.AsNoTracking()
             .Where(r => r.LoanApplicationId == loan.Id)
             .OrderBy(r => r.RequestedAt)
