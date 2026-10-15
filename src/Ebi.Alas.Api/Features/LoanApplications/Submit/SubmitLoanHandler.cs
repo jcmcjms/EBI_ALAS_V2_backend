@@ -96,6 +96,11 @@ public sealed class SubmitLoanHandler(
 
         await db.SaveChangesAsync(cancellationToken);
 
+        foreach (var loan in created)
+        {
+            await Deviations.LoanDeviationSync.SyncFromFormAsync(db, loan, loan.FormJson, cancellationToken);
+        }
+
         var stage = workflow.RequireRecommendation
             ? WorkflowStage.Recommendation
             : WorkflowStage.Evaluation;

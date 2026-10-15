@@ -40,6 +40,8 @@ public sealed class AlasDbContext(DbContextOptions<AlasDbContext> options) : DbC
 
     public DbSet<LoanDeviation> LoanDeviations => Set<LoanDeviation>();
 
+    public DbSet<DeviationRemark> DeviationRemarks => Set<DeviationRemark>();
+
     public DbSet<RevisionRequest> RevisionRequests => Set<RevisionRequest>();
 
     public DbSet<Notification> Notifications => Set<Notification>();
@@ -126,6 +128,14 @@ public sealed class AlasDbContext(DbContextOptions<AlasDbContext> options) : DbC
             b.Property(x => x.Code).HasMaxLength(32).IsRequired();
             b.Property(x => x.Description).HasMaxLength(500).IsRequired();
             b.HasIndex(x => x.LoanApplicationId);
+        });
+
+        modelBuilder.Entity<DeviationRemark>(b =>
+        {
+            b.ToTable("DeviationRemarks");
+            b.HasKey(x => x.Id);
+            b.Property(x => x.Body).HasMaxLength(2000).IsRequired();
+            b.HasIndex(x => x.LoanDeviationId);
         });
 
         modelBuilder.Entity<RevisionRequest>(b =>
