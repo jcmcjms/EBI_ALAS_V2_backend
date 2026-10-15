@@ -219,6 +219,7 @@ public static class ServiceRegistration
         services.AddScoped<Features.Account.AccountService>();
         services.AddScoped<Features.Revisions.RevisionRequestService>();
         services.AddScoped<Features.Documents.DocumentRemarkService>();
+        services.AddScoped<Features.Deviations.DeviationRemarkService>();
         services.AddScoped<Features.Presence.PresenceService>();
         services.AddSignalR();
         services.AddSingleton<Features.Presence.IPresenceNotifier, Features.Presence.SignalRPresenceNotifier>();
