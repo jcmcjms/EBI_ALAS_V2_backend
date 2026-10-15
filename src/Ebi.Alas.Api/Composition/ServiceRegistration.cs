@@ -81,10 +81,18 @@ public static class ServiceRegistration
                     sp.GetRequiredService<ILogger<Infrastructure.Email.SmtpEmailSender>>());
             }
 
-            return new Infrastructure.Email.ResendEmailSender(
+            if (string.Equals(emailOptions.Provider, "Resend", StringComparison.OrdinalIgnoreCase))
+            {
+                return new Infrastructure.Email.ResendEmailSender(
+                    opts,
+                    sp.GetRequiredService<IHttpClientFactory>().CreateClient("email"),
+                    sp.GetRequiredService<ILogger<Infrastructure.Email.ResendEmailSender>>());
+            }
+
+            return new Infrastructure.Email.EnterpriseEmailApiSender(
                 opts,
-                sp.GetRequiredService<IHttpClientFactory>().CreateClient("resend"),
-                sp.GetRequiredService<ILogger<Infrastructure.Email.ResendEmailSender>>());
+                sp.GetRequiredService<IHttpClientFactory>().CreateClient("email"),
+                sp.GetRequiredService<ILogger<Infrastructure.Email.EnterpriseEmailApiSender>>());
         });
 
         services.AddSingleton(TimeProvider.System);

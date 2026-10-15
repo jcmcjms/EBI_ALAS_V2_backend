@@ -20,11 +20,17 @@ public sealed class EmailOptions
 
     public bool EnableSsl { get; set; } = true;
 
-    /// <summary>Resend (default), Smtp, or DevOutbox (Development only).</summary>
-    public string Provider { get; set; } = "Resend";
+    /// <summary>EnterpriseEmailApi (default), Resend, Smtp, or DevOutbox (Development only).</summary>
+    public string Provider { get; set; } = "EnterpriseEmailApi";
 
-    /// <summary>Resend API key (re_...). Required when Provider=Resend.</summary>
+    /// <summary>API key: Enterprise Email API X-Api-Key, or Resend re_ key.</summary>
     public string? ApiKey { get; set; }
+
+    /// <summary>Base URL of EnterpriseBank_EmailAPI, e.g. http://localhost:5151</summary>
+    public string? BaseUrl { get; set; }
+
+    /// <summary>Optional AzureEmailConfigs Id in EnterpriseBank_EmailAPI.</summary>
+    public int? SenderConfigId { get; set; }
 
     /// <summary>Directory for DevOutbox files. Defaults to {BaseDirectory}/email-outbox.</summary>
     public string? DevOutboxPath { get; set; }
