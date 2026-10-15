@@ -3,6 +3,7 @@ using Ebi.Alas.Api.Composition.Errors;
 using Ebi.Alas.Api.Features.LoanApplications.Domain;
 using Ebi.Alas.Api.Features.LoanComputation;
 using Ebi.Alas.Api.Features.Notifications;
+using Ebi.Alas.Api.Features.Users.Domain;
 using Ebi.Alas.Api.Features.Workflow;
 using Ebi.Alas.Api.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -14,6 +15,7 @@ public sealed class ReviseLoanHandler(
     LoanComputationService computation,
     WorkflowQueueService queue,
     IWorkflowConfiguration workflow,
+    ApplicationArrivalNotifier arrivals,
     IRealtimeNotifier? realtime,
     TimeProvider timeProvider)
 {
@@ -98,6 +100,7 @@ public sealed class ReviseLoanHandler(
         var open = await db.RevisionRequests
             .Where(r => r.LoanApplicationId == loanId && r.ResolvedAt == null)
             .ToListAsync(cancellationToken);
+        var requesterIds = open.Select(r => r.RequestedBy).Distinct().ToList();
         foreach (var revision in open)
         {
             revision.Resolve(now);
@@ -110,11 +113,66 @@ public sealed class ReviseLoanHandler(
             : WorkflowStage.Evaluation;
         await queue.EnqueueAsync(loan.Id, stage, loan.BranchId, cancellationToken);
 
+        var deskRole = workflow.RequireRecommendation
+            ? UserRole.Recommender
+            : UserRole.Evaluator;
+        var deskTitle = workflow.RequireRecommendation
+            ? "Application resubmitted for recommendation"
+            : "Application resubmitted for evaluation";
+        var deskBody = $"Loan {loan.LamId} was resubmitted after corrections and is ready for review.";
+        await arrivals.NotifyRoleAsync(
+            deskRole,
+            loan.BranchId,
+            deskTitle,
+            deskBody,
+            link: $"/loans/approval/{loan.Id}",
+            cancellationToken);
+
+        foreach (var requesterId in requesterIds.Where(id => id != caller.UserId))
+        {
+            await NotifyUserAsync(
+                requesterId,
+                "Application resubmitted after corrections",
+                $"Loan {loan.LamId} was revised and resubmitted. Your revision requests are resolved.",
+                link: $"/loans/approval/{loan.Id}",
+                cancellationToken);
+        }
+
         if (realtime is not null)
         {
             await realtime.NotifyDashboardUpdatedAsync(cancellationToken);
         }
 
         return loan.ToResponse();
+    }
+
+    private async Task NotifyUserAsync(
+        Guid userId,
+        string title,
+        string body,
+        string? link,
+        CancellationToken cancellationToken)
+    {
+        var notification = Notification.Create(
+            userId,
+            title,
+            body,
+            NotificationType.Action,
+            timeProvider.GetUtcNow());
+        db.Notifications.Add(notification);
+        await db.SaveChangesAsync(cancellationToken);
+        if (realtime is null)
+        {
+            return;
+        }
+
+        await realtime.NotifyUserAsync(
+            notification.Id,
+            userId,
+            title,
+            body,
+            link,
+            notification.CreatedAt,
+            cancellationToken);
     }
 }
