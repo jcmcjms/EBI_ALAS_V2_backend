@@ -103,13 +103,8 @@ public static class LoanWorkflowEndpoints
                 return Results.NotFound();
             }
 
-            var items = await Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions.ToListAsync(
-                db.SignatureChainEntries.AsNoTracking()
-                    .Where(s => s.LoanApplicationId == id)
-                    .OrderBy(s => s.Order)
-                    .Select(s => new { s.Id, s.Order, s.RoleName, s.Status, s.SignedAt, s.UserId }),
-                cancellationToken);
-            return Results.Ok(items);
+            var slots = await SignatureChainService.GetDisplayChainAsync(db, id, cancellationToken);
+            return Results.Ok(slots);
         });
     }
 }

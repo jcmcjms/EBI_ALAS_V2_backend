@@ -34,6 +34,7 @@ public sealed class LoanWorkflowService(
         loan.AssignTo(null, timeProvider.GetUtcNow());
         await queue.CompleteAsync(await ActiveQueueIdAsync(loanId, WorkflowStage.Recommendation, cancellationToken), caller.UserId, cancellationToken);
         await queue.EnqueueAsync(loanId, WorkflowStage.Evaluation, loan.BranchId, cancellationToken);
+        await SignatureChainService.SignAsync(db, loanId, "Recommender", caller.UserId, timeProvider.GetUtcNow(), cancellationToken);
         await NotifyAsync(caller.UserId, "Application recommended for checking", $"Loan {loan.LamId} was recommended and is ready for evaluation.", cancellationToken);
         await arrivals.NotifyRoleAsync(
             UserRole.Evaluator,
@@ -65,6 +66,7 @@ public sealed class LoanWorkflowService(
         loan.AssignTo(null, timeProvider.GetUtcNow());
         await queue.CompleteAsync(await ActiveQueueIdAsync(loanId, WorkflowStage.Evaluation, cancellationToken), caller.UserId, cancellationToken);
         await queue.EnqueueAsync(loanId, WorkflowStage.Approval, loan.BranchId, cancellationToken);
+        await SignatureChainService.SignAsync(db, loanId, "Evaluator", caller.UserId, timeProvider.GetUtcNow(), cancellationToken);
         await NotifyAsync(
             caller.UserId,
             recommend ? "Application recommended for approval" : "Application not recommended",
@@ -88,6 +90,7 @@ public sealed class LoanWorkflowService(
         loan.TransitionTo(LoanStatus.Approved, timeProvider.GetUtcNow(), caller.UserId, "Approved");
         RecordAction(loan, "Approved", fromApprove.ToString(), loan.Status.ToString(), null, timeProvider.GetUtcNow());
         await queue.CompleteAsync(await ActiveQueueIdAsync(loanId, WorkflowStage.Approval, cancellationToken), caller.UserId, cancellationToken);
+        await SignatureChainService.SignAsync(db, loanId, "Approver", caller.UserId, timeProvider.GetUtcNow(), cancellationToken);
         await NotifyAsync(caller.UserId, "Application approved", $"Loan {loan.LamId} has been approved.", cancellationToken);
         await NotifyEncoderAsync(
             loan,
