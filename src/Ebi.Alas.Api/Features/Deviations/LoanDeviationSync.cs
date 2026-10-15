@@ -62,6 +62,63 @@ public static class LoanDeviationSync
         }
     }
 
+    public static IReadOnlyDictionary<string, string> ExtractJustifications(string? formJson)
+    {
+        if (string.IsNullOrWhiteSpace(formJson))
+        {
+            return new Dictionary<string, string>();
+        }
+
+        try
+        {
+            using var doc = JsonDocument.Parse(formJson);
+            var map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            CollectJustifications(doc.RootElement, map);
+            return map;
+        }
+        catch (JsonException)
+        {
+            return new Dictionary<string, string>();
+        }
+    }
+
+    private static void CollectJustifications(JsonElement root, Dictionary<string, string> map)
+    {
+        if (root.ValueKind != JsonValueKind.Object && root.ValueKind != JsonValueKind.Array)
+        {
+            return;
+        }
+
+        if (root.ValueKind == JsonValueKind.Object
+            && root.TryGetProperty("deviationJustifications", out var justifications)
+            && justifications.ValueKind == JsonValueKind.Object)
+        {
+            foreach (var prop in justifications.EnumerateObject())
+            {
+                var text = prop.Value.GetString();
+                if (!string.IsNullOrWhiteSpace(text))
+                {
+                    map[prop.Name] = text.Trim();
+                }
+            }
+        }
+
+        if (root.ValueKind == JsonValueKind.Object)
+        {
+            foreach (var prop in root.EnumerateObject())
+            {
+                CollectJustifications(prop.Value, map);
+            }
+        }
+        else
+        {
+            foreach (var item in root.EnumerateArray())
+            {
+                CollectJustifications(item, map);
+            }
+        }
+    }
+
     private static void CollectReasons(JsonElement root, List<string> reasons)
     {
         if (root.ValueKind == JsonValueKind.Object)

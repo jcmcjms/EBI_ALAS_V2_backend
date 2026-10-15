@@ -160,11 +160,16 @@ public static class LoanReviewEndpoints
             var loan = await FindAccessibleLoanAsync(db, id, caller, ct)
                 ?? throw new NotFoundException("Loan", id.ToString());
 
+            // Historical loans may only have the form snapshot; hydrate rows so review can show them.
+            await LoanDeviationSync.SyncFromFormAsync(db, loan, loan.FormJson, ct);
+
             var rows = await db.LoanDeviations.AsNoTracking()
                 .Where(d => d.LoanApplicationId == loan.Id)
                 .OrderBy(d => d.Severity)
                 .ThenBy(d => d.Code)
                 .ToListAsync(ct);
+
+            var justifications = LoanDeviationSync.ExtractJustifications(loan.FormJson);
 
             var remarkRows = await db.DeviationRemarks.AsNoTracking()
                 .Where(r => rows.Select(d => d.Id).Contains(r.LoanDeviationId))
@@ -180,7 +185,9 @@ public static class LoanReviewEndpoints
             var deviations = rows.Select(d => new LoanDeviationDto(
                 d.Id,
                 d.Description,
-                d.Description,
+                justifications.TryGetValue(d.Description, out var justification)
+                    ? justification
+                    : string.Empty,
                 false,
                 d.Severity,
                 remarkRows
