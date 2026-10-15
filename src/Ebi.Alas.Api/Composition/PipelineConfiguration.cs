@@ -51,6 +51,7 @@ public static class PipelineConfiguration
         app.MapRoles();
         app.MapBranches();
         app.MapLoans();
+        app.MapReviseLoan();
         app.MapLoanWorkflow();
         app.MapLoanReview();
         app.MapRevisionRequestEndpoints();

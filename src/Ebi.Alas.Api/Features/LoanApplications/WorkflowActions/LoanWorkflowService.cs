@@ -148,7 +148,7 @@ public sealed class LoanWorkflowService(
             "Application returned for revision",
             encoderBody,
             cancellationToken,
-            link: $"/loans/create?loanId={loan.Id}");
+            link: $"/loans/revision/{loan.Id}");
         await db.SaveChangesAsync(cancellationToken);
         if (notifier is not null)
         {

@@ -83,7 +83,7 @@ public sealed class PushbackRealtimeTests
     }
 
     [Fact]
-    public async Task PushBack_NotifiesEncoderWithCreateLink_AndBroadcastsAssignment()
+    public async Task PushBack_NotifiesEncoderWithRevisionLink_AndBroadcastsAssignment()
     {
         await using var db = Db();
         var (loan, encoder, reviewer, notifier, service) = await SetupAsync(db);
@@ -94,7 +94,7 @@ public sealed class PushbackRealtimeTests
         var encoderNotify = Assert.Single(
             notifier.UserNotifications,
             n => n.UserId == encoder.Id && n.Title == "Application returned for revision");
-        Assert.Equal($"/loans/create?loanId={loan.Id}", encoderNotify.Link);
+        Assert.Equal($"/loans/revision/{loan.Id}", encoderNotify.Link);
 
         var assignment = Assert.Single(notifier.Assignments);
         Assert.Equal(loan.Id, assignment.LoanId);
