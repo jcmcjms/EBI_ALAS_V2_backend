@@ -2,6 +2,7 @@ using System.Security.Claims;
 using Ebi.Alas.Api.Composition.Auth;
 using Ebi.Alas.Api.Features.LoanApplications.Submit;
 using Ebi.Alas.Api.Features.LoanApplications.WorkflowActions;
+using Ebi.Alas.Api.Features.Workflow;
 using Microsoft.EntityFrameworkCore;
 
 namespace Ebi.Alas.Api.Features.LoanApplications;
@@ -88,6 +89,7 @@ public static class LoanWorkflowEndpoints
         group.MapGet("/{id:guid}/signature-chain", async (
             Guid id,
             Infrastructure.Persistence.AlasDbContext db,
+            IWorkflowConfiguration workflow,
             ClaimsPrincipal user,
             CancellationToken cancellationToken) =>
         {
@@ -103,7 +105,9 @@ public static class LoanWorkflowEndpoints
                 return Results.NotFound();
             }
 
-            var slots = await SignatureChainService.GetDisplayChainAsync(db, id, cancellationToken);
+            await workflow.EnsureLoadedAsync(cancellationToken);
+            var slots = await SignatureChainService.GetDisplayChainAsync(
+                db, id, workflow.RequireRecommendation, cancellationToken);
             return Results.Ok(slots);
         });
     }

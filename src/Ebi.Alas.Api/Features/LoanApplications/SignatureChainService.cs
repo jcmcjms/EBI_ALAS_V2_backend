@@ -1,13 +1,12 @@
 using Ebi.Alas.Api.Features.Approvals;
-using Ebi.Alas.Api.Features.Users.Domain;
 using Ebi.Alas.Api.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 
 namespace Ebi.Alas.Api.Features.LoanApplications;
 
 /// <summary>
-/// Printable approval form always shows Recommend / Evaluate / Approve slots.
-/// Loan chain rows are created at submit and signed on workflow actions.
+/// Signature slots follow workflow: Encoder is always required; Recommender
+/// only when recommendation is enabled before evaluation. Evaluate/Approve always apply.
 /// </summary>
 public static class SignatureChainService
 {
@@ -20,16 +19,25 @@ public static class SignatureChainService
         string? SignedByJobTitle,
         DateTimeOffset? SignedAt);
 
-    private static readonly (int Order, string Action, string Role, string JobTitle)[] Template =
-    [
-        (1, "Recommend", "Recommender", "Branch Head"),
-        (2, "Evaluate", "Evaluator", "Credit Checker"),
-        (3, "Approve", "Approver", "Area Head"),
-    ];
+    private sealed record SlotTemplate(int Order, string Action, string Role, string JobTitle);
+
+    private static readonly SlotTemplate EncoderSlot = new(1, "Encode", "Encoder", "Account Officer");
+    private static readonly SlotTemplate RecommenderSlot = new(2, "Recommend", "Recommender", "Branch Head");
+    private static readonly SlotTemplate EvaluatorSlot = new(3, "Evaluate", "Evaluator", "Credit Checker");
+    private static readonly SlotTemplate ApproverSlot = new(4, "Approve", "Approver", "Area Head");
+
+    private static readonly SlotTemplate EvaluatorSlotNoRecommend = new(2, "Evaluate", "Evaluator", "Credit Checker");
+    private static readonly SlotTemplate ApproverSlotNoRecommend = new(3, "Approve", "Approver", "Area Head");
+
+    private static IReadOnlyList<SlotTemplate> BuildTemplate(bool requireRecommendation) =>
+        requireRecommendation
+            ? [EncoderSlot, RecommenderSlot, EvaluatorSlot, ApproverSlot]
+            : [EncoderSlot, EvaluatorSlotNoRecommend, ApproverSlotNoRecommend];
 
     public static async Task EnsureCreatedAsync(
         AlasDbContext db,
         Guid loanApplicationId,
+        bool requireRecommendation,
         DateTimeOffset now,
         CancellationToken cancellationToken)
     {
@@ -40,7 +48,7 @@ public static class SignatureChainService
             return;
         }
 
-        foreach (var slot in Template)
+        foreach (var slot in BuildTemplate(requireRecommendation))
         {
             db.SignatureChainEntries.Add(SignatureChainEntry.Create(
                 loanApplicationId, slot.Order, slot.Role, now));
@@ -74,6 +82,7 @@ public static class SignatureChainService
     public static async Task<IReadOnlyList<SignatureSlotDisplay>> GetDisplayChainAsync(
         AlasDbContext db,
         Guid loanApplicationId,
+        bool requireRecommendation,
         CancellationToken cancellationToken)
     {
         var entries = await db.SignatureChainEntries.AsNoTracking()
@@ -90,12 +99,12 @@ public static class SignatureChainService
             .Select(u => new { u.Id, Name = u.FirstName + " " + u.LastName, u.JobTitle })
             .ToDictionaryAsync(u => u.Id, cancellationToken);
 
-        var result = new List<SignatureSlotDisplay>(Template.Length);
-        foreach (var slot in Template)
+        var template = BuildTemplate(requireRecommendation);
+        var result = new List<SignatureSlotDisplay>(template.Count);
+        foreach (var slot in template)
         {
             var entry = entries.FirstOrDefault(e =>
-                string.Equals(e.RoleName, slot.Role, StringComparison.OrdinalIgnoreCase)
-                || e.Order == slot.Order);
+                string.Equals(e.RoleName, slot.Role, StringComparison.OrdinalIgnoreCase));
             string? signedByName = null;
             string? signedByJobTitle = null;
             if (entry?.UserId is { } userId && users.TryGetValue(userId, out var user))

@@ -22,11 +22,27 @@ public sealed class SignatureChainDisplayTests
         await using var db = Db();
         var loanId = Guid.NewGuid();
 
-        var slots = await SignatureChainService.GetDisplayChainAsync(db, loanId, CancellationToken.None);
+        var slots = await SignatureChainService.GetDisplayChainAsync(
+            db, loanId, requireRecommendation: false, CancellationToken.None);
 
         Assert.Equal(3, slots.Count);
-        Assert.Equal(["Recommend", "Evaluate", "Approve"], slots.Select(s => s.Action).ToArray());
+        Assert.Equal(["Encode", "Evaluate", "Approve"], slots.Select(s => s.Action).ToArray());
         Assert.All(slots, s => Assert.Null(s.SignedByName));
+    }
+
+    [Fact]
+    public async Task GetDisplayChain_WhenRecommendationRequired_IncludesRecommender()
+    {
+        await using var db = Db();
+        var loanId = Guid.NewGuid();
+
+        var slots = await SignatureChainService.GetDisplayChainAsync(
+            db, loanId, requireRecommendation: true, CancellationToken.None);
+
+        Assert.Equal(4, slots.Count);
+        Assert.Equal(
+            ["Encode", "Recommend", "Evaluate", "Approve"],
+            slots.Select(s => s.Action).ToArray());
     }
 
     [Fact]
@@ -41,13 +57,16 @@ public sealed class SignatureChainDisplayTests
         db.Users.Add(recommender);
         db.LoanApplications.Add(loan);
         await db.SaveChangesAsync();
-        await SignatureChainService.EnsureCreatedAsync(db, loan.Id, now, CancellationToken.None);
+        await SignatureChainService.EnsureCreatedAsync(
+            db, loan.Id, requireRecommendation: true, now, CancellationToken.None);
 
         await SignatureChainService.SignAsync(db, loan.Id, "Recommender", recommender.Id, now, CancellationToken.None);
 
-        var slots = await SignatureChainService.GetDisplayChainAsync(db, loan.Id, CancellationToken.None);
-        Assert.Equal("Ana Cruz", slots[0].SignedByName);
-        Assert.NotNull(slots[0].SignedAt);
-        Assert.Null(slots[1].SignedByName);
+        var slots = await SignatureChainService.GetDisplayChainAsync(
+            db, loan.Id, requireRecommendation: true, CancellationToken.None);
+        var signed = slots.Single(s => s.Role == "Recommender");
+        Assert.Equal("Ana Cruz", signed.SignedByName);
+        Assert.NotNull(signed.SignedAt);
+        Assert.Null(slots.Single(s => s.Role == "Evaluator").SignedByName);
     }
 }
