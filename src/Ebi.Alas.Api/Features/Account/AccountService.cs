@@ -126,7 +126,25 @@ public sealed class AccountService(AlasDbContext db, TimeProvider timeProvider)
         }
 
         user.UpdateContact(email, phone, emergencyContact, timeProvider.GetUtcNow());
-        user.SetSignature(eSignature, timeProvider.GetUtcNow());
+
+        // null means "do not change signature"; empty string clears it.
+        if (eSignature is not null)
+        {
+            user.SetSignature(eSignature, timeProvider.GetUtcNow());
+
+            if (!string.IsNullOrWhiteSpace(user.ESignature))
+            {
+                // Slots may have been signed before the profile ink existed.
+                var signedSlots = await db.SignatureChainEntries
+                    .Where(s => s.UserId == userId && s.SignatureImage == null)
+                    .ToListAsync(cancellationToken);
+                foreach (var slot in signedSlots)
+                {
+                    slot.AttachSignatureImageIfMissing(user.ESignature);
+                }
+            }
+        }
+
         await db.SaveChangesAsync(cancellationToken);
         return true;
     }

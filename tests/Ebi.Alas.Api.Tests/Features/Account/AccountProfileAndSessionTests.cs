@@ -47,6 +47,43 @@ public sealed class AccountProfileAndSessionTests
     }
 
     [Fact]
+    public async Task UpdateProfile_NullESignature_DoesNotClearStoredInk()
+    {
+        await using var db = Db();
+        var user = SeedUser(db);
+        var ink = "data:image/png;base64,iVBORw0KGgo=";
+        user.SetSignature(ink, DateTimeOffset.UtcNow);
+        await db.SaveChangesAsync();
+
+        var service = new AccountService(db, TimeProvider.System);
+        await service.UpdateContactAsync(
+            user.Id, "a@x.com", null, null, eSignature: null, CancellationToken.None);
+
+        Assert.Equal(ink, (await db.Users.AsNoTracking().SingleAsync()).ESignature);
+    }
+
+    [Fact]
+    public async Task UpdateProfile_Ink_BackfillsSignedSlotsWithoutSnapshot()
+    {
+        await using var db = Db();
+        var user = SeedUser(db);
+        await db.SaveChangesAsync();
+        var ink = "data:image/png;base64,iVBORw0KGgo=";
+        var entry = Ebi.Alas.Api.Features.Approvals.SignatureChainEntry.Create(
+            Guid.NewGuid(), 1, "Encoder", DateTimeOffset.UtcNow);
+        entry.Sign(user.Id, DateTimeOffset.UtcNow, signatureImage: null);
+        db.SignatureChainEntries.Add(entry);
+        await db.SaveChangesAsync();
+
+        var service = new AccountService(db, TimeProvider.System);
+        await service.UpdateContactAsync(
+            user.Id, null, null, null, eSignature: ink, CancellationToken.None);
+
+        var stored = await db.SignatureChainEntries.AsNoTracking().SingleAsync();
+        Assert.Equal(ink, stored.SignatureImage);
+    }
+
+    [Fact]
     public async Task GetProfile_IncludesContactFields()
     {
         await using var db = Db();
