@@ -37,6 +37,40 @@ public sealed class UserTests
     }
 
     [Fact]
+    public void SetSignature_StoresDataUrl()
+    {
+        var user = User.Create(
+            "ada", "hash", "Ada", "Lovelace", "", "a@x.com", "011", UserRole.Encoder, DateTimeOffset.UtcNow);
+        var signature = "data:image/png;base64,iVBORw0KGgo=";
+
+        user.SetSignature(signature, DateTimeOffset.UtcNow);
+
+        Assert.Equal(signature, user.ESignature);
+    }
+
+    [Fact]
+    public void SetSignature_Null_ClearsSignature()
+    {
+        var user = User.Create(
+            "ada", "hash", "Ada", "Lovelace", "", "a@x.com", "011", UserRole.Encoder, DateTimeOffset.UtcNow);
+        user.SetSignature("data:image/png;base64,iVBORw0KGgo=", DateTimeOffset.UtcNow);
+
+        user.SetSignature(null, DateTimeOffset.UtcNow);
+
+        Assert.Null(user.ESignature);
+    }
+
+    [Fact]
+    public void SetSignature_RejectsNonDataUrl()
+    {
+        var user = User.Create(
+            "ada", "hash", "Ada", "Lovelace", "", "a@x.com", "011", UserRole.Encoder, DateTimeOffset.UtcNow);
+
+        Assert.ThrowsAny<ArgumentException>(() =>
+            user.SetSignature("javascript:alert(1)", DateTimeOffset.UtcNow));
+    }
+
+    [Fact]
     public void Suspend_ActiveUser_SetsSuspended()
     {
         var user = User.Create("ada", "hash", "Ada", "Ada", "", "ada@example.com", "011", UserRole.Encoder, DateTimeOffset.UtcNow);
