@@ -61,6 +61,20 @@ public sealed class SignatureChainEntry
         SignedAt = now;
         SignatureImage = Users.Domain.ESignaturePolicy.Sanitize(signatureImage);
     }
+
+    /// <summary>
+    /// Attach ink to a slot that was signed without a stored snapshot
+    /// (profile signature captured after the workflow action).
+    /// </summary>
+    public void AttachSignatureImageIfMissing(string? signatureImage)
+    {
+        if (Status != SignatureSlotStatus.Signed || SignatureImage is not null)
+        {
+            return;
+        }
+
+        SignatureImage = Users.Domain.ESignaturePolicy.Sanitize(signatureImage);
+    }
 }
 
 public sealed record SlaPolicy(int RecommendationHours, int EvaluationHours, int ApprovalHours)
