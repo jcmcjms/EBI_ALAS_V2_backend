@@ -1,6 +1,15 @@
+using System.Text.Json;
+using Ebi.Alas.Api.Composition.Auth;
+using Ebi.Alas.Api.Composition.Errors;
 using Ebi.Alas.Api.Features.LoanApplications.Domain;
+using Ebi.Alas.Api.Features.LoanApplications.Revise;
+using Ebi.Alas.Api.Features.LoanComputation;
+using Ebi.Alas.Api.Features.SystemSettings;
+using Ebi.Alas.Api.Features.Users.Domain;
+using Ebi.Alas.Api.Features.Workflow;
 using Ebi.Alas.Api.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 
 namespace Ebi.Alas.Api.Tests.Features.LoanApplications;
 
@@ -70,5 +79,107 @@ public sealed class ReviseLoanHandlerTests
         Assert.Equal(lam, loan.LamId);
         Assert.Equal(branch, loan.BranchId);
         Assert.Equal(product, loan.ProductCode);
+    }
+
+    private static IWorkflowConfiguration Config(bool requireRecommendation)
+    {
+        var store = new FakeSettingsStore(
+            requireRecommendation
+                ? new SettingSnapshot(true, DateTime.UtcNow, "Admin")
+                : new SettingSnapshot(false, DateTime.UtcNow, "Admin"));
+        return new WorkflowConfiguration(
+            Options.Create(new WorkflowOptions()).ToMonitor(),
+            store);
+    }
+
+    private static ReviseLoanHandler Handler(AlasDbContext db, bool requireRecommendation = true) => new(
+        db,
+        new LoanComputationService(),
+        new WorkflowQueueService(db, TimeProvider.System),
+        Config(requireRecommendation),
+        realtime: null,
+        TimeProvider.System);
+
+    private static CallerContext Encoder(string branchId = "BR-A") =>
+        new(Guid.NewGuid(), UserRole.Encoder, branchId);
+
+    private static ReviseLoanCommand Cmd(
+        string notes = "Updated NTHP as per new payslip.",
+        string? rowVersion = null,
+        decimal principal = 1500m) =>
+        new("Juan Dela Cruz", principal, 30, 0.05m, null, notes, rowVersion);
+
+    [Fact]
+    public async Task Handle_UpdatesLoanAndResolvesRevisions()
+    {
+        await using var db = Db();
+        var loan = SeedForRevision(db);
+        db.RevisionRequests.Add(Ebi.Alas.Api.Features.Revisions.RevisionRequest.Create(
+            loan.Id, "loan-params", "Check amount", Guid.NewGuid(), DateTimeOffset.UtcNow));
+        await db.SaveChangesAsync();
+        var handler = Handler(db);
+
+        var result = await handler.HandleAsync(loan.Id, Cmd(principal: 1500m), Encoder(), CancellationToken.None);
+
+        Assert.Equal(nameof(LoanStatus.ForRecommendation), result.Status);
+        Assert.Equal(1500m, result.Principal);
+        Assert.False(await db.RevisionRequests.AnyAsync(r => r.LoanApplicationId == loan.Id && r.ResolvedAt == null));
+        Assert.NotEqual(string.Empty, result.RowVersion);
+    }
+
+    [Fact]
+    public async Task Handle_RejectsWrongStatus()
+    {
+        await using var db = Db();
+        var loan = SeedForRevision(db);
+        loan.TransitionTo(LoanStatus.ForRecommendation, DateTimeOffset.UtcNow);
+        await db.SaveChangesAsync();
+
+        await Assert.ThrowsAsync<ConflictException>(() =>
+            Handler(db).HandleAsync(loan.Id, Cmd(), Encoder(), CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task Handle_RejectsStaleRowVersion()
+    {
+        await using var db = Db();
+        var loan = SeedForRevision(db);
+        var handler = Handler(db);
+
+        await Assert.ThrowsAsync<ConflictException>(() =>
+            handler.HandleAsync(
+                loan.Id,
+                Cmd(rowVersion: Convert.ToBase64String(new byte[] { 9, 9, 9, 9, 9, 9, 9, 9 })),
+                Encoder(),
+                CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task Handle_RequiresRevisionNotes()
+    {
+        await using var db = Db();
+        var loan = SeedForRevision(db);
+
+        await Assert.ThrowsAsync<ValidationException>(() =>
+            Handler(db).HandleAsync(loan.Id, Cmd(notes: "short"), Encoder(), CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task Handle_HidesInaccessibleBranch()
+    {
+        await using var db = Db();
+        var loan = SeedForRevision(db, branchId: "BR-B");
+
+        await Assert.ThrowsAsync<NotFoundException>(() =>
+            Handler(db).HandleAsync(loan.Id, Cmd(), Encoder(branchId: "BR-A"), CancellationToken.None));
+    }
+
+    private sealed class FakeSettingsStore(SettingSnapshot snapshot) : ISystemSettingsStore
+    {
+        public Task<SettingSnapshot> GetSnapshotAsync(string key, CancellationToken ct = default)
+            => Task.FromResult(snapshot);
+
+        public Task<SettingSnapshot> SetBoolAsync(string key, bool value, Guid userId, CancellationToken ct = default)
+            => Task.FromResult(new SettingSnapshot(value, DateTime.UtcNow, "Admin"));
     }
 }
