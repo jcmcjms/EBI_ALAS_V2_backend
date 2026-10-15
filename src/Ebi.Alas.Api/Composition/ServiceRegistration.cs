@@ -198,6 +198,7 @@ public static class ServiceRegistration
 
         services.AddSingleton<LoanComputationService>();
         services.AddScoped<SubmitLoanHandler>();
+        services.AddScoped<Features.LoanApplications.Revise.ReviseLoanHandler>();
         services.AddScoped<Features.LoanApplications.Submit.ApplicationNumberGenerator>();
         services.AddScoped<GetLoanHandler>();
         services.AddScoped<GetLoanByLamIdHandler>();
