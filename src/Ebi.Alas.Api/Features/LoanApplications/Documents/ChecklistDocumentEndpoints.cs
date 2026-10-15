@@ -176,6 +176,7 @@ public static class ChecklistDocumentEndpoints
             Guid id,
             CreateDocumentRemarkRequest request,
             AlasDbContext db,
+            DocumentRemarkService remarkService,
             ClaimsPrincipal user,
             TimeProvider timeProvider,
             CancellationToken ct) =>
@@ -205,26 +206,7 @@ public static class ChecklistDocumentEndpoints
                 throw new Composition.Errors.NotFoundException("Loan", id.ToString());
             }
 
-            if (request.ParentRemarkId is { } parentId)
-            {
-                var parentExists = await db.DocumentRemarks.AsNoTracking()
-                    .AnyAsync(r => r.Id == parentId && r.LoanApplicationId == id, ct);
-                if (!parentExists)
-                {
-                    throw new Composition.Errors.ValidationException("Parent remark was not found.");
-                }
-            }
-
-            var remark = DocumentRemark.Create(
-                id,
-                request.ChecklistIdCode,
-                request.DocId,
-                request.ParentRemarkId,
-                request.Body,
-                caller.UserId,
-                timeProvider.GetUtcNow());
-            db.DocumentRemarks.Add(remark);
-            await db.SaveChangesAsync(ct);
+            var remark = await remarkService.CreateAsync(loan, request, caller.UserId, ct);
 
             var author = await db.Users.AsNoTracking()
                 .Where(u => u.Id == caller.UserId)
