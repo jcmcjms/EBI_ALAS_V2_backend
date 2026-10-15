@@ -36,9 +36,11 @@ public static class RevisionRequestEndpoints
             Guid revisionId,
             ClaimsPrincipal user,
             RevisionRequestService service,
+            Infrastructure.Persistence.AlasDbContext db,
             CancellationToken cancellationToken) =>
         {
-            _ = CallerContext.Require(user);
+            var caller = CallerContext.Require(user);
+            await LoanAccess.RequireAccessibleAsync(db, id, caller, cancellationToken);
             var ok = await service.ResolveAsync(id, revisionId, cancellationToken);
             return ok ? Results.NoContent() : Results.NotFound();
         })

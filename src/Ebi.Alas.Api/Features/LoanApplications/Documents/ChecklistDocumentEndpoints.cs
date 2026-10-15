@@ -2,6 +2,7 @@ using System.Security.Claims;
 using System.Text.Json;
 using Ebi.Alas.Api.Composition.Auth;
 using Ebi.Alas.Api.Features.Documents;
+using Ebi.Alas.Api.Features.LoanApplications;
 using Ebi.Alas.Api.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.EntityFrameworkCore;
@@ -135,14 +136,8 @@ public static class ChecklistDocumentEndpoints
             CancellationToken ct) =>
         {
             var caller = CallerContext.Require(user);
-            var exists = await db.LoanApplications.AsNoTracking()
-                .AnyAsync(l => l.Id == id, ct);
-            if (!exists)
-            {
-                throw new Composition.Errors.NotFoundException("Loan", id.ToString());
-            }
+            await LoanAccess.RequireAccessibleAsync(db, id, caller, ct);
 
-            _ = caller;
             var rows = await db.DocumentRemarks.AsNoTracking()
                 .Where(r => r.LoanApplicationId == id)
                 .OrderBy(r => r.CreatedAt)
@@ -197,14 +192,8 @@ public static class ChecklistDocumentEndpoints
                 throw new Composition.Errors.ValidationException("Checklist item code is required.");
             }
 
-            var loan = await db.LoanApplications.AsNoTracking()
-                .FirstOrDefaultAsync(l => l.Id == id, ct)
-                ?? throw new Composition.Errors.NotFoundException("Loan", id.ToString());
-
-            if (!caller.CanAccessAllBranches && loan.BranchId != caller.BranchId)
-            {
-                throw new Composition.Errors.NotFoundException("Loan", id.ToString());
-            }
+            var loan = await LoanAccess.RequireAccessibleAsync(db, id, caller, ct);
+            _ = loan;
 
             var remark = await remarkService.CreateAsync(loan, request, caller.UserId, ct);
 
