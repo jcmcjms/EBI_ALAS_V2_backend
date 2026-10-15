@@ -61,7 +61,31 @@ public static class ServiceRegistration
         // SMTP is optional at startup (dev/tests may have no mail host). Validate on send.
         services.AddOptions<Infrastructure.Email.EmailOptions>()
             .Bind(configuration.GetSection(Infrastructure.Email.EmailOptions.SectionName));
-        services.AddSingleton<Infrastructure.Email.IEmailSender, Infrastructure.Email.SmtpEmailSender>();
+        services.AddHttpClient();
+        services.AddSingleton<Infrastructure.Email.IEmailSender>(sp =>
+        {
+            var emailOptions = sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<Infrastructure.Email.EmailOptions>>().Value;
+            var opts = sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<Infrastructure.Email.EmailOptions>>();
+            if (string.Equals(emailOptions.Provider, "DevOutbox", StringComparison.OrdinalIgnoreCase))
+            {
+                return new Infrastructure.Email.DevOutboxEmailSender(
+                    opts,
+                    sp.GetRequiredService<IHostEnvironment>(),
+                    sp.GetRequiredService<ILogger<Infrastructure.Email.DevOutboxEmailSender>>());
+            }
+
+            if (string.Equals(emailOptions.Provider, "Smtp", StringComparison.OrdinalIgnoreCase))
+            {
+                return new Infrastructure.Email.SmtpEmailSender(
+                    opts,
+                    sp.GetRequiredService<ILogger<Infrastructure.Email.SmtpEmailSender>>());
+            }
+
+            return new Infrastructure.Email.ResendEmailSender(
+                opts,
+                sp.GetRequiredService<IHttpClientFactory>().CreateClient("resend"),
+                sp.GetRequiredService<ILogger<Infrastructure.Email.ResendEmailSender>>());
+        });
 
         services.AddSingleton(TimeProvider.System);
         services.AddMemoryCache();
