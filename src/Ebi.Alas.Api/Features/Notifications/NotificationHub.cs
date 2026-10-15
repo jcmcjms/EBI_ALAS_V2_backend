@@ -57,8 +57,24 @@ public sealed class NotificationHub(PresenceService presence) : Hub
         {
             await Groups.AddToGroupAsync(Context.ConnectionId, UserGroup(userId));
             await Groups.AddToGroupAsync(Context.ConnectionId, PresenceEvents.Group);
-            var online = await presence.GetOnlineUsersAsync(Context.ConnectionAborted);
-            await Clients.Caller.SendAsync(PresenceEvents.Snapshot, online, Context.ConnectionAborted);
+
+            // Presence snapshot is best-effort on connect. Do not tie the EF query to
+            // ConnectionAborted: a disconnect mid-connect would cancel the query and
+            // surface TaskCanceledException during hub connect.
+            try
+            {
+                using var cts = CancellationTokenSource.CreateLinkedTokenSource(Context.ConnectionAborted);
+                cts.CancelAfter(TimeSpan.FromSeconds(5));
+                var online = await presence.GetOnlineUsersAsync(cts.Token);
+                if (!Context.ConnectionAborted.IsCancellationRequested)
+                {
+                    await Clients.Caller.SendAsync(PresenceEvents.Snapshot, online, Context.ConnectionAborted);
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                // Client disconnected or snapshot timed out; reconnect will fetch a fresh snapshot.
+            }
         }
 
         await base.OnConnectedAsync();

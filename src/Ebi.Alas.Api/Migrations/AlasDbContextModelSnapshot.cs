@@ -605,6 +605,8 @@ namespace Ebi.Alas.Api.Migrations
 
                     b.HasKey("UserId");
 
+                    b.HasIndex("LastSeenAt");
+
                     b.ToTable("UserPresences", (string)null);
                 });
 

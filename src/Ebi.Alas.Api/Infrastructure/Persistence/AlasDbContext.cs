@@ -189,6 +189,7 @@ public sealed class AlasDbContext(DbContextOptions<AlasDbContext> options) : DbC
         {
             b.ToTable("UserPresences");
             b.HasKey(x => x.UserId);
+            b.HasIndex(x => x.LastSeenAt);
         });
 
         base.OnModelCreating(modelBuilder);
