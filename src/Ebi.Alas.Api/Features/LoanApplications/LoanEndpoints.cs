@@ -35,6 +35,10 @@ public static class LoanEndpoints
             string? status,
             string? branchId,
             string? branchCode,
+            string? search,
+            DateTimeOffset? dateFrom,
+            DateTimeOffset? dateTo,
+            bool? myTurn,
             ListLoansHandler handler,
             ClaimsPrincipal user,
             Microsoft.Extensions.Options.IOptions<Composition.ApiOptions> options,
@@ -50,7 +54,11 @@ public static class LoanEndpoints
                 statuses,
                 string.IsNullOrWhiteSpace(branchId) ? branchCode : branchId,
                 caller,
-                cancellationToken);
+                cancellationToken,
+                search,
+                dateFrom,
+                dateTo,
+                myTurn == true);
             return Results.Ok(result);
         });
 

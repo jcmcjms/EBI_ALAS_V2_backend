@@ -30,7 +30,11 @@ public sealed class ListLoansHandler(AlasDbContext db)
         IReadOnlyList<LoanStatus> statuses,
         string? branchId,
         CallerContext caller,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        string? search = null,
+        DateTimeOffset? dateFrom = null,
+        DateTimeOffset? dateTo = null,
+        bool myTurn = false)
     {
         var normalized = page.Normalize(maxPageSize, defaultPageSize);
         var query = db.LoanApplications.AsNoTracking().AsQueryable();
@@ -58,6 +62,31 @@ public sealed class ListLoansHandler(AlasDbContext db)
         if (statuses.Count > 0)
         {
             query = query.Where(l => statuses.Contains(l.Status));
+        }
+
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            var term = search.Trim();
+            query = query.Where(l =>
+                l.LamId.Contains(term) ||
+                l.ClientName.Contains(term) ||
+                l.Product.Contains(term) ||
+                l.ProductCode.Contains(term));
+        }
+
+        if (dateFrom is { } from)
+        {
+            query = query.Where(l => l.CreatedAt >= from);
+        }
+
+        if (dateTo is { } to)
+        {
+            query = query.Where(l => l.CreatedAt <= to);
+        }
+
+        if (myTurn)
+        {
+            query = query.Where(l => l.AssignedToUserId == caller.UserId);
         }
 
         var ordered = query.OrderByDescending(l => l.CreatedAt).ThenBy(l => l.LamId);

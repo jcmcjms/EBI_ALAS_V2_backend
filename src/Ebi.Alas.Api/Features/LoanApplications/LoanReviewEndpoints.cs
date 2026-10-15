@@ -242,13 +242,21 @@ public static class LoanReviewEndpoints
         LoanApplication loan,
         CancellationToken ct)
     {
+        var actorNames = await db.Users.AsNoTracking()
+            .Where(u => u.Id == loan.CreatedBy
+                || (loan.LastActionById != null && u.Id == loan.LastActionById))
+            .Select(u => new { u.Id, Name = u.FirstName + " " + u.LastName })
+            .ToDictionaryAsync(u => u.Id, u => u.Name, ct);
+
+        actorNames.TryGetValue(loan.CreatedBy, out var creatorName);
+
         var events = new List<TimelineEventDto>
         {
             new(
                 $"workflow:created:{loan.Id}",
                 "workflow",
                 loan.CreatedAt,
-                null,
+                creatorName,
                 null,
                 "Created",
                 null,
@@ -276,10 +284,17 @@ public static class LoanReviewEndpoints
         foreach (var action in actionRows)
         {
             string? actorName = null;
-            actorName = await db.Users.AsNoTracking()
-                .Where(u => u.Id == action.ActionByUserId)
-                .Select(u => u.FirstName + " " + u.LastName)
-                .FirstOrDefaultAsync(ct);
+            if (actorNames.TryGetValue(action.ActionByUserId, out var cachedName))
+            {
+                actorName = cachedName;
+            }
+            else
+            {
+                actorName = await db.Users.AsNoTracking()
+                    .Where(u => u.Id == action.ActionByUserId)
+                    .Select(u => u.FirstName + " " + u.LastName)
+                    .FirstOrDefaultAsync(ct);
+            }
 
             events.Add(new TimelineEventDto(
                 $"workflow:action:{action.Id}",
@@ -354,21 +369,34 @@ public static class LoanReviewEndpoints
                 deviation.Code));
         }
 
-        AddFormRemarkEvents(events, loan);
+        AddFormRemarkEvents(events, loan, creatorName);
 
         var revisions = await db.RevisionRequests.AsNoTracking()
             .Where(r => r.LoanApplicationId == loan.Id)
             .OrderBy(r => r.RequestedAt)
-            .Select(r => new { r.Id, r.Section, r.Comment, r.RequestedAt })
+            .Select(r => new { r.Id, r.Section, r.Comment, r.RequestedAt, r.RequestedBy })
             .ToListAsync(ct);
 
         foreach (var revision in revisions)
         {
+            string? requesterName = null;
+            if (actorNames.TryGetValue(revision.RequestedBy, out var cachedRequester))
+            {
+                requesterName = cachedRequester;
+            }
+            else
+            {
+                requesterName = await db.Users.AsNoTracking()
+                    .Where(u => u.Id == revision.RequestedBy)
+                    .Select(u => u.FirstName + " " + u.LastName)
+                    .FirstOrDefaultAsync(ct);
+            }
+
             events.Add(new TimelineEventDto(
                 $"workflow:revision:{revision.Id}",
                 "workflow",
                 revision.RequestedAt,
-                null,
+                requesterName,
                 null,
                 "PushedBack",
                 loan.Status.ToString(),
@@ -381,7 +409,7 @@ public static class LoanReviewEndpoints
         return events;
     }
 
-    private static void AddFormRemarkEvents(List<TimelineEventDto> events, LoanApplication loan)
+    private static void AddFormRemarkEvents(List<TimelineEventDto> events, LoanApplication loan, string? actorName)
     {
         if (string.IsNullOrWhiteSpace(loan.FormJson))
         {
@@ -403,17 +431,17 @@ public static class LoanReviewEndpoints
             foreach (var loanEl in EnumerateLoans(doc.RootElement))
             {
                 var verification = GetString(loanEl, "verification", "findings");
-                AddRemarkEvent(events, loan, "Verification findings", verification);
+                AddRemarkEvent(events, loan, actorName, "Verification findings", verification);
 
                 if (!TryGetObject(loanEl, "deviations", out var deviations))
                 {
                     continue;
                 }
 
-                AddRemarkEvent(events, loan, "Encoder remarks", GetString(deviations, "remarks"));
-                AddRemarkEvent(events, loan, "Account officer recommendation", GetString(deviations, "aoRecommendation"));
-                AddRemarkEvent(events, loan, "Other remarks", GetString(deviations, "otherRemarks"));
-                AddRemarkEvent(events, loan, "Fee deviation", GetString(deviations, "feeDeviationJustification"));
+                AddRemarkEvent(events, loan, actorName, "Encoder remarks", GetString(deviations, "remarks"));
+                AddRemarkEvent(events, loan, actorName, "Account officer recommendation", GetString(deviations, "aoRecommendation"));
+                AddRemarkEvent(events, loan, actorName, "Other remarks", GetString(deviations, "otherRemarks"));
+                AddRemarkEvent(events, loan, actorName, "Fee deviation", GetString(deviations, "feeDeviationJustification"));
 
                 if (TryGetObject(deviations, "deviationJustifications", out var justifications))
                 {
@@ -429,7 +457,7 @@ public static class LoanReviewEndpoints
                             $"deviationRemark:{prop.Name}",
                             "deviationRemark",
                             loan.CreatedAt,
-                            null,
+                            actorName,
                             null,
                             null,
                             null,
@@ -490,6 +518,7 @@ public static class LoanReviewEndpoints
     private static void AddRemarkEvent(
         List<TimelineEventDto> events,
         LoanApplication loan,
+        string? actorName,
         string label,
         string? body)
     {
@@ -502,7 +531,7 @@ public static class LoanReviewEndpoints
             $"remark:{label}:{loan.Id}",
             "remark",
             loan.CreatedAt,
-            null,
+            actorName,
             null,
             null,
             null,
