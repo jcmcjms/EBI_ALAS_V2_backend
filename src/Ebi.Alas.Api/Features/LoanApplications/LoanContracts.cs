@@ -29,7 +29,8 @@ public sealed record LoanResponse(
     JsonElement? Form = null,
     DocumentFlagDto? DocumentFlag = null,
     Guid? AssignedToUserId = null,
-    string? AssignedToName = null);
+    string? AssignedToName = null,
+    string RowVersion = "");
 
 public sealed record DocumentFlagDto(
     DateTimeOffset FlaggedAt,

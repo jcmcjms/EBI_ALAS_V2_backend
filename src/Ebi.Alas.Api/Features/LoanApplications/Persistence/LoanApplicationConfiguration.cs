@@ -26,6 +26,7 @@ public sealed class LoanApplicationConfiguration : IEntityTypeConfiguration<Loan
         builder.Property(x => x.TotalDeductions).HasPrecision(18, 2);
         builder.Property(x => x.NetProceeds).HasPrecision(18, 2);
         builder.Property(x => x.FormJson);
+        builder.Property(x => x.RowVersion).IsConcurrencyToken();
         builder.Property(x => x.DocumentFlagReason).HasMaxLength(2000);
         builder.HasIndex(x => x.AssignedToUserId);
     }

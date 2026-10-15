@@ -56,6 +56,8 @@ public sealed class LoanApplication
 
     public string? FormJson { get; private set; }
 
+    public byte[] RowVersion { get; private set; } = [0];
+
     public DateTimeOffset? DocumentsFlaggedAt { get; private set; }
 
     public Guid? DocumentsFlaggedById { get; private set; }
@@ -120,6 +122,44 @@ public sealed class LoanApplication
     public void SetFormSnapshot(string? formJson)
     {
         FormJson = formJson;
+    }
+
+    public void BumpRowVersion()
+    {
+        var bytes = RowVersion.Length >= 8 ? RowVersion : new byte[8];
+        var next = BitConverter.ToUInt64(bytes) + 1UL;
+        RowVersion = BitConverter.GetBytes(next);
+    }
+
+    public void ApplyRevision(
+        string clientName,
+        decimal principal,
+        int termDays,
+        decimal interestRate,
+        decimal totalInterest,
+        decimal totalDeductions,
+        decimal netProceeds,
+        string? formJson,
+        DateTimeOffset now)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(clientName);
+        ArgumentOutOfRangeException.ThrowIfLessThan(principal, 0.01m);
+        ArgumentOutOfRangeException.ThrowIfLessThan(termDays, 1);
+
+        ClientName = clientName.Trim();
+        Principal = principal;
+        TermDays = termDays;
+        InterestRate = interestRate;
+        TotalInterest = totalInterest;
+        TotalDeductions = totalDeductions;
+        NetProceeds = netProceeds;
+        if (formJson is not null)
+        {
+            FormJson = formJson;
+        }
+
+        UpdatedAt = now;
+        BumpRowVersion();
     }
 
     public void FlagDocuments(int missingCount, string reason, Guid actorId, DateTimeOffset now)
