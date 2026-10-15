@@ -303,11 +303,11 @@ public static class LoanReviewEndpoints
                 actorName,
                 null,
                 action.Action,
-                null,
+                action.FromStatus,
                 action.ToStatus ?? loan.Status.ToString(),
+                action.Comments,
                 null,
-                null,
-                action.Comments));
+                null));
         }
 
         var signatures = await db.SignatureChainEntries.AsNoTracking()

@@ -81,4 +81,36 @@ public sealed class TimelineActorTests
         var revision = Assert.Single(events, e => e.Action == "PushedBack" && e.Type == "workflow" && e.Comment == "Please fix address");
         Assert.Equal("Ben Reyes", revision.ActorName);
     }
+
+    [Fact]
+    public async Task WorkflowActions_MapFromStatusAndComments()
+    {
+        await using var db = Db();
+        var now = DateTimeOffset.UtcNow;
+        var encoder = User.Create("ana", "cruz", "Ana", "Cruz", "", "ana@example.com", "BR-A", UserRole.Encoder, now, "Clerk");
+        var recommender = User.Create("ben", "reyes", "Ben", "Reyes", "", "ben@example.com", "BR-A", UserRole.Recommender, now, "AO");
+        var loan = LoanApplication.Create(
+            "LAM-C", "G-1", "Client", "BR-A", LoanType.New,
+            1000m, 30, 0.05m, 50m, 10m, 940m, encoder.Id, now);
+        loan.TransitionTo(LoanStatus.ForRevision, now, recommender.Id, "PushedBack");
+        db.LoanApplicationActions.Add(LoanApplicationAction.Create(
+            loan.Id,
+            recommender.Id,
+            "PushedBack",
+            LoanStatus.ForRecommendation.ToString(),
+            LoanStatus.ForRevision.ToString(),
+            "Fix the address on the payslip",
+            now));
+        db.Users.AddRange(encoder, recommender);
+        db.LoanApplications.Add(loan);
+        await db.SaveChangesAsync();
+
+        var events = await LoanReviewEndpoints.BuildTimelineEventsAsync(db, loan, CancellationToken.None);
+
+        var action = Assert.Single(events, e => e.Action == "PushedBack" && e.Id.StartsWith("workflow:action:"));
+        Assert.Equal(LoanStatus.ForRecommendation.ToString(), action.FromStatus);
+        Assert.Equal(LoanStatus.ForRevision.ToString(), action.ToStatus);
+        Assert.Equal("Fix the address on the payslip", action.Comment);
+        Assert.Null(action.SubjectCode);
+    }
 }
