@@ -39,6 +39,9 @@ namespace Ebi.Alas.Api.Migrations
                         .HasMaxLength(64)
                         .HasColumnType("nvarchar(64)");
 
+                    b.Property<string>("SignatureImage")
+                        .HasColumnType("nvarchar(max)");
+
                     b.Property<DateTimeOffset?>("SignedAt")
                         .HasColumnType("datetimeoffset");
 

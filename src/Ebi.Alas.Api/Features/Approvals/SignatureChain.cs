@@ -28,6 +28,9 @@ public sealed class SignatureChainEntry
 
     public DateTimeOffset? SignedAt { get; private set; }
 
+    /// <summary>Signer's ink (base64 data URL) captured at signing time. Immutable after Sign.</summary>
+    public string? SignatureImage { get; private set; }
+
     public static SignatureChainEntry Create(
         Guid loanApplicationId,
         int order,
@@ -46,7 +49,7 @@ public sealed class SignatureChainEntry
         };
     }
 
-    public void Sign(Guid userId, DateTimeOffset now)
+    public void Sign(Guid userId, DateTimeOffset now, string? signatureImage)
     {
         if (Status == SignatureSlotStatus.Signed)
         {
@@ -56,6 +59,7 @@ public sealed class SignatureChainEntry
         UserId = userId;
         Status = SignatureSlotStatus.Signed;
         SignedAt = now;
+        SignatureImage = Users.Domain.ESignaturePolicy.Sanitize(signatureImage);
     }
 }
 

@@ -163,6 +163,7 @@ public sealed class AlasDbContext(DbContextOptions<AlasDbContext> options) : DbC
             b.HasKey(x => x.Id);
             b.Property(x => x.RoleName).HasMaxLength(64).IsRequired();
             b.Property(x => x.Status).HasConversion<int>();
+            b.Property(x => x.SignatureImage);
             b.HasIndex(x => x.LoanApplicationId);
         });
 
