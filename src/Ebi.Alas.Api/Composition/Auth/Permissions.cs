@@ -8,6 +8,7 @@ public static class Permissions
     public const string LoansEvaluate = "loans.evaluate";
     public const string LoansApprove = "loans.approve";
     public const string LoansReject = "loans.reject";
+    public const string LoansRevise = "loans.revise";
     public const string LoanProductManage = "loan_product.manage";
     public const string LoanProductView = "loan_product.view";
     public const string UserCreate = "user.create";
@@ -28,6 +29,7 @@ public static class Permissions
         LoansEvaluate,
         LoansApprove,
         LoansReject,
+        LoansRevise,
         LoanProductManage,
         LoanProductView,
         UserCreate,
