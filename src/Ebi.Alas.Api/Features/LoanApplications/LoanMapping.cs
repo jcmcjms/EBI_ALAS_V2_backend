@@ -42,7 +42,8 @@ public static class LoanMapping
                 loan.DocumentFlagMissingCount)
             : null,
         loan.AssignedToUserId,
-        assignedToName);
+        assignedToName,
+        Convert.ToBase64String(loan.RowVersion));
 
     private static JsonElement? ParseForm(string? formJson)
     {
