@@ -20,6 +20,8 @@ public static class AuthorizationExtensions
                 new PermissionRequirement(Permissions.LoansApprove)));
             options.AddPolicy("CanRejectLoan", p => p.Requirements.Add(
                 new PermissionRequirement(Permissions.LoansReject)));
+            options.AddPolicy("CanReviseLoan", p => p.Requirements.Add(
+                new PermissionRequirement(Permissions.LoansRevise)));
             options.AddPolicy("CanViewUsers", p => p.Requirements.Add(
                 new PermissionRequirement(Permissions.UserView)));
             options.AddPolicy("CanCreateUsers", p => p.Requirements.Add(
