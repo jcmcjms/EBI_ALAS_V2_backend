@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using System.Text.Json;
 using Ebi.Alas.Api.Composition.Auth;
+using Ebi.Alas.Api.Features.Documents;
 using Ebi.Alas.Api.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.EntityFrameworkCore;
@@ -22,11 +23,21 @@ public sealed record LoanChecklistDocumentDto(
 
 public sealed record DocumentRemarkDto(
     Guid Id,
+    Guid LoanApplicationId,
     string ChecklistIdCode,
-    Guid? DocId,
-    string Body,
+    int? DocId,
+    Guid? ParentRemarkId,
+    Guid AuthorId,
     string AuthorName,
+    string AuthorRole,
+    string Body,
     DateTimeOffset CreatedAt);
+
+public sealed record CreateDocumentRemarkRequest(
+    string ChecklistIdCode,
+    int? DocId,
+    Guid? ParentRemarkId,
+    string Body);
 
 public static class ChecklistDocumentEndpoints
 {
@@ -132,9 +143,108 @@ public static class ChecklistDocumentEndpoints
             }
 
             _ = caller;
-            return Results.Ok(Array.Empty<DocumentRemarkDto>());
+            var rows = await db.DocumentRemarks.AsNoTracking()
+                .Where(r => r.LoanApplicationId == id)
+                .OrderBy(r => r.CreatedAt)
+                .ToListAsync(ct);
+
+            var authorIds = rows.Select(r => r.AuthorId).Distinct().ToList();
+            var authors = await db.Users.AsNoTracking()
+                .Where(u => authorIds.Contains(u.Id))
+                .Select(u => new { u.Id, Name = u.FirstName + " " + u.LastName, Role = u.Role.ToString() })
+                .ToDictionaryAsync(u => u.Id, ct);
+
+            return Results.Ok(rows.Select(r =>
+            {
+                authors.TryGetValue(r.AuthorId, out var author);
+                return new DocumentRemarkDto(
+                    r.Id,
+                    r.LoanApplicationId,
+                    r.ChecklistIdCode,
+                    r.DocId,
+                    r.ParentRemarkId,
+                    r.AuthorId,
+                    author?.Name ?? "Unknown",
+                    author?.Role ?? string.Empty,
+                    r.Body,
+                    r.CreatedAt);
+            }));
         })
         .WithName("GetDocumentRemarks");
+
+        group.MapPost("/{id:guid}/document-remarks", async (
+            Guid id,
+            CreateDocumentRemarkRequest request,
+            AlasDbContext db,
+            ClaimsPrincipal user,
+            TimeProvider timeProvider,
+            CancellationToken ct) =>
+        {
+            var caller = CallerContext.Require(user);
+            if (string.IsNullOrWhiteSpace(request.Body) || request.Body.Trim().Length < 2)
+            {
+                throw new Composition.Errors.ValidationException("Remark body is required.");
+            }
+
+            if (request.Body.Length > 2000)
+            {
+                throw new Composition.Errors.ValidationException("Remark body must not exceed 2000 characters.");
+            }
+
+            if (string.IsNullOrWhiteSpace(request.ChecklistIdCode))
+            {
+                throw new Composition.Errors.ValidationException("Checklist item code is required.");
+            }
+
+            var loan = await db.LoanApplications.AsNoTracking()
+                .FirstOrDefaultAsync(l => l.Id == id, ct)
+                ?? throw new Composition.Errors.NotFoundException("Loan", id.ToString());
+
+            if (!caller.CanAccessAllBranches && loan.BranchId != caller.BranchId)
+            {
+                throw new Composition.Errors.NotFoundException("Loan", id.ToString());
+            }
+
+            if (request.ParentRemarkId is { } parentId)
+            {
+                var parentExists = await db.DocumentRemarks.AsNoTracking()
+                    .AnyAsync(r => r.Id == parentId && r.LoanApplicationId == id, ct);
+                if (!parentExists)
+                {
+                    throw new Composition.Errors.ValidationException("Parent remark was not found.");
+                }
+            }
+
+            var remark = DocumentRemark.Create(
+                id,
+                request.ChecklistIdCode,
+                request.DocId,
+                request.ParentRemarkId,
+                request.Body,
+                caller.UserId,
+                timeProvider.GetUtcNow());
+            db.DocumentRemarks.Add(remark);
+            await db.SaveChangesAsync(ct);
+
+            var author = await db.Users.AsNoTracking()
+                .Where(u => u.Id == caller.UserId)
+                .Select(u => new { Name = u.FirstName + " " + u.LastName, Role = u.Role.ToString() })
+                .FirstOrDefaultAsync(ct);
+
+            return Results.Ok(new DocumentRemarkDto(
+                remark.Id,
+                remark.LoanApplicationId,
+                remark.ChecklistIdCode,
+                remark.DocId,
+                remark.ParentRemarkId,
+                remark.AuthorId,
+                author?.Name ?? "Unknown",
+                author?.Role ?? string.Empty,
+                remark.Body,
+                remark.CreatedAt));
+        })
+        .RequireRateLimiting("write")
+        .WithName("CreateDocumentRemark");
     }
 
     private static string FileExtension(string contentType) => contentType.ToLowerInvariant() switch

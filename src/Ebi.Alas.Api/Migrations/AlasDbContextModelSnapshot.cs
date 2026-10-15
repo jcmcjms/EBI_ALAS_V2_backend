@@ -224,6 +224,46 @@ namespace Ebi.Alas.Api.Migrations
                     b.ToTable("DocumentChecklistItems", (string)null);
                 });
 
+            modelBuilder.Entity("Ebi.Alas.Api.Features.Documents.DocumentRemark", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("AuthorId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Body")
+                        .IsRequired()
+                        .HasMaxLength(2000)
+                        .HasColumnType("nvarchar(2000)");
+
+                    b.Property<string>("ChecklistIdCode")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<int?>("DocId")
+                        .HasColumnType("int");
+
+                    b.Property<Guid>("LoanApplicationId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("ParentRemarkId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("LoanApplicationId");
+
+                    b.HasIndex("ParentRemarkId");
+
+                    b.ToTable("DocumentRemarks", (string)null);
+                });
+
             modelBuilder.Entity("Ebi.Alas.Api.Features.LoanApplications.Domain.LoanApplication", b =>
                 {
                     b.Property<Guid>("Id")

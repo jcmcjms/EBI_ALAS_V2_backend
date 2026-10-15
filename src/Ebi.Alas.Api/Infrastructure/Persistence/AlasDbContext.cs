@@ -34,6 +34,8 @@ public sealed class AlasDbContext(DbContextOptions<AlasDbContext> options) : DbC
 
     public DbSet<DocumentChecklistItem> DocumentChecklistItems => Set<DocumentChecklistItem>();
 
+    public DbSet<DocumentRemark> DocumentRemarks => Set<DocumentRemark>();
+
     public DbSet<LoanApplicationAction> LoanApplicationActions => Set<LoanApplicationAction>();
 
     public DbSet<LoanDeviation> LoanDeviations => Set<LoanDeviation>();
@@ -84,6 +86,16 @@ public sealed class AlasDbContext(DbContextOptions<AlasDbContext> options) : DbC
             b.Property(x => x.Code).HasMaxLength(50).IsRequired();
             b.Property(x => x.Name).HasMaxLength(200).IsRequired();
             b.HasIndex(x => x.LoanApplicationId);
+        });
+
+        modelBuilder.Entity<DocumentRemark>(b =>
+        {
+            b.ToTable("DocumentRemarks");
+            b.HasKey(x => x.Id);
+            b.Property(x => x.ChecklistIdCode).HasMaxLength(50).IsRequired();
+            b.Property(x => x.Body).HasMaxLength(2000).IsRequired();
+            b.HasIndex(x => x.LoanApplicationId);
+            b.HasIndex(x => x.ParentRemarkId);
         });
 
         modelBuilder.Entity<LoanApplicationAction>(b =>
