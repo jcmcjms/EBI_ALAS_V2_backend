@@ -186,17 +186,10 @@ public static class ServiceRegistration
                 "WebLoan:NamePrefix must be identifier-safe (letters, digits, underscore, dot-separated) when set.")
             .ValidateOnStart();
 
-        var webLoanConnectionString = configuration.GetConnectionString("WebLoan");
-        if (!string.IsNullOrWhiteSpace(webLoanConnectionString))
+        var webLoanNamePrefix = configuration[$"{WebLoanOptions.SectionName}:NamePrefix"];
+        if (!string.IsNullOrWhiteSpace(webLoanNamePrefix))
         {
-            var webLoanCs = ToReadOnlyIntent(webLoanConnectionString);
-            services.AddDbContext<WebLoanDbContext>(options => options.UseSqlServer(webLoanCs));
             services.AddScoped<IWebLoanReader, Infrastructure.WebLoans.WebLoanReader>();
-        }
-        else if (hostEnvironment.IsDevelopment())
-        {
-            services.AddDbContext<WebLoanDbContext>(options => options.UseInMemoryDatabase("webloan-dev"));
-            services.AddScoped<IWebLoanReader, NullWebLoanReader>();
         }
         else
         {
