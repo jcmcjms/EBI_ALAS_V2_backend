@@ -15,7 +15,7 @@ public sealed class RefreshHandler(
     TimeProvider timeProvider,
     ILogger<RefreshHandler> logger)
 {
-    public async Task<RefreshOutcome> HandleAsync(RefreshRequest request, CancellationToken cancellationToken)
+    public async Task<RefreshOutcome> HandleAsync(RefreshRequest request, SessionClientInfo clientInfo, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(request);
         if (string.IsNullOrWhiteSpace(request.RefreshToken))
@@ -44,6 +44,7 @@ public sealed class RefreshHandler(
             existing,
             TimeSpan.FromDays(jwt.RefreshTokenDays),
             TimeSpan.FromDays(jwt.RefreshTokenAbsoluteDays),
+            clientInfo,
             cancellationToken);
 
         var jti = Guid.NewGuid().ToString("N");

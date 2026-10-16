@@ -14,7 +14,7 @@ public static class LoginEndpoint
             TimeProvider timeProvider,
             CancellationToken cancellationToken) =>
         {
-            var outcome = await handler.HandleAsync(request, cancellationToken);
+            var outcome = await handler.HandleAsync(request, SessionClientInfo.From(httpContext), cancellationToken);
 
             if (outcome is LoginOutcome.Success success)
             {

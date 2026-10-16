@@ -62,6 +62,7 @@ public sealed record RecentClientDto(
 public sealed record SessionDto(
     Guid Id,
     string? DeviceInfo,
+    string? IpAddress,
     DateTimeOffset CreatedAt,
     DateTimeOffset ExpiresAt,
     bool IsCurrent);
@@ -218,16 +219,27 @@ public sealed class AccountService(AlasDbContext db, TimeProvider timeProvider)
         CancellationToken cancellationToken)
     {
         var now = timeProvider.GetUtcNow();
-        return await db.RefreshTokens.AsNoTracking()
+        var rows = await db.RefreshTokens.AsNoTracking()
             .Where(t => t.UserId == userId && t.RevokedAt == null && t.ExpiresAt > now)
             .OrderByDescending(t => t.CreatedAt)
-            .Select(t => new SessionDto(
+            .Select(t => new
+            {
                 t.Id,
-                DeviceInfo: null,
+                t.IpAddress,
+                t.UserAgent,
                 t.CreatedAt,
                 t.ExpiresAt,
-                currentSessionId != null && t.Id == currentSessionId))
+                IsCurrent = currentSessionId != null && t.Id == currentSessionId
+            })
             .ToListAsync(cancellationToken);
+
+        return rows.ConvertAll(t => new SessionDto(
+            t.Id,
+            Auth.SessionClientInfo.Parse(t.IpAddress, t.UserAgent).DeviceInfo,
+            t.IpAddress,
+            t.CreatedAt,
+            t.ExpiresAt,
+            t.IsCurrent));
     }
 
     public async Task<SessionRevokeResult> RevokeSessionAsync(

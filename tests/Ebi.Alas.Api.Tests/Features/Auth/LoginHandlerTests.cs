@@ -67,6 +67,7 @@ public sealed class LoginHandlerTests
 
         var outcome = await Handler(db).HandleAsync(
             new LoginRequest { UserName = "missing", Password = "whatever-Aa1!" },
+            new SessionClientInfo(null, null, null),
             CancellationToken.None);
 
         var failure = Assert.IsType<LoginOutcome.Failure>(outcome);
@@ -82,6 +83,7 @@ public sealed class LoginHandlerTests
 
         var outcome = await Handler(db).HandleAsync(
             new LoginRequest { UserName = "admin", Password = "wrong-password-Aa1!" },
+            new SessionClientInfo(null, null, null),
             CancellationToken.None);
 
         var failure = Assert.IsType<LoginOutcome.Failure>(outcome);
@@ -96,6 +98,7 @@ public sealed class LoginHandlerTests
 
         var outcome = await Handler(db).HandleAsync(
             new LoginRequest { UserName = "admin", Password = "@Temp123456!" },
+            new SessionClientInfo(null, null, null),
             CancellationToken.None);
 
         var success = Assert.IsType<LoginOutcome.Success>(outcome);
@@ -117,6 +120,7 @@ public sealed class LoginHandlerTests
 
         var outcome = await Handler(db).HandleAsync(
             new LoginRequest { UserName = "admin", Password = "@Temp123456!" },
+            new SessionClientInfo(null, null, null),
             CancellationToken.None);
 
         var failure = Assert.IsType<LoginOutcome.Failure>(outcome);
