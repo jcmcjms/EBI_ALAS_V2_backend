@@ -21,4 +21,7 @@
     <PackageReference Include="OpenTelemetry.Api" Version="1.19.0" />
     <PackageReference Include="System.Security.Cryptography.Pkcs" Version="10.0.13" />
   </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Ebi.Alas.Api.Tests" />
+  </ItemGroup>
 </Project>
