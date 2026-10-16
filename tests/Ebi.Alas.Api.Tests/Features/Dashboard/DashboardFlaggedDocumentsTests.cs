@@ -31,10 +31,10 @@ public sealed class DashboardFlaggedDocumentsTests
         db.LoanApplications.Add(loan);
         await db.SaveChangesAsync();
 
-        var service = new DashboardService(db, TimeProvider.System);
+        var service = new DashboardService(db);
         var caller = new CallerContext(flagger.Id, UserRole.Evaluator, "001");
 
-        var overview = await service.GetOverviewAsync(caller, CancellationToken.None);
+        var overview = await service.GetOverviewAsync(caller, DateOnly.FromDateTime(now.UtcDateTime), CancellationToken.None);
 
         var item = Assert.Single(overview.FlaggedDocuments);
         Assert.Equal("LAM-1", item.LamId);
@@ -56,10 +56,10 @@ public sealed class DashboardFlaggedDocumentsTests
             1000m, 30, 0.05m, 10m, 50m, 940m, encoder.Id, now, "A16", "A16"));
         await db.SaveChangesAsync();
 
-        var service = new DashboardService(db, TimeProvider.System);
+        var service = new DashboardService(db);
         var caller = new CallerContext(Guid.NewGuid(), UserRole.Evaluator, "001");
 
-        var overview = await service.GetOverviewAsync(caller, CancellationToken.None);
+        var overview = await service.GetOverviewAsync(caller, DateOnly.FromDateTime(now.UtcDateTime), CancellationToken.None);
 
         Assert.Empty(overview.FlaggedDocuments);
     }
