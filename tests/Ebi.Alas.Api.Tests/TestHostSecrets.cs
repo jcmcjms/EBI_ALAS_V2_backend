@@ -19,6 +19,8 @@ public static class TestHostSecrets
         if (useEmptyConnectionStrings)
         {
             builder.UseSetting("ConnectionStrings:Alas", "");
+            // Keep unit/API tests on NullWebLoanReader even if developer user-secrets set a prefix.
+            builder.UseSetting("WebLoan:NamePrefix", "");
         }
 
         var secrets = new ConfigurationBuilder()

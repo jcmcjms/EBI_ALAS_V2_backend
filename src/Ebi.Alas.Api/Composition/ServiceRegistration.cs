@@ -181,7 +181,7 @@ public static class ServiceRegistration
         services.AddOptions<WebLoanOptions>()
             .Bind(configuration.GetSection(WebLoanOptions.SectionName))
             .Validate(
-                o => o.NamePrefix is null || WebLoanOptions.IsValidNamePrefix(o.NamePrefix),
+                o => string.IsNullOrEmpty(o.NamePrefix) || WebLoanOptions.IsValidNamePrefix(o.NamePrefix),
                 "WebLoan:NamePrefix must be identifier-safe (letters, digits, underscore, dot-separated) when set.")
             .ValidateOnStart();
 
