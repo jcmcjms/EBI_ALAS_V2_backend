@@ -43,7 +43,7 @@ public sealed class DashboardServiceTests
     {
         await using var db = Db();
         var now = new DateTimeOffset(2026, 10, 9, 12, 0, 0, TimeSpan.Zero);
-        var service = new DashboardService(db, new FixedTimeProvider(now));
+        var service = new DashboardService(db);
         var caller = new CallerContext(Guid.NewGuid(), UserRole.Admin, "011");
 
         db.LoanApplications.Add(NewLoan("LAM-REC", "011", now));
@@ -69,7 +69,7 @@ public sealed class DashboardServiceTests
 
         await db.SaveChangesAsync();
 
-        var overview = await service.GetOverviewAsync(caller, CancellationToken.None);
+        var overview = await service.GetOverviewAsync(caller, new DateOnly(2026, 10, 9), CancellationToken.None);
 
         Assert.Equal(1, overview.PendingRecommendation);
         Assert.Equal(1, overview.PendingEvaluation);
@@ -83,7 +83,7 @@ public sealed class DashboardServiceTests
     {
         await using var db = Db();
         var now = new DateTimeOffset(2026, 10, 9, 12, 0, 0, TimeSpan.Zero);
-        var service = new DashboardService(db, new FixedTimeProvider(now));
+        var service = new DashboardService(db);
 
         db.LoanApplications.Add(NewLoan("LAM-01-REC", "BR-01", now));
         db.LoanApplications.Add(NewLoan("LAM-02-REC", "BR-02", now));
@@ -97,7 +97,7 @@ public sealed class DashboardServiceTests
         await db.SaveChangesAsync();
 
         var caller = new CallerContext(Guid.NewGuid(), UserRole.Encoder, "BR-01");
-        var overview = await service.GetOverviewAsync(caller, CancellationToken.None);
+        var overview = await service.GetOverviewAsync(caller, new DateOnly(2026, 10, 9), CancellationToken.None);
 
         Assert.Equal(1, overview.PendingRecommendation);
         Assert.Equal(0, overview.PendingEvaluation);
@@ -111,7 +111,7 @@ public sealed class DashboardServiceTests
     {
         await using var db = Db();
         var now = new DateTimeOffset(2026, 10, 9, 12, 0, 0, TimeSpan.Zero);
-        var service = new DashboardService(db, new FixedTimeProvider(now));
+        var service = new DashboardService(db);
 
         db.LoanApplications.Add(NewLoan("LAM-01-REC", "BR-01", now));
         db.LoanApplications.Add(NewLoan("LAM-02-REC", "BR-02", now));
@@ -119,7 +119,7 @@ public sealed class DashboardServiceTests
         await db.SaveChangesAsync();
 
         var caller = new CallerContext(Guid.NewGuid(), UserRole.Admin, "BR-HQ");
-        var overview = await service.GetOverviewAsync(caller, CancellationToken.None);
+        var overview = await service.GetOverviewAsync(caller, new DateOnly(2026, 10, 9), CancellationToken.None);
 
         Assert.Equal(2, overview.PendingRecommendation);
     }

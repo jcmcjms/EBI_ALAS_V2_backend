@@ -66,14 +66,31 @@ public sealed record DashboardOverview(
     IReadOnlyList<ApprovedLoanItem> ApprovedLoans,
     IReadOnlyList<WeeklyTrendPoint> WeeklyTrend);
 
-public sealed class DashboardService(AlasDbContext db, TimeProvider timeProvider)
+public sealed class DashboardService(AlasDbContext db)
 {
     public const int ListCap = 50;
     public const int FlaggedDocumentsCap = 20;
 
-    public async Task<DashboardOverview> GetOverviewAsync(CallerContext caller, CancellationToken cancellationToken)
+    public static readonly TimeZoneInfo Manila =
+        TimeZoneInfo.FindSystemTimeZoneById("Asia/Manila");
+
+    public static (DateTimeOffset Start, DateTimeOffset EndExclusive) ManilaDayRange(DateOnly day)
     {
-        var today = timeProvider.GetUtcNow().Date;
+        var startLocal = day.ToDateTime(TimeOnly.MinValue, DateTimeKind.Unspecified);
+        var offset = Manila.GetUtcOffset(startLocal);
+        var start = new DateTimeOffset(startLocal, offset);
+        return (start, start.AddDays(1));
+    }
+
+    public static DateOnly ManilaToday() =>
+        DateOnly.FromDateTime(TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, Manila).Date);
+
+    public async Task<DashboardOverview> GetOverviewAsync(
+        CallerContext caller,
+        DateOnly asOfDay,
+        CancellationToken cancellationToken)
+    {
+        var (dayStart, dayEnd) = ManilaDayRange(asOfDay);
         var query = db.LoanApplications.AsQueryable();
         if (!caller.CanAccessAllBranches)
         {
@@ -87,8 +104,12 @@ public sealed class DashboardService(AlasDbContext db, TimeProvider timeProvider
                 PendingRecommendation = g.Count(l => l.Status == LoanStatus.ForRecommendation),
                 PendingEvaluation = g.Count(l => l.Status == LoanStatus.ForChecking),
                 PendingApproval = g.Count(l => l.Status == LoanStatus.ForApproval),
-                ApprovedToday = g.Count(l => l.Status == LoanStatus.Approved && l.UpdatedAt >= today),
-                Pushbacks = g.Count(l => l.Status == LoanStatus.ForRevision),
+                ApprovedToday = g.Count(l => l.Status == LoanStatus.Approved
+                    && l.LastActionDate >= dayStart
+                    && l.LastActionDate < dayEnd),
+                Pushbacks = g.Count(l => l.Status == LoanStatus.ForRevision
+                    && l.LastActionDate >= dayStart
+                    && l.LastActionDate < dayEnd),
             })
             .FirstOrDefaultAsync(cancellationToken);
 
@@ -141,7 +162,9 @@ public sealed class DashboardService(AlasDbContext db, TimeProvider timeProvider
         .Take(ListCap)
         .ToListAsync(cancellationToken);
 
-        var pushbackQuery = scoped.Where(l => l.Status == LoanStatus.ForRevision);
+        var pushbackQuery = scoped.Where(l => l.Status == LoanStatus.ForRevision
+            && l.LastActionDate >= dayStart
+            && l.LastActionDate < dayEnd);
         if (isEncoderScope)
         {
             pushbackQuery = pushbackQuery.Where(l => l.CreatedBy == caller.UserId);
@@ -160,7 +183,9 @@ public sealed class DashboardService(AlasDbContext db, TimeProvider timeProvider
             })
             .ToListAsync(cancellationToken);
 
-        var approvedQuery = scoped.Where(l => l.Status == LoanStatus.Approved);
+        var approvedQuery = scoped.Where(l => l.Status == LoanStatus.Approved
+            && l.LastActionDate >= dayStart
+            && l.LastActionDate < dayEnd);
         if (isEncoderScope)
         {
             approvedQuery = approvedQuery.Where(l => l.CreatedBy == caller.UserId);
@@ -178,12 +203,15 @@ public sealed class DashboardService(AlasDbContext db, TimeProvider timeProvider
             })
             .ToListAsync(cancellationToken);
 
-        var weekStart = today.AddDays(-6);
+        var weekStartDate = asOfDay.AddDays(-6);
+        var (weekStart, _) = ManilaDayRange(weekStartDate);
+        var (_, weekEnd) = ManilaDayRange(asOfDay);
         var actionQuery = db.LoanApplicationActions.AsNoTracking();
         var weekActions = await (
             from a in actionQuery
             join l in db.LoanApplications.AsNoTracking() on a.LoanApplicationId equals l.Id
             where a.ActionDate >= weekStart
+                && a.ActionDate < weekEnd
                 && (caller.CanAccessAllBranches || l.BranchId == caller.BranchId)
             select new { a.Action, a.ActionDate }
         ).ToListAsync(cancellationToken);
@@ -243,8 +271,11 @@ public sealed class DashboardService(AlasDbContext db, TimeProvider timeProvider
         var trend = Enumerable.Range(0, 7)
             .Select(offset =>
             {
-                var day = weekStart.AddDays(offset);
-                var dayActions = weekActions.Where(a => a.ActionDate.Date == day).ToList();
+                var day = weekStartDate.AddDays(offset);
+                var (dStart, dEnd) = ManilaDayRange(day);
+                var dayActions = weekActions
+                    .Where(a => a.ActionDate >= dStart && a.ActionDate < dEnd)
+                    .ToList();
                 return new WeeklyTrendPoint(
                     day.ToString("ddd"),
                     dayActions.Count(a => a.Action == "Approved"),

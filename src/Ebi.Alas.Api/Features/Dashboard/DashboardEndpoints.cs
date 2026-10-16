@@ -10,10 +10,14 @@ public static class DashboardEndpoints
         endpoints.MapGet("/api/dashboard/overview", async (
             DashboardService service,
             ClaimsPrincipal user,
+            string? date,
             CancellationToken cancellationToken) =>
         {
             var caller = CallerContext.Require(user);
-            var result = await service.GetOverviewAsync(caller, cancellationToken);
+            var day = DateOnly.TryParse(date, out var parsed)
+                ? parsed
+                : DashboardService.ManilaToday();
+            var result = await service.GetOverviewAsync(caller, day, cancellationToken);
             return Results.Ok(result);
         })
         .RequireAuthorization()

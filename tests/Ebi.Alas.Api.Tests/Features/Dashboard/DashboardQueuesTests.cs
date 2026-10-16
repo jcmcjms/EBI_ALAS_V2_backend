@@ -37,10 +37,10 @@ public sealed class DashboardQueuesTests
         db.LoanApplications.AddRange(pending, approved);
         await db.SaveChangesAsync();
 
-        var service = new DashboardService(db, TimeProvider.System);
+        var service = new DashboardService(db);
         var caller = new CallerContext(encoder.Id, UserRole.Admin, "001");
 
-        var overview = await service.GetOverviewAsync(caller, CancellationToken.None);
+        var overview = await service.GetOverviewAsync(caller, DateOnly.FromDateTime(now.UtcDateTime), CancellationToken.None);
 
         Assert.Contains(overview.PendingQueue, q => q.LamId == "LAM-1");
         Assert.Contains(overview.ApprovedLoans, a => a.LamId == "LAM-2");
