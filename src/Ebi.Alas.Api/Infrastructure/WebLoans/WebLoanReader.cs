@@ -1,38 +1,24 @@
-using System.Data;
 using System.Globalization;
 using Ebi.Alas.Api.Features.WebLoans;
 using Ebi.Alas.Api.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Options;
 
 namespace Ebi.Alas.Api.Infrastructure.WebLoans;
 
-public sealed class WebLoanReader(AlasDbContext db, IOptions<WebLoanOptions> webLoanOptions) : IWebLoanReader
+public sealed class WebLoanReader(WebLoanDbContext db) : IWebLoanReader
 {
-    private const int AgencyTypeCode = 14;
-    private const string LengthOfServiceItem = "CCR10";
-    private const string NthpItem = "CCR07";
-
-    private readonly string _prefix = webLoanOptions.Value.NamePrefix
-        ?? throw new InvalidOperationException("WebLoan:NamePrefix is required for WebLoanReader.");
-
-    private string T(string tableName) => WebLoanSql.Qualify(_prefix, tableName);
-
     public async Task<IReadOnlyList<WebLoanChecklistRow>> GetChecklistItemsAsync(
         string cisNo,
         CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(cisNo);
-        FormattableString sql = $@"
-            SELECT check_list_item, description, submitted
-            FROM {T("check_list_data")}
-            WHERE cis_no = {cisNo}
-            ORDER BY check_list_item";
-        var rows = await db.Database
-            .SqlQuery<CheckListSqlRow>(sql)
+        var rows = await db.CheckLists.AsNoTracking()
+            .Where(c => c.CisNo == cisNo)
+            .OrderBy(c => c.CheckListItem)
+            .Select(c => new { c.CheckListItem, c.Description, c.Submitted })
             .ToListAsync(cancellationToken);
         return rows
-            .Select(r => new WebLoanChecklistRow(r.check_list_item ?? string.Empty, r.description, r.submitted))
+            .Select(r => new WebLoanChecklistRow(r.CheckListItem, r.Description, r.Submitted))
             .ToList();
     }
 
@@ -56,17 +42,14 @@ public sealed class WebLoanReader(AlasDbContext db, IOptions<WebLoanOptions> web
             return [];
         }
 
-        var rows = await QueryInAsync<CheckListCatalogSqlRow>(
-            $"id_code, description",
-            T("check_list_all"),
-            "id_code",
-            codes,
-            cancellationToken);
+        var rows = await db.CheckListCatalogs.AsNoTracking()
+            .Where(c => codes.Contains(c.IdCode))
+            .Select(c => new { c.IdCode, c.Description })
+            .ToListAsync(cancellationToken);
         return rows
-            .Select(r => new WebLoanChecklistCatalogRow(r.id_code ?? string.Empty, r.description))
+            .Select(r => new WebLoanChecklistCatalogRow(r.IdCode, r.Description))
             .ToList();
     }
-
     public async Task<IReadOnlyList<CisSearchResult>> SearchCisAsync(
         string keyword,
         int max,
@@ -75,142 +58,138 @@ public sealed class WebLoanReader(AlasDbContext db, IOptions<WebLoanOptions> web
         ArgumentException.ThrowIfNullOrWhiteSpace(keyword);
         var limit = Math.Clamp(max, 1, 50);
         var term = keyword.Trim();
-        FormattableString sql = $@"
-            SELECT TOP ({limit}) cis_no, fname, mname, lname
-            FROM {T("cis_info")}
-            WHERE cis_no LIKE {"%" + term + "%"}
-               OR fname LIKE {"%" + term + "%"}
-               OR lname LIKE {"%" + term + "%"}
-            ORDER BY lname";
-        var rows = await db.Database
-            .SqlQuery<CisSearchSqlRow>(sql)
-            .ToListAsync(cancellationToken);
-        return rows
-            .Select(r => new CisSearchResult(
-                r.cis_no ?? string.Empty,
-                ((r.fname ?? string.Empty) + " " + (r.mname ?? string.Empty) + " " + (r.lname ?? string.Empty)).Trim(),
+        return await db.CisInfos.AsNoTracking()
+            .Where(c => c.CisNo.Contains(term)
+                || (c.FirstName != null && c.FirstName.Contains(term))
+                || (c.LastName != null && c.LastName.Contains(term)))
+            .OrderBy(c => c.LastName)
+            .Take(limit)
+            .Select(c => new CisSearchResult(
+                c.CisNo,
+                ((c.FirstName ?? string.Empty) + " " + (c.MiddleName ?? string.Empty) + " " + (c.LastName ?? string.Empty)).Trim(),
                 null))
-            .ToList();
+            .ToListAsync(cancellationToken);
     }
 
     public async Task<CisDetail?> GetCisDetailAsync(string cisNo, CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(cisNo);
         var term = cisNo.Trim();
-
-        FormattableString cisSql = $@"
-            SELECT TOP (1) cis_no, fname, mname, lname, title, appelation, p_bday,
-                   h_sadd, h_barangay, h_village, h_city, h_state_prov, h_zip,
-                   occupation, b_jtitle, b_region_code, b_division_code, b_station_code, b_employee_no, bk, bch
-            FROM {T("cis_info")}
-            WHERE cis_no = {term}";
-        var cis = await db.Database.SqlQuery<CisInfoSqlRow>(cisSql).FirstOrDefaultAsync(cancellationToken);
+        var cis = await db.CisInfos.AsNoTracking()
+            .FirstOrDefaultAsync(c => c.CisNo == term, cancellationToken);
         if (cis is null)
         {
             return null;
         }
 
-        FormattableString acctSql = $@"
-            SELECT TOP (50) bk, bch, acct_no, name, credit_limit, used_credit, borrower_type, cat_mis_group2, solicitor
-            FROM {T("loan_acct_info")}
-            WHERE cis_no = {term}
-            ORDER BY bch, acct_no";
-        var accounts = await db.Database.SqlQuery<LoanAccountSqlRow>(acctSql).ToListAsync(cancellationToken);
+        var accounts = await db.LoanAccounts.AsNoTracking()
+            .Where(a => a.CisNo == term)
+            .OrderBy(a => a.BranchCode)
+            .ThenBy(a => a.AccountNo)
+            .Take(50)
+            .Select(a => new
+            {
+                a.BankCode,
+                a.BranchCode,
+                a.AccountNo,
+                a.Name,
+                a.CreditLimit,
+                a.UsedCredit,
+                a.BorrowerType,
+                a.MisGroup2,
+                a.Solicitor,
+            })
+            .ToListAsync(cancellationToken);
 
-        FormattableString miscSql = $@"
-            SELECT TOP (1) value_str
-            FROM {T("cis_info_misc_data")}
-            WHERE cis_no = {term} AND id_code = {AgencyTypeCode}";
-        var agencyMisc = await db.Database.SqlQuery<CisMiscSqlRow>(miscSql).FirstOrDefaultAsync(cancellationToken);
-
-        FormattableString hireSql = $@"
-            SELECT TOP (1) description
-            FROM {T("check_list_data")}
-            WHERE cis_no = {term} AND check_list_item = {LengthOfServiceItem}";
-        var hireDateRow = await db.Database.SqlQuery<CheckListDescSqlRow>(hireSql).FirstOrDefaultAsync(cancellationToken);
+        var agencyMisc = await db.CisMiscDatas.AsNoTracking()
+            .FirstOrDefaultAsync(m => m.CisNo == term && m.IdCode == AgencyTypeCode, cancellationToken);
+        var hireDateRow = await db.CheckLists.AsNoTracking()
+            .FirstOrDefaultAsync(c => c.CisNo == term && c.CheckListItem == LengthOfServiceItem, cancellationToken);
 
         var misPaths = accounts
-            .Select(a => a.cat_mis_group2)
+            .Select(a => a.MisGroup2)
             .Where(p => !string.IsNullOrWhiteSpace(p))
             .Select(p => p!)
-            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Distinct()
             .ToList();
         var solicitorPaths = accounts
-            .Select(a => a.solicitor)
+            .Select(a => a.Solicitor)
             .Where(p => !string.IsNullOrWhiteSpace(p))
             .Select(p => p!)
-            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Distinct()
             .ToList();
 
-        string? agencyDesc = null;
-        if (agencyMisc?.value_str is { Length: > 0 } agencyCode)
-        {
-            FormattableString agencySql = $@"
-                SELECT TOP (1) description
-                FROM {T("mis_group")}
-                WHERE id_code = {agencyCode}";
-            agencyDesc = (await db.Database.SqlQuery<CheckListDescSqlRow>(agencySql)
-                .FirstOrDefaultAsync(cancellationToken))?.description;
-        }
+        var agencyGroup = agencyMisc?.ValueStr is { Length: > 0 } agencyCode
+            ? await db.MisGroups.AsNoTracking()
+                .FirstOrDefaultAsync(m => m.IdCode == agencyCode, cancellationToken)
+            : null;
 
-        string? misAgencyDesc = null;
-        if (misPaths.Count > 0)
-        {
-            var row = await QueryInAsync<CheckListDescSqlRow>(
-                "description",
-                T("mis_group"),
-                "path",
-                misPaths,
-                cancellationToken,
-                top: 1);
-            misAgencyDesc = row.FirstOrDefault()?.description;
-        }
+        var misAgencyDesc = misPaths.Count == 0
+            ? null
+            : await db.MisGroups.AsNoTracking()
+                .Where(m => misPaths.Contains(m.Path ?? string.Empty))
+                .Select(m => m.Description)
+                .FirstOrDefaultAsync(cancellationToken);
 
-        string? solicitorDesc = null;
-        if (solicitorPaths.Count > 0)
-        {
-            var row = await QueryInAsync<CheckListDescSqlRow>(
-                "description",
-                T("mis_group"),
-                "path",
-                solicitorPaths,
-                cancellationToken,
-                top: 1,
-                extraWhere: "group_no = 2");
-            solicitorDesc = row.FirstOrDefault()?.description;
-        }
+        var solicitorDesc = solicitorPaths.Count == 0
+            ? null
+            : await db.MisGroups.AsNoTracking()
+                .Where(m => solicitorPaths.Contains(m.Path ?? string.Empty) && m.GroupNo == 2)
+                .Select(m => m.Description)
+                .FirstOrDefaultAsync(cancellationToken);
 
         return new CisDetail(
             new CisBorrower(
-                cis.cis_no ?? term,
-                cis.fname ?? string.Empty,
-                cis.mname,
-                cis.lname ?? string.Empty,
-                cis.title,
-                cis.appelation,
-                ParseBirthDate(cis.p_bday),
+                cis.CisNo,
+                cis.FirstName ?? string.Empty,
+                cis.MiddleName,
+                cis.LastName ?? string.Empty,
+                cis.Title,
+                cis.Appelation,
+                ParseBirthDate(cis.BirthDateRaw),
                 BuildAddress(cis),
-                AgencyType: agencyDesc,
-                PositionTitle: cis.occupation ?? cis.b_jtitle,
+                AgencyType: agencyGroup?.Description,
+                PositionTitle: cis.Occupation ?? cis.JobTitle,
                 Region: null,
-                RegionCode: cis.b_region_code,
-                DivisionCode: cis.b_division_code,
-                StationCode: cis.b_station_code,
-                EmployeeNumber: cis.b_employee_no,
+                RegionCode: cis.RegionCode,
+                DivisionCode: cis.DivisionCode,
+                StationCode: cis.StationCode,
+                EmployeeNumber: cis.EmployeeNo,
                 MisAgency: misAgencyDesc,
                 RequestingOfficer: solicitorDesc,
-                LengthOfService: ComputeLengthOfService(hireDateRow?.description)),
+                LengthOfService: ComputeLengthOfService(hireDateRow?.Description)),
             accounts
                 .Select(a => new CisAccount(
-                    a.bk ?? string.Empty,
-                    a.bch ?? string.Empty,
-                    a.acct_no ?? string.Empty,
-                    (a.bch ?? string.Empty) + "-" + (a.acct_no ?? string.Empty),
-                    a.name,
-                    a.credit_limit,
-                    a.used_credit,
-                    a.borrower_type))
+                    a.BankCode ?? string.Empty,
+                    a.BranchCode ?? string.Empty,
+                    a.AccountNo ?? string.Empty,
+                    (a.BranchCode ?? string.Empty) + "-" + (a.AccountNo ?? string.Empty),
+                    a.Name,
+                    a.CreditLimit,
+                    a.UsedCredit,
+                    a.BorrowerType))
                 .ToList());
+    }
+
+    private const int AgencyTypeCode = 14;
+    private const string LengthOfServiceItem = "CCR10";
+    private const string NthpItem = "CCR07";
+
+    private static string? ComputeLengthOfService(string? rawHireDate)
+    {
+        if (string.IsNullOrWhiteSpace(rawHireDate))
+        {
+            return null;
+        }
+
+        if (!DateTime.TryParse(rawHireDate.Trim(), CultureInfo.InvariantCulture, DateTimeStyles.None, out var hire))
+        {
+            return null;
+        }
+
+        var now = DateTime.UtcNow;
+        var totalMonths = Math.Max(0, ((now.Year - hire.Year) * 12) + (now.Month - hire.Month));
+        return $"{totalMonths / 12} years, {totalMonths % 12} months";
     }
 
     public async Task<IReadOnlyList<LoanProductLookup>> GetActiveProductsAsync(
@@ -218,19 +197,16 @@ public sealed class WebLoanReader(AlasDbContext db, IOptions<WebLoanOptions> web
         CancellationToken cancellationToken)
     {
         var limit = Math.Clamp(max, 1, 500);
-        FormattableString sql = $@"
-            SELECT TOP ({limit}) id_code, description
-            FROM {T("loan_product")}
-            WHERE expiration IS NULL
-            ORDER BY description";
-        var rows = await db.Database.SqlQuery<ProductSqlRow>(sql).ToListAsync(cancellationToken);
-        return rows
-            .Select(r => new LoanProductLookup(
-                r.id_code ?? string.Empty,
-                r.description ?? string.Empty,
+        return await db.LoanProducts.AsNoTracking()
+            .Where(p => p.Expiration == null)
+            .OrderBy(p => p.ProductName)
+            .Take(limit)
+            .Select(p => new LoanProductLookup(
+                p.ProductCode,
+                p.ProductName,
                 IsRetired: false,
                 InterestRatePerMonth: 0m))
-            .ToList();
+            .ToListAsync(cancellationToken);
     }
 
     public async Task<IReadOnlyList<LoanProductLookup>> GetAllProductsAsync(
@@ -238,18 +214,15 @@ public sealed class WebLoanReader(AlasDbContext db, IOptions<WebLoanOptions> web
         CancellationToken cancellationToken)
     {
         var limit = Math.Clamp(max, 1, 500);
-        FormattableString sql = $@"
-            SELECT TOP ({limit}) id_code, description, expiration
-            FROM {T("loan_product")}
-            ORDER BY description";
-        var rows = await db.Database.SqlQuery<ProductWithExpirationSqlRow>(sql).ToListAsync(cancellationToken);
-        return rows
-            .Select(r => new LoanProductLookup(
-                r.id_code ?? string.Empty,
-                r.description ?? string.Empty,
-                IsRetired: r.expiration != null,
+        return await db.LoanProducts.AsNoTracking()
+            .OrderBy(p => p.ProductName)
+            .Take(limit)
+            .Select(p => new LoanProductLookup(
+                p.ProductCode,
+                p.ProductName,
+                IsRetired: p.Expiration != null,
                 InterestRatePerMonth: 0m))
-            .ToList();
+            .ToListAsync(cancellationToken);
     }
 
     public async Task<IReadOnlyList<OutstandingLoanRow>> GetOutstandingAsync(
@@ -259,18 +232,15 @@ public sealed class WebLoanReader(AlasDbContext db, IOptions<WebLoanOptions> web
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(cifNo);
         var limit = Math.Clamp(max, 1, 50);
-        FormattableString sql = $@"
-            SELECT TOP ({limit}) acct_no, used_credit
-            FROM {T("loan_acct_info")}
-            WHERE cis_no = {cifNo} AND used_credit > 0
-            ORDER BY acct_no";
-        var rows = await db.Database.SqlQuery<OutstandingRowSqlRow>(sql).ToListAsync(cancellationToken);
-        return rows
-            .Select(r => new OutstandingLoanRow(
-                r.acct_no ?? string.Empty,
-                "Active",
-                r.used_credit ?? 0))
-            .ToList();
+        return await db.LoanAccounts.AsNoTracking()
+            .Where(a => a.CisNo == cifNo && a.UsedCredit > 0)
+            .OrderBy(a => a.AccountNo)
+            .Take(limit)
+            .Select(a => new OutstandingLoanRow(
+                a.AccountNo ?? string.Empty,
+                a.UsedCredit > 0 ? "Active" : "Closed",
+                a.UsedCredit ?? 0))
+            .ToListAsync(cancellationToken);
     }
 
     public async Task<OutstandingLoansResponse?> GetAccountOutstandingLoansAsync(
@@ -282,7 +252,9 @@ public sealed class WebLoanReader(AlasDbContext db, IOptions<WebLoanOptions> web
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(cisNo);
         var (branchCode, accountNo) = WebLoanAccountId.Parse(accountId);
-        var belongs = await AccountBelongsAsync(cisNo, branchCode, accountNo, cancellationToken);
+        var belongs = await db.LoanAccounts.AsNoTracking()
+            .AnyAsync(a => a.CisNo == cisNo && a.BranchCode == branchCode && a.AccountNo == accountNo,
+                cancellationToken);
         if (!belongs)
         {
             return null;
@@ -298,13 +270,13 @@ public sealed class WebLoanReader(AlasDbContext db, IOptions<WebLoanOptions> web
                         ELSE ad.total_amort END AS amort_amount,
                    ld.date_granted, ld.date_maturity, ld.loan_product,
                    ld.loan_status, lp.description AS product_desc
-            FROM {T("loan_data")} AS ld
-            LEFT JOIN {T("amort_data")} AS ad
+            FROM dbo.loan_data AS ld
+            LEFT JOIN dbo.amort_data AS ad
                 ON ld.loan_no = ad.loan_no AND ld.acct_no = ad.acct_no
                AND ld.bch = ad.bch AND ad.amort_no = 1
-            LEFT JOIN {T("loan_product")} AS lp ON ld.loan_product = lp.id_code
+            LEFT JOIN dbo.loan_product AS lp ON ld.loan_product = lp.id_code
             WHERE ld.bch = {branchCode} AND ld.acct_no = {accountNo}
-              AND {_prefix}.is_loan(ld.loan_no) = 1
+              AND dbo.is_loan(ld.loan_no) = 1
               AND ld.loan_status != 10
               AND ld.principal_bal > 0
             ORDER BY ld.date_granted DESC
@@ -345,7 +317,9 @@ public sealed class WebLoanReader(AlasDbContext db, IOptions<WebLoanOptions> web
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(cisNo);
         var (branchCode, accountNo) = WebLoanAccountId.Parse(accountId);
-        var belongs = await AccountBelongsAsync(cisNo, branchCode, accountNo, cancellationToken);
+        var belongs = await db.LoanAccounts.AsNoTracking()
+            .AnyAsync(a => a.CisNo == cisNo && a.BranchCode == branchCode && a.AccountNo == accountNo,
+                cancellationToken);
         if (!belongs)
         {
             return null;
@@ -356,11 +330,11 @@ public sealed class WebLoanReader(AlasDbContext db, IOptions<WebLoanOptions> web
                    ld.date_granted, ld.date_maturity, ld.creation_type, ld.c_doc_stamp,
                    ld.loan_product, ld.cat_loan_purpose, lp.description AS product_desc,
                    lp2.description AS loan_purpose
-            FROM {T("pre_loan_data")} AS pld
-            LEFT JOIN {T("loan_data")} AS ld
+            FROM dbo.pre_loan_data AS pld
+            LEFT JOIN dbo.loan_data AS ld
                 ON pld.loan_no = ld.loan_no AND pld.acct_no = ld.acct_no AND pld.bch = ld.bch
-            LEFT JOIN {T("loan_product")} AS lp ON ld.loan_product = lp.id_code
-            LEFT JOIN {T("loan_purpose")} AS lp2 ON ld.cat_loan_purpose = lp2.path
+            LEFT JOIN dbo.loan_product AS lp ON ld.loan_product = lp.id_code
+            LEFT JOIN dbo.loan_purpose AS lp2 ON ld.cat_loan_purpose = lp2.path
             WHERE pld.bch = {branchCode} AND pld.acct_no = {accountNo}
               AND pld.approved_date IS NULL AND pld.prepared_date IS NULL
               AND pld.released_date IS NULL AND pld.void_date IS NULL
@@ -371,11 +345,8 @@ public sealed class WebLoanReader(AlasDbContext db, IOptions<WebLoanOptions> web
             .AsNoTracking()
             .ToListAsync(cancellationToken);
 
-        FormattableString nthpSql = $@"
-            SELECT TOP (1) description, expiration, submitted
-            FROM {T("check_list_data")}
-            WHERE cis_no = {cisNo} AND check_list_item = {NthpItem}";
-        var nthp = await db.Database.SqlQuery<NthpSqlRow>(nthpSql).FirstOrDefaultAsync(cancellationToken);
+        var nthp = await db.CheckLists.AsNoTracking()
+            .FirstOrDefaultAsync(c => c.CisNo == cisNo && c.CheckListItem == NthpItem, cancellationToken);
 
         var loans = rows.Select(r =>
         {
@@ -402,155 +373,8 @@ public sealed class WebLoanReader(AlasDbContext db, IOptions<WebLoanOptions> web
 
         return new PendingLoanResponse(
             cisNo, accountId, branchCode, accountNo, loans,
-            Nthp: nthp?.description,
-            NthpDate: (nthp?.expiration ?? nthp?.submitted)?.ToString("yyyy-MM-dd"));
-    }
-
-    public async Task<WebLoanLoanDataRow?> GetLoanByNoAsync(
-        string loanNo,
-        CancellationToken cancellationToken)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(loanNo);
-        var normalized = loanNo.Trim();
-        FormattableString sql = $@"
-            SELECT TOP (1) loan_no, loan_product
-            FROM {T("loan_data")}
-            WHERE loan_no = {normalized}";
-        var row = await db.Database
-            .SqlQuery<LoanByNoSqlRow>(sql)
-            .AsNoTracking()
-            .FirstOrDefaultAsync(cancellationToken);
-        if (row is null || string.IsNullOrWhiteSpace(row.loan_no))
-        {
-            return null;
-        }
-
-        return new WebLoanLoanDataRow(row.loan_no, row.loan_product ?? string.Empty);
-    }
-
-    public async Task<string?> GetCatLoanClassAsync(
-        string branchCode,
-        string loanNo,
-        string productCode,
-        CancellationToken cancellationToken)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(branchCode);
-        ArgumentException.ThrowIfNullOrWhiteSpace(loanNo);
-        ArgumentException.ThrowIfNullOrWhiteSpace(productCode);
-
-        var connection = db.Database.GetDbConnection();
-        if (connection.State != ConnectionState.Open)
-        {
-            await connection.OpenAsync(cancellationToken);
-        }
-
-        await using var command = connection.CreateCommand();
-        command.CommandText = $@"
-            SELECT TOP (1) cat_loan_class
-            FROM {T("loan_data")}
-            WHERE bch = @branchCode AND loan_no = @loanNo AND loan_product = @productCode";
-
-        var pBranch = command.CreateParameter();
-        pBranch.ParameterName = "@branchCode";
-        pBranch.Value = branchCode;
-        command.Parameters.Add(pBranch);
-
-        var pLoanNo = command.CreateParameter();
-        pLoanNo.ParameterName = "@loanNo";
-        pLoanNo.Value = loanNo;
-        command.Parameters.Add(pLoanNo);
-
-        var pProduct = command.CreateParameter();
-        pProduct.ParameterName = "@productCode";
-        pProduct.Value = productCode;
-        command.Parameters.Add(pProduct);
-
-        var result = await command.ExecuteScalarAsync(cancellationToken);
-        return result is string value && value.Length > 0 ? value : null;
-    }
-
-    private async Task<bool> AccountBelongsAsync(
-        string cisNo,
-        string branchCode,
-        string accountNo,
-        CancellationToken cancellationToken)
-    {
-        FormattableString sql = $@"
-            SELECT CASE WHEN EXISTS (
-                SELECT 1 FROM {T("loan_acct_info")}
-                WHERE cis_no = {cisNo} AND bch = {branchCode} AND acct_no = {accountNo}
-            ) THEN CAST(1 AS int) ELSE CAST(0 AS int) END";
-        return await db.Database.SqlQuery<int>(sql).SingleAsync(cancellationToken) == 1;
-    }
-
-    private async Task<List<T>> QueryInAsync<T>(
-        string selectList,
-        string tableName,
-        string column,
-        IReadOnlyList<string> values,
-        CancellationToken cancellationToken,
-        int? top = null,
-        string? extraWhere = null)
-        where T : class
-    {
-        if (values.Count == 0)
-        {
-            return [];
-        }
-
-        var connection = db.Database.GetDbConnection();
-        if (connection.State != ConnectionState.Open)
-        {
-            await connection.OpenAsync(cancellationToken);
-        }
-
-        var parameters = new (string Name, string Value)[values.Count];
-        var names = new string[values.Count];
-        for (var i = 0; i < values.Count; i++)
-        {
-            parameters[i] = ($"@p{i}", values[i]);
-            names[i] = parameters[i].Name;
-        }
-
-        var topClause = top is null ? string.Empty : $"TOP ({top.Value}) ";
-        var extra = string.IsNullOrWhiteSpace(extraWhere) ? string.Empty : $" AND {extraWhere}";
-        await using var command = connection.CreateCommand();
-        command.CommandText =
-            $"SELECT {topClause}{selectList} FROM {tableName} WHERE {column} IN ({string.Join(", ", names)}){extra}";
-
-        foreach (var (name, value) in parameters)
-        {
-            var p = command.CreateParameter();
-            p.ParameterName = name;
-            p.Value = value;
-            command.Parameters.Add(p);
-        }
-
-        var results = new List<T>();
-        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
-        while (await reader.ReadAsync(cancellationToken))
-        {
-            results.Add(MapRow<T>(reader));
-        }
-
-        return results;
-    }
-
-    private static T MapRow<T>(IDataRecord reader) where T : class
-    {
-        var row = Activator.CreateInstance<T>();
-        for (var i = 0; i < reader.FieldCount; i++)
-        {
-            var prop = typeof(T).GetProperty(reader.GetName(i));
-            if (prop is null || reader.IsDBNull(i))
-            {
-                continue;
-            }
-
-            prop.SetValue(row, Convert.ChangeType(reader.GetValue(i), prop.PropertyType));
-        }
-
-        return row;
+            Nthp: nthp?.Description,
+            NthpDate: (nthp?.Expiration ?? nthp?.Submitted)?.ToString("yyyy-MM-dd"));
     }
 
     private static string ResolveLoanStatusLabel(byte? code) => code switch
@@ -572,108 +396,6 @@ public sealed class WebLoanReader(AlasDbContext db, IOptions<WebLoanOptions> web
         6 => "Additional Loan",
         _ => "Unknown",
     };
-
-    internal static string? ComputeLengthOfService(string? rawHireDate)
-    {
-        if (string.IsNullOrWhiteSpace(rawHireDate))
-        {
-            return null;
-        }
-
-        if (!DateTime.TryParse(rawHireDate.Trim(), CultureInfo.InvariantCulture, DateTimeStyles.None, out var hire))
-        {
-            return null;
-        }
-
-        var now = DateTime.UtcNow;
-        var totalMonths = Math.Max(0, ((now.Year - hire.Year) * 12) + (now.Month - hire.Month));
-        return $"{totalMonths / 12} years, {totalMonths % 12} months";
-    }
-
-    internal static string? ParseBirthDate(string? raw)
-    {
-        if (string.IsNullOrWhiteSpace(raw))
-        {
-            return null;
-        }
-
-        string[] formats = ["yyyy-MM-dd", "MM/dd/yyyy", "M/d/yyyy", "yyyy/MM/dd", "dd-MM-yyyy"];
-        if (DateTime.TryParseExact(raw.Trim(), formats, CultureInfo.InvariantCulture, DateTimeStyles.None, out var dt))
-        {
-            return dt.ToString("yyyy-MM-dd");
-        }
-
-        return DateTime.TryParse(raw.Trim(), CultureInfo.InvariantCulture, DateTimeStyles.None, out var fallback)
-            ? fallback.ToString("yyyy-MM-dd")
-            : null;
-    }
-
-    private static string? BuildAddress(CisInfoSqlRow cis)
-    {
-        string?[] parts = [cis.h_zip, cis.h_sadd, cis.h_city, cis.h_state_prov, cis.h_barangay, cis.h_village];
-        var joined = string.Join(", ", parts.Where(p => !string.IsNullOrWhiteSpace(p)).Select(p => p!.Trim()));
-        return joined.Length == 0 ? null : joined;
-    }
-
-    private sealed class CheckListSqlRow
-    {
-        public string? check_list_item { get; set; }
-
-        public string? description { get; set; }
-
-        public DateTime? submitted { get; set; }
-    }
-
-    private sealed class CheckListCatalogSqlRow
-    {
-        public string? id_code { get; set; }
-
-        public string? description { get; set; }
-    }
-
-    private sealed class CheckListDescSqlRow
-    {
-        public string? description { get; set; }
-    }
-
-    private sealed class CisSearchSqlRow
-    {
-        public string? cis_no { get; set; }
-
-        public string? fname { get; set; }
-
-        public string? mname { get; set; }
-
-        public string? lname { get; set; }
-    }
-
-    private sealed class CisMiscSqlRow
-    {
-        public string? value_str { get; set; }
-    }
-
-    private sealed class ProductSqlRow
-    {
-        public string? id_code { get; set; }
-
-        public string? description { get; set; }
-    }
-
-    private sealed class ProductWithExpirationSqlRow
-    {
-        public string? id_code { get; set; }
-
-        public string? description { get; set; }
-
-        public DateTime? expiration { get; set; }
-    }
-
-    private sealed class OutstandingRowSqlRow
-    {
-        public string? acct_no { get; set; }
-
-        public decimal? used_credit { get; set; }
-    }
 
     private sealed class OutstandingLoanSqlRow
     {
@@ -723,13 +445,33 @@ public sealed class WebLoanReader(AlasDbContext db, IOptions<WebLoanOptions> web
         public string? loan_purpose { get; set; }
     }
 
-    private sealed class NthpSqlRow
+    private static string? BuildAddress(WebLoanCisInfo cis)
     {
-        public string? description { get; set; }
+        string?[] parts = [cis.Zip, cis.HouseStreet, cis.City, cis.StateProvince, cis.Barangay, cis.Village];
+        var joined = string.Join(", ", parts.Where(p => !string.IsNullOrWhiteSpace(p)).Select(p => p!.Trim()));
+        return joined.Length == 0 ? null : joined;
+    }
 
-        public DateTime? expiration { get; set; }
+    public async Task<WebLoanLoanDataRow?> GetLoanByNoAsync(
+        string loanNo,
+        CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(loanNo);
+        var normalized = loanNo.Trim();
+        FormattableString sql = $@"
+            SELECT TOP (1) loan_no, loan_product
+            FROM webloan.dbo.loan_data
+            WHERE loan_no = {normalized}";
+        var row = await db.Database
+            .SqlQuery<LoanByNoSqlRow>(sql)
+            .AsNoTracking()
+            .FirstOrDefaultAsync(cancellationToken);
+        if (row is null || string.IsNullOrWhiteSpace(row.loan_no))
+        {
+            return null;
+        }
 
-        public DateTime? submitted { get; set; }
+        return new WebLoanLoanDataRow(row.loan_no, row.loan_product ?? string.Empty);
     }
 
     private sealed class LoanByNoSqlRow
@@ -739,69 +481,62 @@ public sealed class WebLoanReader(AlasDbContext db, IOptions<WebLoanOptions> web
         public string? loan_product { get; set; }
     }
 
-    private sealed class LoanAccountSqlRow
+    public async Task<string?> GetCatLoanClassAsync(
+        string branchCode,
+        string loanNo,
+        string productCode,
+        CancellationToken cancellationToken)
     {
-        public string? bk { get; set; }
+        ArgumentException.ThrowIfNullOrWhiteSpace(branchCode);
+        ArgumentException.ThrowIfNullOrWhiteSpace(loanNo);
+        ArgumentException.ThrowIfNullOrWhiteSpace(productCode);
 
-        public string? bch { get; set; }
+        var connection = db.Database.GetDbConnection();
+        if (connection.State != System.Data.ConnectionState.Open)
+        {
+            await connection.OpenAsync(cancellationToken);
+        }
 
-        public string? acct_no { get; set; }
+        await using var command = connection.CreateCommand();
+        command.CommandText = @"
+            SELECT TOP (1) cat_loan_class
+            FROM webloan.dbo.loan_data
+            WHERE bch = @branchCode AND loan_no = @loanNo AND loan_product = @productCode";
 
-        public string? name { get; set; }
+        var pBranch = command.CreateParameter();
+        pBranch.ParameterName = "@branchCode";
+        pBranch.Value = branchCode;
+        command.Parameters.Add(pBranch);
 
-        public decimal? credit_limit { get; set; }
+        var pLoanNo = command.CreateParameter();
+        pLoanNo.ParameterName = "@loanNo";
+        pLoanNo.Value = loanNo;
+        command.Parameters.Add(pLoanNo);
 
-        public decimal? used_credit { get; set; }
+        var pProduct = command.CreateParameter();
+        pProduct.ParameterName = "@productCode";
+        pProduct.Value = productCode;
+        command.Parameters.Add(pProduct);
 
-        public string? borrower_type { get; set; }
-
-        public string? cat_mis_group2 { get; set; }
-
-        public string? solicitor { get; set; }
+        var result = await command.ExecuteScalarAsync(cancellationToken);
+        return result is string value && value.Length > 0 ? value : null;
     }
 
-    private sealed class CisInfoSqlRow
+    private static string? ParseBirthDate(string? raw)
     {
-        public string? cis_no { get; set; }
+        if (string.IsNullOrWhiteSpace(raw))
+        {
+            return null;
+        }
 
-        public string? fname { get; set; }
+        string[] formats = ["yyyy-MM-dd", "MM/dd/yyyy", "M/d/yyyy", "yyyy/MM/dd", "dd-MM-yyyy"];
+        if (DateTime.TryParseExact(raw.Trim(), formats, CultureInfo.InvariantCulture, DateTimeStyles.None, out var dt))
+        {
+            return dt.ToString("yyyy-MM-dd");
+        }
 
-        public string? mname { get; set; }
-
-        public string? lname { get; set; }
-
-        public string? title { get; set; }
-
-        public string? appelation { get; set; }
-
-        public string? p_bday { get; set; }
-
-        public string? h_sadd { get; set; }
-
-        public string? h_barangay { get; set; }
-
-        public string? h_village { get; set; }
-
-        public string? h_city { get; set; }
-
-        public string? h_state_prov { get; set; }
-
-        public string? h_zip { get; set; }
-
-        public string? occupation { get; set; }
-
-        public string? b_jtitle { get; set; }
-
-        public string? b_region_code { get; set; }
-
-        public string? b_division_code { get; set; }
-
-        public string? b_station_code { get; set; }
-
-        public string? b_employee_no { get; set; }
-
-        public string? bk { get; set; }
-
-        public string? bch { get; set; }
+        return DateTime.TryParse(raw.Trim(), CultureInfo.InvariantCulture, DateTimeStyles.None, out var fallback)
+            ? fallback.ToString("yyyy-MM-dd")
+            : null;
     }
 }

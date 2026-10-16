@@ -27,6 +27,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.AspNetCore.SignalR;
+using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.Extensions.Caching.Memory;
@@ -181,14 +182,22 @@ public static class ServiceRegistration
         services.AddOptions<WebLoanOptions>()
             .Bind(configuration.GetSection(WebLoanOptions.SectionName))
             .Validate(
-                o => string.IsNullOrEmpty(o.NamePrefix) || WebLoanOptions.IsValidNamePrefix(o.NamePrefix),
-                "WebLoan:NamePrefix must be identifier-safe (letters, digits, underscore, dot-separated) when set.")
+                o => string.IsNullOrEmpty(o.Database) || WebLoanOptions.IsValidDatabaseName(o.Database),
+                "WebLoan:Database must be a single identifier (letters, digits, underscore) when set.")
             .ValidateOnStart();
 
-        var webLoanNamePrefix = configuration[$"{WebLoanOptions.SectionName}:NamePrefix"];
-        if (!string.IsNullOrWhiteSpace(webLoanNamePrefix))
+        var alasConnectionString = configuration.GetConnectionString("Alas");
+        var webLoanDatabase = configuration[$"{WebLoanOptions.SectionName}:Database"] ?? "webloan";
+        if (!string.IsNullOrWhiteSpace(alasConnectionString) && !string.IsNullOrWhiteSpace(webLoanDatabase))
         {
+            var webLoanCs = ToReadOnlyIntent(alasConnectionString, webLoanDatabase);
+            services.AddDbContext<WebLoanDbContext>(options => options.UseSqlServer(webLoanCs));
             services.AddScoped<IWebLoanReader, Infrastructure.WebLoans.WebLoanReader>();
+        }
+        else if (hostEnvironment.IsDevelopment())
+        {
+            services.AddDbContext<WebLoanDbContext>(options => options.UseInMemoryDatabase("webloan-dev"));
+            services.AddScoped<IWebLoanReader, NullWebLoanReader>();
         }
         else
         {
@@ -291,5 +300,15 @@ public static class ServiceRegistration
                 .AddHttpClientInstrumentation());
 
         return services;
+    }
+
+    private static string ToReadOnlyIntent(string connectionString, string database)
+    {
+        var builder = new SqlConnectionStringBuilder(connectionString)
+        {
+            InitialCatalog = database,
+            ApplicationIntent = ApplicationIntent.ReadOnly
+        };
+        return builder.ConnectionString;
     }
 }
