@@ -71,7 +71,7 @@ public sealed class AccountMeEndpointTests
         await db.SaveChangesAsync();
 
         var service = new Ebi.Alas.Api.Features.Account.AccountService(db, TimeProvider.System);
-        var activity = await service.GetRecentActivityAsync(user.Id, 10, CancellationToken.None);
+        var activity = await service.GetRecentActivityAsync(user.Id, 10, null, null, null, CancellationToken.None);
 
         var item = Assert.Single(activity);
         Assert.Equal("LAM-C", item.LamId);

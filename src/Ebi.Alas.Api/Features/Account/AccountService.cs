@@ -43,7 +43,8 @@ public sealed record AccountActivityDto(
     string? ToStatus,
     string? Comments,
     DateTimeOffset ActionDate,
-    string LoanClientName);
+    string LoanClientName,
+    bool IsInformal);
 
 public sealed record ProcessedLoanDto(
     Guid Id,
@@ -153,12 +154,39 @@ public sealed class AccountService(AlasDbContext db, TimeProvider timeProvider)
     public async Task<IReadOnlyList<AccountActivityDto>> GetRecentActivityAsync(
         Guid userId,
         int limit,
+        DateOnly? from,
+        DateOnly? to,
+        string? actionKind,
         CancellationToken cancellationToken)
     {
-        var rows = await db.LoanApplicationActions.AsNoTracking()
-            .Where(a => a.ActionByUserId == userId)
+        if (from is not null && to is not null && from > to)
+        {
+            throw new Composition.Errors.ValidationException(
+                "Activity date range start must be on or before end.");
+        }
+
+        DateTimeOffset? fromInclusive = from is { } f
+            ? new DateTimeOffset(f.ToDateTime(TimeOnly.MinValue), TimeSpan.Zero)
+            : null;
+        DateTimeOffset? toExclusive = to is { } t
+            ? new DateTimeOffset(t.AddDays(1).ToDateTime(TimeOnly.MinValue), TimeSpan.Zero)
+            : null;
+
+        var query = db.LoanApplicationActions.AsNoTracking()
+            .Where(a => a.ActionByUserId == userId);
+
+        if (fromInclusive is { } start)
+        {
+            query = query.Where(a => a.ActionDate >= start);
+        }
+
+        if (toExclusive is { } end)
+        {
+            query = query.Where(a => a.ActionDate < end);
+        }
+
+        var rows = await query
             .OrderByDescending(a => a.ActionDate)
-            .Take(limit)
             .Join(
                 db.LoanApplications.AsNoTracking(),
                 a => a.LoanApplicationId,
@@ -166,15 +194,55 @@ public sealed class AccountService(AlasDbContext db, TimeProvider timeProvider)
                 (a, l) => new { a, l.LamId, l.ClientName })
             .ToListAsync(cancellationToken);
 
-        return rows.Select(r => new AccountActivityDto(
-            r.a.Id,
-            r.LamId,
-            r.a.Action,
-            r.a.FromStatus,
-            r.a.ToStatus,
-            r.a.Comments,
-            r.a.ActionDate,
-            r.ClientName)).ToList();
+        return rows
+            .Where(r => MatchesActionKind(r.a.Action, actionKind ?? string.Empty))
+            .Take(limit)
+            .Select(r => new AccountActivityDto(
+                r.a.Id,
+                r.LamId,
+                r.a.Action,
+                r.a.FromStatus,
+                r.a.ToStatus,
+                r.a.Comments,
+                r.a.ActionDate,
+                r.ClientName,
+                IsInformalComment(r.a.Comments)))
+            .ToList();
+    }
+
+    private static bool IsInformalComment(string? comments)
+    {
+        if (string.IsNullOrWhiteSpace(comments))
+        {
+            return false;
+        }
+
+        var trimmed = comments.Trim();
+        return trimmed.StartsWith("test", StringComparison.OrdinalIgnoreCase)
+            || trimmed.Equals("testing", StringComparison.OrdinalIgnoreCase)
+            || trimmed.Equals("sample", StringComparison.OrdinalIgnoreCase)
+            || trimmed.Equals("n/a", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool MatchesActionKind(string action, string actionKind)
+    {
+        var a = action ?? string.Empty;
+        return actionKind switch
+        {
+            "login" => (a.Contains("login", StringComparison.OrdinalIgnoreCase)
+                        || a.Contains("sign", StringComparison.OrdinalIgnoreCase))
+                       && !a.Contains("password", StringComparison.OrdinalIgnoreCase),
+            "security" => a.Contains("password", StringComparison.OrdinalIgnoreCase),
+            "draft" => a.Contains("draft", StringComparison.OrdinalIgnoreCase)
+                       || a.Contains("saved", StringComparison.OrdinalIgnoreCase),
+            "approval" => a.Contains("recommend", StringComparison.OrdinalIgnoreCase)
+                          || a.Contains("approv", StringComparison.OrdinalIgnoreCase)
+                          || a.Contains("release", StringComparison.OrdinalIgnoreCase),
+            "application" => a.Contains("application", StringComparison.OrdinalIgnoreCase)
+                             || a.Contains("submit", StringComparison.OrdinalIgnoreCase)
+                             || a.Contains("create", StringComparison.OrdinalIgnoreCase),
+            _ => true,
+        };
     }
 
     public async Task<IReadOnlyList<ProcessedLoanDto>> GetProcessedLoansAsync(
