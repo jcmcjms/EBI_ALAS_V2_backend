@@ -27,7 +27,6 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.AspNetCore.SignalR;
-using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.Extensions.Caching.Memory;
@@ -292,14 +291,5 @@ public static class ServiceRegistration
                 .AddHttpClientInstrumentation());
 
         return services;
-    }
-
-    private static string ToReadOnlyIntent(string connectionString)
-    {
-        var builder = new SqlConnectionStringBuilder(connectionString)
-        {
-            ApplicationIntent = ApplicationIntent.ReadOnly
-        };
-        return builder.ConnectionString;
     }
 }

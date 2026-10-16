@@ -1,4 +1,4 @@
-﻿# EBI.ALAS.V2 Backend
+# EBI.ALAS.V2 Backend
 
 > **ALAS** — Automated Loan Application System, version 2
 
@@ -336,7 +336,7 @@ Edit `EBI.ALAS.Api/appsettings.json` or (better) use .NET User Secrets:
 cd EBI.ALAS.Api
 dotnet user-secrets init
 dotnet user-secrets set "ConnectionStrings:DefaultConnection" "Server=YOUR_HOST;Database=ALASv2_DB;User Id=YOUR_USER;Password=YOUR_PASS;TrustServerCertificate=True;Encrypt=True"
-dotnet user-secrets set "ConnectionStrings:WebLoanConnection" "Server=YOUR_HOST;Database=webloan;User Id=YOUR_USER;Password=YOUR_PASS;TrustServerCertificate=True;Encrypt=True"
+dotnet user-secrets set "WebLoan:NamePrefix" "webloan.dbo"
 dotnet user-secrets set "Jwt:SecretKey" "your-random-32+-character-secret-key-here"
 ```
 
@@ -379,9 +379,19 @@ All settings live in `EBI.ALAS.Api/appsettings.json`. Override per-environment u
 | Key | Purpose | Pool Size |
 |---|---|---|
 | `DefaultConnection` | Main ALAS database (read/write) | 50–500 connections |
-| `WebLoanConnection` | Legacy WebLoan database (read-only) | 10–100 connections |
 | `Redis` | Distributed cache + SignalR backplane | — |
 | `RabbitMQ` | Message bus for async processing | — |
+
+### WebLoan name prefix
+
+WebLoan tables are queried on the **ALAS SQL connection** using a name prefix (no separate WebLoan connection string).
+
+| Environment | `WebLoan:NamePrefix` | Example |
+|---|---|---|
+| Test (webloan on same server as ALAS) | `webloan.dbo` | `webloan.dbo.cis_info` |
+| Live (linked server) | `YOUR_LINKED_SERVER.webloan.dbo` | `YOUR_LINKED_SERVER.webloan.dbo.cis_info` |
+
+Leave `NamePrefix` unset to disable live WebLoan reads (`NullWebLoanReader`).
 
 ### JWT Settings
 
@@ -858,7 +868,7 @@ Owned by this application. Schema managed via EF Core Migrations.
 
 ### Secondary Database — `webloan` *(read-only)*
 
-The legacy WebLoan core banking system. Accessed via `WebLoanDbContext` with `DbContextFactory` pattern for thread-safe parallel queries.
+The legacy WebLoan core banking system. Queried read-only through the ALAS SQL connection using `WebLoan:NamePrefix` (same-server three-part names in test, linked-server four-part names in live).
 
 **Key Tables:**
 - `cis_info` / `cis_info_misdata` — borrower master data
