@@ -12,7 +12,6 @@ public sealed class ServiceRegistrationConfigTests
             TestHostSecrets.Apply(builder, useEmptyConnectionStrings: true);
             builder.UseEnvironment("Production");
             builder.UseSetting("ConnectionStrings:Alas", "");
-            builder.UseSetting("ConnectionStrings:WebLoan", "");
         }
     }
 

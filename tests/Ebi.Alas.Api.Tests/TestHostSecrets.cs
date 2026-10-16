@@ -19,7 +19,6 @@ public static class TestHostSecrets
         if (useEmptyConnectionStrings)
         {
             builder.UseSetting("ConnectionStrings:Alas", "");
-            builder.UseSetting("ConnectionStrings:WebLoan", "");
         }
 
         var secrets = new ConfigurationBuilder()
