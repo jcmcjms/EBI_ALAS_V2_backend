@@ -2,7 +2,7 @@ namespace Ebi.Alas.Api.Features.Auth.ChangePassword;
 
 public sealed record ChangePasswordRequest
 {
-    public const int MinPasswordLength = 8;
+    public const int MinPasswordLength = 12;
     public const int MaxPasswordLength = 128;
 
     public required string CurrentPassword { get; init; }
