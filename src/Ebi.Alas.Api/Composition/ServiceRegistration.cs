@@ -179,6 +179,13 @@ public static class ServiceRegistration
         services.AddScoped<Features.LoanApplications.Documents.DocumentFlagHandler>();
         services.AddHostedService<AdminSeedHostedService>();
 
+        services.AddOptions<WebLoanOptions>()
+            .Bind(configuration.GetSection(WebLoanOptions.SectionName))
+            .Validate(
+                o => o.NamePrefix is null || WebLoanOptions.IsValidNamePrefix(o.NamePrefix),
+                "WebLoan:NamePrefix must be identifier-safe (letters, digits, underscore, dot-separated) when set.")
+            .ValidateOnStart();
+
         var webLoanConnectionString = configuration.GetConnectionString("WebLoan");
         if (!string.IsNullOrWhiteSpace(webLoanConnectionString))
         {
