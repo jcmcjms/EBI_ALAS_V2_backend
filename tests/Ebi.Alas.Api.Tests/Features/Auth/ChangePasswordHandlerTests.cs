@@ -67,7 +67,7 @@ public sealed class ChangePasswordHandlerTests
 
         var result = await Handler(db).HandleAsync(
             user.Id,
-            new ChangePasswordRequest { CurrentPassword = "WrongPass!1", NewPassword = "NewPass!2" },
+            new ChangePasswordRequest { CurrentPassword = "WrongPass!1", NewPassword = "NewPass!22222" },
             CancellationToken.None);
 
         Assert.IsType<ChangePasswordOutcome.Failure>(result);
@@ -82,14 +82,14 @@ public sealed class ChangePasswordHandlerTests
 
         var result = await Handler(db).HandleAsync(
             user.Id,
-            new ChangePasswordRequest { CurrentPassword = "OldPass!1", NewPassword = "NewPass!2" },
+            new ChangePasswordRequest { CurrentPassword = "OldPass!1", NewPassword = "NewPass!22222" },
             CancellationToken.None);
 
         Assert.IsType<ChangePasswordOutcome.Success>(result);
 
         var updated = await db.Users.AsNoTracking().SingleAsync(u => u.Id == user.Id);
         Assert.False(updated.MustChangePassword);
-        Assert.True(hasher.Verify("NewPass!2", updated.PasswordHash));
+        Assert.True(hasher.Verify("NewPass!22222", updated.PasswordHash));
         Assert.False(hasher.Verify("OldPass!1", updated.PasswordHash));
     }
 
@@ -107,7 +107,7 @@ public sealed class ChangePasswordHandlerTests
 
         await Handler(db).HandleAsync(
             user.Id,
-            new ChangePasswordRequest { CurrentPassword = "OldPass!1", NewPassword = "NewPass!2" },
+            new ChangePasswordRequest { CurrentPassword = "OldPass!1", NewPassword = "NewPass!22222" },
             CancellationToken.None);
 
         var stored = await db.RefreshTokens.AsNoTracking().SingleAsync(t => t.Id == token.Id);
