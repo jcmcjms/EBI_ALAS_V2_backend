@@ -23,12 +23,17 @@ public sealed class RefreshToken
 
     public Guid? ReplacedById { get; private set; }
 
+    public string? IpAddress { get; private set; }
+
+    public string? UserAgent { get; private set; }
+
     public static RefreshToken Create(
         Guid userId,
         string tokenHash,
         DateTimeOffset now,
         TimeSpan lifetime,
-        TimeSpan absoluteLifetime)
+        TimeSpan absoluteLifetime,
+        SessionClientInfo? clientInfo = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(tokenHash);
         return new RefreshToken
@@ -38,7 +43,9 @@ public sealed class RefreshToken
             TokenHash = tokenHash,
             ExpiresAt = now.Add(lifetime),
             AbsoluteExpiresAt = now.Add(absoluteLifetime),
-            CreatedAt = now
+            CreatedAt = now,
+            IpAddress = clientInfo?.IpAddress,
+            UserAgent = clientInfo?.UserAgent,
         };
     }
 

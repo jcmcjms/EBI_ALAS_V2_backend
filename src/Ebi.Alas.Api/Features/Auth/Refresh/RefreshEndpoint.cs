@@ -33,6 +33,7 @@ public static class RefreshEndpoint
 
             var outcome = await handler.HandleAsync(
                 new RefreshRequest { RefreshToken = raw },
+                SessionClientInfo.From(httpContext),
                 cancellationToken);
 
             if (outcome is RefreshOutcome.Success success)

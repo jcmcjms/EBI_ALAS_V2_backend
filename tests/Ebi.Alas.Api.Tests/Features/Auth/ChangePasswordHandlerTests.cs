@@ -103,6 +103,7 @@ public sealed class ChangePasswordHandlerTests
             user.Id,
             TimeSpan.FromDays(7),
             TimeSpan.FromDays(14),
+            new SessionClientInfo(null, null, null),
             CancellationToken.None);
 
         await Handler(db).HandleAsync(

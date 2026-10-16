@@ -34,10 +34,10 @@ public sealed class TokenStoreRotationTests
         await db.SaveChangesAsync();
 
         var (old, _) = await store.IssueRefreshTokenAsync(
-            user.Id, TimeSpan.FromDays(7), TimeSpan.FromDays(14), CancellationToken.None);
+            user.Id, TimeSpan.FromDays(7), TimeSpan.FromDays(14), new SessionClientInfo(null, null, null), CancellationToken.None);
 
         var (next, raw) = await store.RotateAsync(
-            old, TimeSpan.FromDays(7), TimeSpan.FromDays(14), CancellationToken.None);
+            old, TimeSpan.FromDays(7), TimeSpan.FromDays(14), new SessionClientInfo(null, null, null), CancellationToken.None);
 
         Assert.NotEqual(old.Id, next.Id);
         Assert.False(string.IsNullOrEmpty(raw));

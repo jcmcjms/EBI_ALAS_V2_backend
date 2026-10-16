@@ -158,4 +158,33 @@ public sealed class AccountProfileAndSessionTests
         Assert.Null((await db.RefreshTokens.AsNoTracking().SingleAsync(t => t.Id == current.Id)).RevokedAt);
         Assert.NotNull((await db.RefreshTokens.AsNoTracking().SingleAsync(t => t.Id == other.Id)).RevokedAt);
     }
+
+    [Fact]
+    public async Task GetSessions_ReturnsIpAndParsedDevice()
+    {
+        await using var db = Db();
+        var user = SeedUser(db);
+        await db.SaveChangesAsync();
+        var token = RefreshToken.Create(
+            user.Id,
+            "hash-dev",
+            DateTimeOffset.UtcNow,
+            TimeSpan.FromDays(7),
+            TimeSpan.FromDays(14),
+            new Ebi.Alas.Api.Features.Auth.SessionClientInfo(
+                "203.0.113.9",
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/140.0.0.0",
+                "Chrome on Windows"));
+        db.RefreshTokens.Add(token);
+        await db.SaveChangesAsync();
+
+        var service = new AccountService(db, TimeProvider.System);
+        var sessions = await service.GetSessionsAsync(user.Id, token.Id, CancellationToken.None);
+
+        var session = Assert.Single(sessions);
+        Assert.Equal("203.0.113.9", session.IpAddress);
+        Assert.Equal("Chrome on Windows", session.DeviceInfo);
+        Assert.True(session.IsCurrent);
+        Assert.DoesNotContain("Windows NT", session.DeviceInfo);
+    }
 }

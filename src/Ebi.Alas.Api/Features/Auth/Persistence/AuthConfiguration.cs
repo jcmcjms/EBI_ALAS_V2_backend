@@ -11,6 +11,8 @@ public sealed class RefreshTokenConfiguration : IEntityTypeConfiguration<Refresh
         builder.ToTable("RefreshTokens");
         builder.HasKey(x => x.Id);
         builder.Property(x => x.TokenHash).HasMaxLength(128).IsRequired();
+        builder.Property(x => x.IpAddress).HasMaxLength(64);
+        builder.Property(x => x.UserAgent).HasMaxLength(500);
         builder.HasIndex(x => x.TokenHash).IsUnique();
         builder.HasIndex(x => x.UserId);
     }

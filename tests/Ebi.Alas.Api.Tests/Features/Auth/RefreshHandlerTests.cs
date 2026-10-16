@@ -60,6 +60,7 @@ public sealed class RefreshHandlerTests
             user.Id,
             TimeSpan.FromDays(7),
             TimeSpan.FromDays(14),
+            new SessionClientInfo(null, null, null),
             CancellationToken.None);
         return (user, raw);
     }
@@ -72,6 +73,7 @@ public sealed class RefreshHandlerTests
 
         var outcome = await Handler(db).HandleAsync(
             new RefreshRequest { RefreshToken = raw },
+            new SessionClientInfo(null, null, null),
             CancellationToken.None);
 
         var success = Assert.IsType<RefreshOutcome.Success>(outcome);
@@ -86,7 +88,7 @@ public sealed class RefreshHandlerTests
     {
         await using var db = Db();
 
-        var outcome = await Handler(db).HandleAsync(new RefreshRequest(), CancellationToken.None);
+        var outcome = await Handler(db).HandleAsync(new RefreshRequest(), new SessionClientInfo(null, null, null), CancellationToken.None);
 
         var failure = Assert.IsType<RefreshOutcome.Failure>(outcome);
         Assert.Equal(StatusCodes.Status401Unauthorized, failure.StatusCode);
@@ -99,6 +101,7 @@ public sealed class RefreshHandlerTests
 
         var outcome = await Handler(db).HandleAsync(
             new RefreshRequest { RefreshToken = "not-a-real-token" },
+            new SessionClientInfo(null, null, null),
             CancellationToken.None);
 
         var failure = Assert.IsType<RefreshOutcome.Failure>(outcome);
@@ -113,6 +116,7 @@ public sealed class RefreshHandlerTests
 
         await Handler(db).HandleAsync(
             new RefreshRequest { RefreshToken = raw },
+            new SessionClientInfo(null, null, null),
             CancellationToken.None);
 
         var store = new TokenStore(db, TimeProvider.System);

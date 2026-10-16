@@ -17,11 +17,12 @@ public sealed class TokenStore(AlasDbContext db, TimeProvider timeProvider)
         Guid userId,
         TimeSpan lifetime,
         TimeSpan absoluteLifetime,
+        SessionClientInfo clientInfo,
         CancellationToken cancellationToken)
     {
         var now = timeProvider.GetUtcNow();
         var raw = CreateOpaqueToken();
-        var entity = RefreshToken.Create(userId, HashToken(raw), now, lifetime, absoluteLifetime);
+        var entity = RefreshToken.Create(userId, HashToken(raw), now, lifetime, absoluteLifetime, clientInfo);
         db.RefreshTokens.Add(entity);
         await db.SaveChangesAsync(cancellationToken);
         return (entity, raw);
@@ -54,13 +55,14 @@ public sealed class TokenStore(AlasDbContext db, TimeProvider timeProvider)
         RefreshToken existing,
         TimeSpan lifetime,
         TimeSpan absoluteLifetime,
+        SessionClientInfo clientInfo,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(existing);
 
         var now = timeProvider.GetUtcNow();
         var raw = CreateOpaqueToken();
-        var entity = RefreshToken.Create(existing.UserId, HashToken(raw), now, lifetime, absoluteLifetime);
+        var entity = RefreshToken.Create(existing.UserId, HashToken(raw), now, lifetime, absoluteLifetime, clientInfo);
 
         var tracked = await db.RefreshTokens.FirstOrDefaultAsync(t => t.Id == existing.Id, cancellationToken);
         if (tracked is null)

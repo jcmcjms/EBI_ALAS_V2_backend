@@ -16,7 +16,7 @@ public sealed class LoginHandler(
     TimeProvider timeProvider,
     ILogger<LoginHandler> logger)
 {
-    public async Task<LoginOutcome> HandleAsync(LoginRequest request, CancellationToken cancellationToken)
+    public async Task<LoginOutcome> HandleAsync(LoginRequest request, SessionClientInfo clientInfo, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(request);
         ArgumentException.ThrowIfNullOrWhiteSpace(request.UserName);
@@ -44,6 +44,7 @@ public sealed class LoginHandler(
             user.Id,
             TimeSpan.FromDays(jwt.RefreshTokenDays),
             TimeSpan.FromDays(jwt.RefreshTokenAbsoluteDays),
+            clientInfo,
             cancellationToken);
 
         logger.LogInformation("{Event} user={UserName} userId={UserId}", AuthEvents.LoginSucceeded, user.UserName, user.Id);

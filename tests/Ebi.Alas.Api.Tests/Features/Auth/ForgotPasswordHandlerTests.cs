@@ -164,6 +164,7 @@ public sealed class ForgotPasswordHandlerTests
             user.Id,
             TimeSpan.FromDays(7),
             TimeSpan.FromDays(14),
+            new SessionClientInfo(null, null, null),
             CancellationToken.None);
         var email = new FakeEmailSender();
 
