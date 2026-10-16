@@ -336,7 +336,7 @@ Edit `EBI.ALAS.Api/appsettings.json` or (better) use .NET User Secrets:
 cd EBI.ALAS.Api
 dotnet user-secrets init
 dotnet user-secrets set "ConnectionStrings:DefaultConnection" "Server=YOUR_HOST;Database=ALASv2_DB;User Id=YOUR_USER;Password=YOUR_PASS;TrustServerCertificate=True;Encrypt=True"
-dotnet user-secrets set "WebLoan:NamePrefix" "webloan.dbo"
+dotnet user-secrets set "WebLoan:Database" "webloan"
 dotnet user-secrets set "Jwt:SecretKey" "your-random-32+-character-secret-key-here"
 ```
 
@@ -382,16 +382,16 @@ All settings live in `EBI.ALAS.Api/appsettings.json`. Override per-environment u
 | `Redis` | Distributed cache + SignalR backplane | — |
 | `RabbitMQ` | Message bus for async processing | — |
 
-### WebLoan name prefix
+### WebLoan database
 
-WebLoan tables are queried on the **ALAS SQL connection** using a name prefix (no separate WebLoan connection string).
+WebLoan is read via `WebLoanDbContext` (EF Core LINQ) on the **same SQL Server host as ALAS**, with `Initial Catalog = WebLoan:Database` (default `webloan`) and `ApplicationIntent=ReadOnly`.
 
-| Environment | `WebLoan:NamePrefix` | Example |
+| Setting | Test | Live |
 |---|---|---|
-| Test (webloan on same server as ALAS) | `webloan.dbo` | `webloan.dbo.cis_info` |
-| Live (linked server) | `YOUR_LINKED_SERVER.webloan.dbo` | `YOUR_LINKED_SERVER.webloan.dbo.cis_info` |
+| `ConnectionStrings:Alas` | `Server=192.168.6.159,1433;Database=ALASv2_DB;...` | `Server=192.168.25.30,1433;Database=ALASv2_DB;...` |
+| `WebLoan:Database` | `webloan` | `webloan` |
 
-Leave `NamePrefix` unset to disable live WebLoan reads (`NullWebLoanReader`).
+Leave `WebLoan:Database` empty to disable live WebLoan reads (`NullWebLoanReader`).
 
 ### JWT Settings
 
@@ -868,7 +868,7 @@ Owned by this application. Schema managed via EF Core Migrations.
 
 ### Secondary Database — `webloan` *(read-only)*
 
-The legacy WebLoan core banking system. Queried read-only through the ALAS SQL connection using `WebLoan:NamePrefix` (same-server three-part names in test, linked-server four-part names in live).
+The legacy WebLoan core banking system. Accessed via `WebLoanDbContext` (EF Core) on the ALAS SQL Server host, database `WebLoan:Database` (default `webloan`), read-only.
 
 **Key Tables:**
 - `cis_info` / `cis_info_misdata` — borrower master data
