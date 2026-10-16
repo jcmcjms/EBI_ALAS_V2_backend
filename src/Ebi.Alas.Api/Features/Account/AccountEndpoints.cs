@@ -57,13 +57,36 @@ public static class AccountEndpoints
         group.MapGet("/me/activity", async (
             ClaimsPrincipal user,
             int? limit,
+            DateOnly? from,
+            DateOnly? to,
+            string? action,
             AccountService service,
             CancellationToken cancellationToken) =>
         {
+            if (from is not null && to is not null && from > to)
+            {
+                return Results.Problem(
+                    statusCode: StatusCodes.Status400BadRequest,
+                    title: "Bad Request",
+                    detail: "Activity date range start must be on or before end.");
+            }
+
+            if (!string.IsNullOrWhiteSpace(action)
+                && action is not ("login" or "security" or "draft" or "approval" or "application"))
+            {
+                return Results.Problem(
+                    statusCode: StatusCodes.Status400BadRequest,
+                    title: "Bad Request",
+                    detail: "Invalid activity action filter.");
+            }
+
             var caller = CallerContext.Require(user);
             var activity = await service.GetRecentActivityAsync(
                 caller.UserId,
                 Math.Clamp(limit ?? 10, 1, 50),
+                from,
+                to,
+                action,
                 cancellationToken);
             return Results.Ok(activity);
         })
