@@ -184,6 +184,9 @@ public static class ServiceRegistration
             .Validate(
                 o => string.IsNullOrEmpty(o.Database) || WebLoanOptions.IsValidDatabaseName(o.Database),
                 "WebLoan:Database must be a single identifier (letters, digits, underscore) when set.")
+            .Validate(
+                o => string.IsNullOrEmpty(o.BinaryDatabase) || WebLoanOptions.IsValidDatabaseName(o.BinaryDatabase),
+                "WebLoan:BinaryDatabase must be a single identifier (letters, digits, underscore) when set.")
             .ValidateOnStart();
 
         var alasConnectionString = configuration.GetConnectionString("Alas");

@@ -390,6 +390,9 @@ WebLoan is read via `WebLoanDbContext` (EF Core LINQ) on the **same SQL Server h
 |---|---|---|
 | `ConnectionStrings:Alas` | `Server=192.168.6.159,1433;Database=ALASv2_DB;...` | `Server=192.168.25.30,1433;Database=ALASv2_DB;...` |
 | `WebLoan:Database` | `webloan` | `webloan` |
+| `WebLoan:BinaryDatabase` | `bpb_binary` | `bpb_binary` |
+
+Checklist document binaries (`doc_ref` / `docs`) are read from `WebLoan:BinaryDatabase` on the same ALAS host with parameterized SQL (no linked server / `OPENQUERY`).
 
 Leave `WebLoan:Database` empty to disable live WebLoan reads (`NullWebLoanReader`).
 

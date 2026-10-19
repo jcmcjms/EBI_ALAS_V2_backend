@@ -9,6 +9,9 @@ public sealed partial class WebLoanOptions
     /// <summary>WebLoan database name on the ALAS SQL Server host (e.g. webloan).</summary>
     public string? Database { get; set; }
 
+    /// <summary>Checklist binary document database on the ALAS SQL Server host (e.g. bpb_binary).</summary>
+    public string? BinaryDatabase { get; set; } = "bpb_binary";
+
     public static bool IsValidDatabaseName(string? database)
         => !string.IsNullOrWhiteSpace(database) && DatabaseNamePattern().IsMatch(database);
 

@@ -2,8 +2,8 @@ using System.Data;
 using System.Text.Json;
 using Ebi.Alas.Api.Features.WebLoans;
 using Ebi.Alas.Api.Infrastructure.Persistence;
-using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 
 namespace Ebi.Alas.Api.Features.LoanApplications.Documents;
 
@@ -33,8 +33,17 @@ public interface IChecklistDocumentReader
 
 public sealed class ChecklistDocumentReader(
     AlasDbContext db,
-    IWebLoanReader webLoan) : IChecklistDocumentReader
+    IWebLoanReader webLoan,
+    IOptions<WebLoanOptions> webLoanOptions) : IChecklistDocumentReader
 {
+    private readonly string _binaryDb = webLoanOptions.Value.BinaryDatabase is { Length: > 0 } name
+        ? name
+        : "bpb_binary";
+
+    private string DocsTable() => $"{_binaryDb}.dbo.docs";
+
+    private string DocRefTable() => $"{_binaryDb}.dbo.doc_ref";
+
     public async Task<IReadOnlyList<LoanChecklistDocumentDto>> GetChecklistDocumentsAsync(
         string loanNo,
         IReadOnlyCollection<string> idCodes,
@@ -102,14 +111,16 @@ public sealed class ChecklistDocumentReader(
         }
 
         await using var command = connection.CreateCommand();
-        // OPENQUERY cannot take parameters; docId is a validated int.
         command.CommandText = $@"
-            SELECT TOP 1 d.doc_str, d.content_type
-            FROM OPENQUERY(BPB_BINARY_SERVER,
-                'SELECT doc_str, content_type
-                 FROM bpb_binary.dbo.docs
-                 WHERE doc_id = {docId}') d";
+            SELECT TOP (1) doc_str, content_type
+            FROM {DocsTable()}
+            WHERE doc_id = @docId";
         command.CommandTimeout = 60;
+
+        var pDocId = command.CreateParameter();
+        pDocId.ParameterName = "@docId";
+        pDocId.Value = docId;
+        command.Parameters.Add(pDocId);
 
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         if (!await reader.ReadAsync(cancellationToken))
@@ -145,23 +156,16 @@ public sealed class ChecklistDocumentReader(
                 d.content_type,
                 d.created,
                 d.uploaded_by
-            FROM OPENQUERY(BPB_BINARY_SERVER,
-                'SELECT doc_id, check_list_item, cis_no, filename_str
-                 FROM bpb_binary.dbo.doc_ref
-                 WHERE cis_no = ''{sanitizedLoanNo}''
-                   AND deleted IS NULL'
-            ) dr
-            LEFT JOIN OPENQUERY(BPB_BINARY_SERVER,
-                'SELECT doc_id, mini_str, content_type, created, uploaded_by
-                 FROM bpb_binary.dbo.docs
-                 WHERE doc_id IN (
-                     SELECT doc_id
-                     FROM bpb_binary.dbo.doc_ref
-                     WHERE cis_no = ''{sanitizedLoanNo}''
-                       AND deleted IS NULL
-                 )'
-            ) d ON dr.doc_id = d.doc_id";
+            FROM {DocRefTable()} AS dr
+            LEFT JOIN {DocsTable()} AS d ON dr.doc_id = d.doc_id
+            WHERE dr.cis_no = @loanNo
+              AND dr.deleted IS NULL";
         command.CommandTimeout = 60;
+
+        var pLoanNo = command.CreateParameter();
+        pLoanNo.ParameterName = "@loanNo";
+        pLoanNo.Value = sanitizedLoanNo;
+        command.Parameters.Add(pLoanNo);
 
         var byCode = new Dictionary<string, ChecklistDocumentUpload>(StringComparer.OrdinalIgnoreCase);
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
