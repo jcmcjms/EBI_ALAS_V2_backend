@@ -99,4 +99,27 @@ public sealed class CallerContextTests
 
         Assert.True(context.CanAccessAllBranches);
     }
+
+    [Theory]
+    [InlineData(UserRole.Admin, true)]
+    [InlineData(UserRole.System, true)]
+    [InlineData(UserRole.Evaluator, true)]
+    [InlineData(UserRole.Approver, false)]
+    [InlineData(UserRole.Recommender, false)]
+    [InlineData(UserRole.Encoder, false)]
+    public void CanViewAllLoanBranches_MatchesRole(UserRole role, bool expected)
+    {
+        var caller = new CallerContext(Guid.NewGuid(), role, "001");
+        Assert.Equal(expected, caller.CanViewAllLoanBranches);
+    }
+
+    [Theory]
+    [InlineData(UserRole.Evaluator, false)]
+    [InlineData(UserRole.Admin, true)]
+    [InlineData(UserRole.System, true)]
+    public void CanAccessAllBranches_DoesNotIncludeEvaluator(UserRole role, bool expected)
+    {
+        var caller = new CallerContext(Guid.NewGuid(), role, "001");
+        Assert.Equal(expected, caller.CanAccessAllBranches);
+    }
 }

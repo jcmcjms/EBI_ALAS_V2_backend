@@ -10,7 +10,13 @@ public sealed record CallerContext(Guid UserId, UserRole Role, string BranchId)
 
     public bool IsSystem => Role == UserRole.System;
 
+    public bool IsEvaluator => Role == UserRole.Evaluator;
+
     public bool CanAccessAllBranches => IsAdmin || IsSystem;
+
+    /// Loan read/act scope: admins/system and evaluators may see every branch.
+    /// Does not grant admin partition picking or role bypass.
+    public bool CanViewAllLoanBranches => CanAccessAllBranches || IsEvaluator;
 
     public static CallerContext Require(ClaimsPrincipal principal)
     {

@@ -27,7 +27,7 @@ public static class BranchVisibility
         string? jobTitle = null)
     {
         var home = (branchId ?? string.Empty).Trim();
-        if (role is UserRole.Admin or UserRole.System)
+        if (role is UserRole.Admin or UserRole.System or UserRole.Evaluator)
         {
             return await db.Branches.AsNoTracking()
                 .Select(b => b.Code)
