@@ -1,5 +1,10 @@
 # Evaluator Org-Wide Loan Visibility Implementation Plan
 
+> [!NOTE]
+> This document may not reflect the current implementation.
+> See the final report for up-to-date state:
+> [Final Report](../reports/evaluator-org-wide-loan-visibility.md)
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use compose:subagent (recommended) or compose:execute to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Evaluators can list, open, and act on loan applications from every branch (org-wide), instead of home-branch-only.

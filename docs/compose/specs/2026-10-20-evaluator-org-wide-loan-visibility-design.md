@@ -1,3 +1,10 @@
+# Evaluator Org-Wide Loan Visibility — Design Spec
+
+> [!NOTE]
+> This document may not reflect the current implementation.
+> See the final report for up-to-date state:
+> [Final Report](../reports/evaluator-org-wide-loan-visibility.md)
+
 # [S1] Problem
 
 Evaluators are currently restricted to loan applications from their home branch. Branch filtering is applied inconsistently and mostly as `l.BranchId == caller.BranchId` across loan lists, detail access, workflow actions, groups, revisions, review endpoints, desk queues, and dashboards.
