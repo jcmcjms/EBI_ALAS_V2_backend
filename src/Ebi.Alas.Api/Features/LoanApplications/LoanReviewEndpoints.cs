@@ -320,7 +320,7 @@ public static class LoanReviewEndpoints
         CancellationToken ct)
     {
         var query = db.LoanApplications.AsNoTracking().Where(l => l.Id == id);
-        if (!caller.CanAccessAllBranches)
+        if (!caller.CanViewAllLoanBranches)
         {
             query = query.Where(l => l.BranchId == caller.BranchId);
         }
@@ -450,7 +450,7 @@ public static class LoanReviewEndpoints
                 $"deviation:{deviation.Id}",
                 "deviation",
                 loan.CreatedAt,
-                null,
+                creatorName,
                 null,
                 null,
                 null,

@@ -33,7 +33,7 @@ public sealed class ReviseLoanHandler(
         }
 
         var query = db.LoanApplications.Where(l => l.Id == loanId);
-        if (!caller.CanAccessAllBranches)
+        if (!caller.CanViewAllLoanBranches)
         {
             query = query.Where(l => l.BranchId == caller.BranchId);
         }

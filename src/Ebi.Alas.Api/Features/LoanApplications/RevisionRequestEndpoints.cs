@@ -20,7 +20,7 @@ public static class RevisionRequestEndpoints
         {
             var caller = CallerContext.Require(user);
             var accessible = await db.LoanApplications.AsNoTracking()
-                .AnyAsync(l => l.Id == id && (caller.CanAccessAllBranches || l.BranchId == caller.BranchId),
+                .AnyAsync(l => l.Id == id && (caller.CanViewAllLoanBranches || l.BranchId == caller.BranchId),
                     cancellationToken);
             if (!accessible)
             {

@@ -45,7 +45,7 @@ public static class LoanGroupStatusHandler
         }
 
         var query = db.LoanApplications.Where(l => l.ApplicationGroupNo == groupNo);
-        if (!caller.CanAccessAllBranches)
+        if (!caller.CanViewAllLoanBranches)
         {
             query = query.Where(l => l.BranchId == caller.BranchId);
         }

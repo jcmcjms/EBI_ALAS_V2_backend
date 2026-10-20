@@ -119,7 +119,7 @@ public sealed class DocumentFlagHandler(
             return;
         }
 
-        if (!caller.CanAccessAllBranches && loan.BranchId != caller.BranchId)
+        if (!caller.CanViewAllLoanBranches && loan.BranchId != caller.BranchId)
         {
             throw new Composition.Errors.ForbiddenException("You cannot flag documents for this branch.");
         }

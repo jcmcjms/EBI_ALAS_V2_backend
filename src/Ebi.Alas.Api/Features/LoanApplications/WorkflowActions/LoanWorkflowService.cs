@@ -32,7 +32,7 @@ public sealed class LoanWorkflowService(
         var fromRecommend = loan.Status;
         var comments = NormalizeRemarks(remarks);
         loan.TransitionTo(LoanStatus.ForChecking, timeProvider.GetUtcNow(), caller.UserId, "Recommended");
-        RecordAction(loan, "Recommended", fromRecommend.ToString(), loan.Status.ToString(), comments, timeProvider.GetUtcNow());
+        RecordAction(loan, caller.UserId, "Recommended", fromRecommend.ToString(), loan.Status.ToString(), comments, timeProvider.GetUtcNow());
         await ClearReviewDraftsAsync(loan.Id, cancellationToken);
         loan.AssignTo(null, timeProvider.GetUtcNow());
         await queue.CompleteAsync(await ActiveQueueIdAsync(loanId, WorkflowStage.Recommendation, cancellationToken), caller.UserId, cancellationToken);
@@ -66,7 +66,7 @@ public sealed class LoanWorkflowService(
         var fromEval = loan.Status;
         var evalVerb = recommend ? "EvaluatedRecommended" : "EvaluatedNotRecommended";
         loan.TransitionTo(LoanStatus.ForApproval, timeProvider.GetUtcNow(), caller.UserId, evalVerb);
-        RecordAction(loan, evalVerb, fromEval.ToString(), loan.Status.ToString(), NormalizeRemarks(remarks), timeProvider.GetUtcNow());
+        RecordAction(loan, caller.UserId, evalVerb, fromEval.ToString(), loan.Status.ToString(), NormalizeRemarks(remarks), timeProvider.GetUtcNow());
         await ClearReviewDraftsAsync(loan.Id, cancellationToken);
         loan.AssignTo(null, timeProvider.GetUtcNow());
         await queue.CompleteAsync(await ActiveQueueIdAsync(loanId, WorkflowStage.Evaluation, cancellationToken), caller.UserId, cancellationToken);
@@ -94,7 +94,7 @@ public sealed class LoanWorkflowService(
         var loan = await LoadScopedAsync(loanId, caller, cancellationToken);
         var fromApprove = loan.Status;
         loan.TransitionTo(LoanStatus.Approved, timeProvider.GetUtcNow(), caller.UserId, "Approved");
-        RecordAction(loan, "Approved", fromApprove.ToString(), loan.Status.ToString(), NormalizeRemarks(remarks), timeProvider.GetUtcNow());
+        RecordAction(loan, caller.UserId, "Approved", fromApprove.ToString(), loan.Status.ToString(), NormalizeRemarks(remarks), timeProvider.GetUtcNow());
         await ClearReviewDraftsAsync(loan.Id, cancellationToken);
         await queue.CompleteAsync(await ActiveQueueIdAsync(loanId, WorkflowStage.Approval, cancellationToken), caller.UserId, cancellationToken);
         await SignatureChainService.SignAsync(db, loanId, "Approver", caller.UserId, timeProvider.GetUtcNow(), cancellationToken);
@@ -120,7 +120,7 @@ public sealed class LoanWorkflowService(
         var loan = await LoadScopedAsync(loanId, caller, cancellationToken);
         var fromReject = loan.Status;
         loan.TransitionTo(LoanStatus.Rejected, timeProvider.GetUtcNow(), caller.UserId, "Rejected");
-        RecordAction(loan, "Rejected", fromReject.ToString(), loan.Status.ToString(), NormalizeRemarks(remarks), timeProvider.GetUtcNow());
+        RecordAction(loan, caller.UserId, "Rejected", fromReject.ToString(), loan.Status.ToString(), NormalizeRemarks(remarks), timeProvider.GetUtcNow());
         await ClearReviewDraftsAsync(loan.Id, cancellationToken);
         await queue.CompleteAsync(await ActiveQueueIdAsync(loanId, WorkflowStage.Approval, cancellationToken), caller.UserId, cancellationToken);
         await NotifyAsync(caller.UserId, "Application rejected", $"Loan {loan.LamId} has been rejected.", cancellationToken);
@@ -140,7 +140,7 @@ public sealed class LoanWorkflowService(
         var loan = await LoadScopedAsync(loanId, caller, cancellationToken);
         var fromPush = loan.Status;
         loan.TransitionTo(LoanStatus.ForRevision, timeProvider.GetUtcNow(), caller.UserId, "PushedBack");
-        RecordAction(loan, "PushedBack", fromPush.ToString(), loan.Status.ToString(), comment, timeProvider.GetUtcNow());
+        RecordAction(loan, caller.UserId, "PushedBack", fromPush.ToString(), loan.Status.ToString(), comment, timeProvider.GetUtcNow());
         await ClearReviewDraftsAsync(loan.Id, cancellationToken);
         loan.AssignTo(loan.CreatedBy, timeProvider.GetUtcNow());
         db.RevisionRequests.Add(Revisions.RevisionRequest.Create(
@@ -238,7 +238,7 @@ public sealed class LoanWorkflowService(
         CancellationToken cancellationToken)
     {
         var query = db.LoanApplications.Where(l => l.Id == loanId);
-        if (!caller.CanAccessAllBranches)
+        if (!caller.CanViewAllLoanBranches)
         {
             query = query.Where(l => l.BranchId == caller.BranchId);
         }
@@ -255,6 +255,7 @@ public sealed class LoanWorkflowService(
 
     private void RecordAction(
         LoanApplication loan,
+        Guid actorId,
         string action,
         string? fromStatus,
         string? toStatus,
@@ -262,7 +263,7 @@ public sealed class LoanWorkflowService(
         DateTimeOffset at)
     {
         db.LoanApplicationActions.Add(LoanApplicationAction.Create(
-            loan.Id, loan.LastActionById ?? loan.CreatedBy, action, fromStatus, toStatus, comments, at));
+            loan.Id, actorId, action, fromStatus, toStatus, comments, at));
     }
 
     private static string? NormalizeRemarks(string? remarks)

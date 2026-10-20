@@ -108,4 +108,72 @@ public sealed class LoanBranchIsolationTests
         await Assert.ThrowsAsync<NotFoundException>(() =>
             LoanAccess.RequireAccessibleAsync(db, loan.Id, caller, CancellationToken.None));
     }
+
+    [Fact]
+    public async Task LoanAccess_OtherBranch_IsAllowed_ForEvaluator()
+    {
+        await using var db = Db();
+        var loan = SeedLoan(db, "BR-B");
+        var caller = new CallerContext(Guid.NewGuid(), UserRole.Evaluator, "BR-A");
+
+        Assert.True(await LoanAccess.CanAccessAsync(db, loan.Id, caller, CancellationToken.None));
+        var loaded = await LoanAccess.RequireAccessibleAsync(db, loan.Id, caller, CancellationToken.None);
+        Assert.Equal("BR-B", loaded.BranchId);
+    }
+
+    [Fact]
+    public async Task GetLoan_OtherBranch_IsAllowed_ForEvaluator()
+    {
+        await using var db = Db();
+        var loan = SeedLoan(db, "BR-B");
+        var caller = new CallerContext(Guid.NewGuid(), UserRole.Evaluator, "BR-A");
+        var handler = new GetLoanHandler(db);
+
+        var result = await handler.HandleAsync(loan.Id, caller, CancellationToken.None);
+        Assert.Equal("BR-B", result.BranchId);
+    }
+
+    [Fact]
+    public async Task ListLoans_ReturnsAllBranches_ForEvaluator()
+    {
+        await using var db = Db();
+        SeedLoan(db, "BR-A");
+        SeedLoan(db, "BR-B");
+        var caller = new CallerContext(Guid.NewGuid(), UserRole.Evaluator, "BR-A");
+        var handler = new ListLoansHandler(db);
+
+        var result = await handler.HandleAsync(
+            new PageRequest { Page = 1, PageSize = 50 },
+            100,
+            20,
+            [],
+            branchId: null,
+            caller,
+            CancellationToken.None);
+
+        Assert.Equal(2, result.Items.Count);
+        Assert.Contains(result.Items, l => l.BranchId == "BR-A");
+        Assert.Contains(result.Items, l => l.BranchId == "BR-B");
+    }
+
+    [Fact]
+    public async Task ListLoans_IgnoresBranchIdFilter_ForEvaluator()
+    {
+        await using var db = Db();
+        SeedLoan(db, "BR-A");
+        SeedLoan(db, "BR-B");
+        var caller = new CallerContext(Guid.NewGuid(), UserRole.Evaluator, "BR-A");
+        var handler = new ListLoansHandler(db);
+
+        var result = await handler.HandleAsync(
+            new PageRequest { Page = 1, PageSize = 50 },
+            100,
+            20,
+            [],
+            branchId: "BR-A",
+            caller,
+            CancellationToken.None);
+
+        Assert.Equal(2, result.Items.Count);
+    }
 }

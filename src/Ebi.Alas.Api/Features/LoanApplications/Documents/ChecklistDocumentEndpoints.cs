@@ -68,7 +68,7 @@ public static class ChecklistDocumentEndpoints
                 throw new Composition.Errors.NotFoundException("Loan", id.ToString());
             }
 
-            if (!caller.CanAccessAllBranches && loan.BranchId != caller.BranchId)
+            if (!caller.CanViewAllLoanBranches && loan.BranchId != caller.BranchId)
             {
                 throw new Composition.Errors.NotFoundException("Loan", id.ToString());
             }

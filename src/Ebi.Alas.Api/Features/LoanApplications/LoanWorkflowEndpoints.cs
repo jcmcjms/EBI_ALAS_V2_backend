@@ -98,7 +98,7 @@ public static class LoanWorkflowEndpoints
         {
             var caller = CallerContext.Require(user);
             var loanQuery = db.LoanApplications.AsNoTracking().Where(l => l.Id == id);
-            if (!caller.CanAccessAllBranches)
+            if (!caller.CanViewAllLoanBranches)
             {
                 loanQuery = loanQuery.Where(l => l.BranchId == caller.BranchId);
             }

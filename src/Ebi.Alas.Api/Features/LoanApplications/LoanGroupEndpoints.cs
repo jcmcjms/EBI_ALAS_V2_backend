@@ -41,7 +41,7 @@ public static class LoanGroupEndpoints
 
             var query = db.LoanApplications.AsNoTracking()
                 .Where(l => l.ApplicationGroupNo == groupNo);
-            if (!caller.CanAccessAllBranches)
+            if (!caller.CanViewAllLoanBranches)
             {
                 query = query.Where(l => l.BranchId == caller.BranchId);
             }

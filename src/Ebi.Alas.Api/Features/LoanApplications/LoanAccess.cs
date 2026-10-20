@@ -18,7 +18,7 @@ public static class LoanAccess
         CancellationToken cancellationToken)
     {
         var query = db.LoanApplications.AsNoTracking().Where(l => l.Id == loanId);
-        if (!caller.CanAccessAllBranches)
+        if (!caller.CanViewAllLoanBranches)
         {
             query = query.Where(l => l.BranchId == caller.BranchId);
         }
@@ -34,7 +34,7 @@ public static class LoanAccess
         CancellationToken cancellationToken)
     {
         var query = db.LoanApplications.AsNoTracking().Where(l => l.Id == loanId);
-        if (!caller.CanAccessAllBranches)
+        if (!caller.CanViewAllLoanBranches)
         {
             query = query.Where(l => l.BranchId == caller.BranchId);
         }

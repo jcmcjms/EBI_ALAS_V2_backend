@@ -39,7 +39,14 @@ public sealed class ListLoansHandler(AlasDbContext db)
         var normalized = page.Normalize(maxPageSize, defaultPageSize);
         var query = db.LoanApplications.AsNoTracking().AsQueryable();
 
-        if (!caller.CanAccessAllBranches)
+        if (caller.CanViewAllLoanBranches)
+        {
+            if (caller.CanAccessAllBranches && !string.IsNullOrWhiteSpace(branchId))
+            {
+                query = query.Where(l => l.BranchId == branchId);
+            }
+        }
+        else
         {
             var jobTitle = await db.Users.AsNoTracking()
                 .Where(u => u.Id == caller.UserId)
@@ -53,10 +60,6 @@ public sealed class ListLoansHandler(AlasDbContext db)
                 cancellationToken,
                 jobTitle);
             query = query.Where(l => readable.Contains(l.BranchId));
-        }
-        else if (!string.IsNullOrWhiteSpace(branchId))
-        {
-            query = query.Where(l => l.BranchId == branchId);
         }
 
         if (statuses.Count > 0)

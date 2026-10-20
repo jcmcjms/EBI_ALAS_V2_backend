@@ -10,7 +10,7 @@ public sealed class GetLoanHandler(AlasDbContext db)
     public async Task<LoanResponse> HandleAsync(Guid id, CallerContext caller, CancellationToken cancellationToken)
     {
         var query = db.LoanApplications.AsNoTracking().Where(l => l.Id == id);
-        if (!caller.CanAccessAllBranches)
+        if (!caller.CanViewAllLoanBranches)
         {
             query = query.Where(l => l.BranchId == caller.BranchId);
         }
@@ -27,7 +27,7 @@ public sealed class GetLoanByLamIdHandler(AlasDbContext db)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(lamId);
         var query = db.LoanApplications.AsNoTracking().Where(l => l.LamId == lamId);
-        if (!caller.CanAccessAllBranches)
+        if (!caller.CanViewAllLoanBranches)
         {
             query = query.Where(l => l.BranchId == caller.BranchId);
         }
