@@ -1,3 +1,4 @@
+using System.Text.Json.Nodes;
 using Ebi.Alas.Api.Composition.Auth;
 using Ebi.Alas.Api.Features.LoanApplications.Domain;
 using Ebi.Alas.Api.Features.LoanComputation;
@@ -39,6 +40,9 @@ public sealed class SubmitLoanHandler(
         ArgumentException.ThrowIfNullOrWhiteSpace(branchId);
 
         var now = timeProvider.GetUtcNow();
+        NthpDateGuard.EnsureAcceptable(
+            request.Form,
+            DateOnly.FromDateTime(timeProvider.GetLocalNow().DateTime));
         var applicationGroupNo = string.IsNullOrWhiteSpace(request.ApplicationGroupNo)
             ? await numbers.GenerateGroupNumberAsync(cancellationToken)
             : request.ApplicationGroupNo.Trim();
@@ -87,10 +91,9 @@ public sealed class SubmitLoanHandler(
 
         if (request.Form is { } formSnapshot)
         {
-            var formJson = formSnapshot.GetRawText();
-            foreach (var loan in created)
+            for (var i = 0; i < created.Count; i++)
             {
-                loan.SetFormSnapshot(formJson);
+                created[i].SetFormSnapshot(ScopeFormToLoan(formSnapshot, i));
             }
         }
 
@@ -160,6 +163,19 @@ public sealed class SubmitLoanHandler(
                 l.Product,
                 l.Principal,
                 l.Status.ToString())).ToList());
+    }
+
+    private static string ScopeFormToLoan(System.Text.Json.JsonElement form, int loanIndex)
+    {
+        var root = JsonNode.Parse(form.GetRawText())!.AsObject();
+        if (root["loans"] is JsonArray loans
+            && loanIndex >= 0
+            && loanIndex < loans.Count)
+        {
+            root["loans"] = new JsonArray(loans[loanIndex]?.DeepClone());
+        }
+
+        return root.ToJsonString();
     }
 
     private async Task NotifyUserAsync(

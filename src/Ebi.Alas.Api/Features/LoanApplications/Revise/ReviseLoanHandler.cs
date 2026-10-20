@@ -65,6 +65,9 @@ public sealed class ReviseLoanHandler(
         }
 
         var now = timeProvider.GetUtcNow();
+        NthpDateGuard.EnsureAcceptable(
+            command.Form,
+            DateOnly.FromDateTime(timeProvider.GetLocalNow().DateTime));
         var computed = computation.Compute(new LoanComputationInput(
             command.Principal,
             command.TermDays,

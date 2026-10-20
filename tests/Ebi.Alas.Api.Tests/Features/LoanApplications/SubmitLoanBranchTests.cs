@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Ebi.Alas.Api.Composition.Auth;
 using Ebi.Alas.Api.Features.LoanApplications;
 using Ebi.Alas.Api.Features.LoanApplications.Domain;
@@ -88,6 +89,67 @@ public sealed class SubmitLoanBranchTests
         Assert.Equal(2, await db.WorkflowQueueItems.CountAsync());
         Assert.Equal("A16", result.Loans[0].ProductCode);
         Assert.Equal("C02", result.Loans[1].ProductCode);
+    }
+
+    [Fact]
+    public async Task SubmitLoan_MultiLoanForm_ScopesObligationsToEachApplication()
+    {
+        await using var db = Db();
+        var handler = Handler(db, requireRecommendation: true);
+        var caller = new CallerContext(Guid.NewGuid(), UserRole.Encoder, "BR-A");
+        var today = DateOnly.FromDateTime(DateTime.Today).ToString("yyyy-MM-dd");
+        using var formDoc = JsonDocument.Parse(
+            $$"""
+            {
+              "client": { "cisId": "C-1" },
+              "loans": [
+                {
+                  "loanNo": "PN-1",
+                  "parameters": { "nthpDate": "{{today}}" },
+                  "ebiReloans": [
+                    {
+                      "pn": "OLD-1",
+                      "name": "First only",
+                      "existingDeduction": 100,
+                      "outstandingBalance": 1000,
+                      "payToClose": 1000
+                    }
+                  ]
+                },
+                { "loanNo": "PN-2", "parameters": { "nthpDate": "{{today}}" }, "ebiReloans": [] }
+              ],
+              "outstandingLoans": []
+            }
+            """);
+        var request = new SubmitLoanApplicationsRequest(
+            "G-1",
+            "Client",
+            "BR-A",
+            LoanType.New,
+            [
+                new SubmitLoanLine("A16", "A16 - Salary", 1000m, 30, 0.05m),
+                new SubmitLoanLine("C02", "C02 - Payday", 2000m, 15, 0.08m),
+            ],
+            formDoc.RootElement.Clone());
+
+        await handler.HandleAsync(request, caller, CancellationToken.None);
+
+        var first = await db.LoanApplications.SingleAsync(l => l.ProductCode == "A16");
+        var second = await db.LoanApplications.SingleAsync(l => l.ProductCode == "C02");
+
+        using var firstForm = JsonDocument.Parse(first.FormJson!);
+        using var secondForm = JsonDocument.Parse(second.FormJson!);
+
+        var firstLoans = firstForm.RootElement.GetProperty("loans");
+        Assert.Equal(1, firstLoans.GetArrayLength());
+        Assert.Equal("PN-1", firstLoans[0].GetProperty("loanNo").GetString());
+        Assert.Equal(1, firstLoans[0].GetProperty("ebiReloans").GetArrayLength());
+        Assert.Equal("OLD-1", firstLoans[0].GetProperty("ebiReloans")[0].GetProperty("pn").GetString());
+
+        var secondLoans = secondForm.RootElement.GetProperty("loans");
+        Assert.Equal(1, secondLoans.GetArrayLength());
+        Assert.Equal("PN-2", secondLoans[0].GetProperty("loanNo").GetString());
+        Assert.Equal(0, secondLoans[0].GetProperty("ebiReloans").GetArrayLength());
     }
 
     [Fact]
