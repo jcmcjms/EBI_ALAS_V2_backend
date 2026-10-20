@@ -26,22 +26,26 @@ public sealed class DeskQueueService(
             return new DeskQueueResult(DeskLabelFor(caller.Role), [], null, "No review desk for this role.");
         }
 
-        var partition = caller.BranchId;
-        await queue.ReapExpiredAsync(stage, partition, cancellationToken);
-        await ReleaseCancelledClaimsAsync(stage, partition, cancellationToken);
+        var orgWide = caller.CanViewAllLoanBranches;
+        foreach (var partition in await DeskMaintenancePartitionsAsync(caller, stage, cancellationToken))
+        {
+            await queue.ReapExpiredAsync(stage, partition, cancellationToken);
+            await ReleaseCancelledClaimsAsync(stage, partition, cancellationToken);
+        }
 
-        var rows = await LoadRowsAsync(stage, partition, tracked: false, cancellationToken);
+        var rows = await LoadRowsAsync(stage, orgWide ? null : [caller.BranchId], tracked: false, cancellationToken);
         var names = await LoadOwnerNamesAsync(rows, cancellationToken);
         var clients = BuildClients(rows, names);
 
         var current = clients.FirstOrDefault(c => c.OwnerUserId == caller.UserId);
         var queued = clients.Where(c => c.OwnerUserId is null).ToList();
 
+        var scopeLabel = orgWide ? "All branches" : $"Branch {caller.BranchId}";
         return new DeskQueueResult(
             DeskLabelFor(caller.Role),
             queued,
             current,
-            $"Branch {partition} · {queued.Count} client{(queued.Count == 1 ? string.Empty : "s")} waiting");
+            $"{scopeLabel} · {queued.Count} client{(queued.Count == 1 ? string.Empty : "s")} waiting");
     }
 
     public async Task<DeskClaimResult?> ClaimHeadAsync(CallerContext caller, CancellationToken cancellationToken)
@@ -51,8 +55,11 @@ public sealed class DeskQueueService(
             return null;
         }
 
-        var partition = caller.BranchId;
-        await ReleaseCancelledClaimsAsync(stage, partition, cancellationToken);
+        var orgWide = caller.CanViewAllLoanBranches;
+        foreach (var partition in await DeskMaintenancePartitionsAsync(caller, stage, cancellationToken))
+        {
+            await ReleaseCancelledClaimsAsync(stage, partition, cancellationToken);
+        }
 
         var owned = await db.WorkflowQueueItems
             .Where(q => q.OwnerUserId == caller.UserId && q.Stage == stage && q.State == QueueItemState.Active)
@@ -60,19 +67,23 @@ public sealed class DeskQueueService(
             .ToListAsync(cancellationToken);
         if (owned.Count > 0)
         {
-            return await ResumeOwnedBundleAsync(stage, partition, caller.UserId, owned, cancellationToken);
+            var ownedPartition = owned[0].PartitionKey;
+            return await ResumeOwnedBundleAsync(stage, ownedPartition, caller.UserId, owned, cancellationToken);
         }
 
-        await queue.ReapExpiredAsync(stage, partition, cancellationToken);
+        foreach (var partition in await DeskMaintenancePartitionsAsync(caller, stage, cancellationToken))
+        {
+            await queue.ReapExpiredAsync(stage, partition, cancellationToken);
+        }
 
-        var rows = await LoadRowsAsync(stage, partition, tracked: true, cancellationToken);
+        var rows = await LoadRowsAsync(stage, orgWide ? null : [caller.BranchId], tracked: true, cancellationToken);
         var head = GroupRows(rows).FirstOrDefault(g => g.Items.All(i => i.State == QueueItemState.Queued));
         if (head is null)
         {
             return null;
         }
 
-        return await ClaimGroupAsync(stage, partition, caller.UserId, head.GroupNo, head, cancellationToken);
+        return await ClaimGroupAsync(stage, head.Items[0].PartitionKey, caller.UserId, head.GroupNo, head, cancellationToken);
     }
 
     public async Task<bool> ReleaseClaimAsync(CallerContext caller, CancellationToken cancellationToken)
@@ -126,7 +137,7 @@ public sealed class DeskQueueService(
             return await ResumeOwnedBundleAsync(stage, partition, caller.UserId, owned, cancellationToken);
         }
 
-        var rows = await LoadRowsAsync(stage, partition, tracked: true, cancellationToken);
+        var rows = await LoadRowsAsync(stage, [partition], tracked: true, cancellationToken);
         var groups = GroupRows(rows);
         var target = groups.FirstOrDefault(g => g.Items.Any(i => i.LoanApplicationId == loanId));
         if (target is null)
@@ -298,6 +309,23 @@ public sealed class DeskQueueService(
             applications);
     }
 
+    private async Task<IReadOnlyList<string>> DeskMaintenancePartitionsAsync(
+        CallerContext caller,
+        WorkflowStage stage,
+        CancellationToken cancellationToken)
+    {
+        if (!caller.CanViewAllLoanBranches)
+        {
+            return [caller.BranchId];
+        }
+
+        return await db.WorkflowQueueItems.AsNoTracking()
+            .Where(q => q.Stage == stage)
+            .Select(q => q.PartitionKey)
+            .Distinct()
+            .ToListAsync(cancellationToken);
+    }
+
     private async Task ReleaseCancelledClaimsAsync(
         WorkflowStage stage,
         string partition,
@@ -328,7 +356,7 @@ public sealed class DeskQueueService(
 
     private async Task<List<(WorkflowQueueItem QueueItem, LoanApplication Loan)>> LoadRowsAsync(
         WorkflowStage stage,
-        string partition,
+        IReadOnlyList<string>? partitions,
         bool tracked,
         CancellationToken cancellationToken)
     {
@@ -338,7 +366,7 @@ public sealed class DeskQueueService(
         var rows = await (
             from q in queueItems
             where q.Stage == stage
-                && q.PartitionKey == partition
+                && (partitions == null || partitions.Contains(q.PartitionKey))
                 && (q.State == QueueItemState.Queued || q.State == QueueItemState.Active)
             join l in loans on q.LoanApplicationId equals l.Id
             orderby q.Sequence

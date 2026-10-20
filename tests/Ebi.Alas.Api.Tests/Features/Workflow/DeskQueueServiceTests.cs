@@ -165,4 +165,60 @@ public sealed class DeskQueueServiceTests
         var claimAfter = await desk.ClaimHeadAsync(evaluator, CancellationToken.None);
         Assert.Null(claimAfter);
     }
+
+    private static LoanApplication NewLoanOnBranch(string lamId, string branchId, string groupNo, DateTimeOffset now) =>
+        LoanApplication.Create(lamId, groupNo, "Client", branchId, LoanType.New, 1000m, 30, 0.05m, 50m, 10m, 940m, Guid.NewGuid(), now);
+
+    [Fact]
+    public async Task Evaluator_Desk_ShowsAndClaimsOtherBranchPartition()
+    {
+        await using var db = Db();
+        var now = DateTimeOffset.UtcNow;
+        db.Branches.Add(Ebi.Alas.Api.Features.Branches.Branch.Create("001", "Main", "A1", now));
+        db.Branches.Add(Ebi.Alas.Api.Features.Branches.Branch.Create("002", "Satellite", "A1", now));
+        await db.SaveChangesAsync();
+
+        var loan = NewLoanOnBranch("LAM-REMOTE", "002", "GRP-R", now);
+        loan.TransitionTo(LoanStatus.ForChecking, now);
+        db.LoanApplications.Add(loan);
+        var queue = new WorkflowQueueService(db, new FixedTimeProvider(now));
+        await queue.EnqueueAsync(loan.Id, WorkflowStage.Evaluation, "002", CancellationToken.None);
+
+        var caller = new CallerContext(Guid.NewGuid(), UserRole.Evaluator, "001");
+        var service = Service(db, now);
+
+        var desk = await service.GetMyDeskAsync(caller, CancellationToken.None);
+        var client = Assert.Single(desk.Items);
+        Assert.Equal("LAM-REMOTE", Assert.Single(client.Applications).LamId);
+        Assert.Contains("All branches", desk.ScopeDescription);
+
+        var claim = await service.ClaimHeadAsync(caller, CancellationToken.None);
+        Assert.NotNull(claim);
+        Assert.Equal("LAM-REMOTE", claim!.LamId);
+    }
+
+    [Fact]
+    public async Task Recommender_Desk_RemainsHomePartition()
+    {
+        await using var db = Db();
+        var now = DateTimeOffset.UtcNow;
+        db.Branches.Add(Ebi.Alas.Api.Features.Branches.Branch.Create("001", "Main", "A1", now));
+        db.Branches.Add(Ebi.Alas.Api.Features.Branches.Branch.Create("002", "Satellite", "A1", now));
+        await db.SaveChangesAsync();
+
+        var loan = NewLoanOnBranch("LAM-REMOTE-REC", "002", "GRP-RR", now);
+        loan.TransitionTo(LoanStatus.ForChecking, now);
+        db.LoanApplications.Add(loan);
+        var queue = new WorkflowQueueService(db, new FixedTimeProvider(now));
+        await queue.EnqueueAsync(loan.Id, WorkflowStage.Recommendation, "002", CancellationToken.None);
+
+        var caller = new CallerContext(Guid.NewGuid(), UserRole.Recommender, "001");
+        var service = Service(db, now);
+
+        var desk = await service.GetMyDeskAsync(caller, CancellationToken.None);
+        Assert.Empty(desk.Items);
+
+        var claim = await service.ClaimHeadAsync(caller, CancellationToken.None);
+        Assert.Null(claim);
+    }
 }
