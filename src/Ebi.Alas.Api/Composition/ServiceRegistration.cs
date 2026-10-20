@@ -127,6 +127,17 @@ public static class ServiceRegistration
                         Window = TimeSpan.FromMinutes(1),
                         QueueLimit = 0
                     }));
+            // Draft auto-save is a small idempotent upsert fired on typing pauses;
+            // it gets its own budget so it can never starve decision writes.
+            options.AddPolicy("draft", httpContext =>
+                System.Threading.RateLimiting.RateLimitPartition.GetFixedWindowLimiter(
+                    httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+                    _ => new System.Threading.RateLimiting.FixedWindowRateLimiterOptions
+                    {
+                        PermitLimit = 120,
+                        Window = TimeSpan.FromMinutes(1),
+                        QueueLimit = 0
+                    }));
         });
 
         var connectionString = configuration.GetConnectionString("Alas");

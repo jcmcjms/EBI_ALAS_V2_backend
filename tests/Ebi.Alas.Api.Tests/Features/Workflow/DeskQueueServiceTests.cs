@@ -28,8 +28,11 @@ public sealed class DeskQueueServiceTests
     private static LoanApplication NewLoan(string lamId, DateTimeOffset now) =>
         NewLoan(lamId, Guid.NewGuid(), now);
 
-    private static LoanApplication NewLoan(string lamId, Guid createdBy, DateTimeOffset now) =>
-        LoanApplication.Create(lamId, "GRP-1", "Client", "011", LoanType.New, 1000m, 30, 0.05m, 50m, 10m, 940m, createdBy, now);
+    private static LoanApplication NewLoan(string lamId, DateTimeOffset now, string groupNo) =>
+        NewLoan(lamId, Guid.NewGuid(), now, groupNo);
+
+    private static LoanApplication NewLoan(string lamId, Guid createdBy, DateTimeOffset now, string groupNo = "GRP-1") =>
+        LoanApplication.Create(lamId, groupNo, "Client", "011", LoanType.New, 1000m, 30, 0.05m, 50m, 10m, 940m, createdBy, now);
 
     [Fact]
     public async Task GetMyDeskAsync_Recommender_SeesQueuedRecommendationItems()
@@ -45,9 +48,11 @@ public sealed class DeskQueueServiceTests
         var desk = await Service(db, now).GetMyDeskAsync(caller, CancellationToken.None);
 
         Assert.Equal("Recommendation Desk", desk.DeskLabel);
-        var item = Assert.Single(desk.Items);
+        var client = Assert.Single(desk.Items);
+        Assert.Equal("GRP-1", client.GroupNo);
+        var item = Assert.Single(client.Applications);
         Assert.Equal("LAM-1", item.LamId);
-        Assert.True(item.IsHead);
+        Assert.True(client.IsHead);
         Assert.Null(desk.CurrentClaim);
     }
 
@@ -106,7 +111,7 @@ public sealed class DeskQueueServiceTests
         var claimed = await desk.ClaimHeadAsync(evaluator, CancellationToken.None);
         Assert.NotNull(claimed);
 
-        var next = NewLoan("LAM-NEXT", now);
+        var next = NewLoan("LAM-NEXT", now, groupNo: "GRP-NEXT");
         next.TransitionTo(LoanStatus.ForChecking, now);
         db.LoanApplications.Add(next);
         await queue.EnqueueAsync(next.Id, WorkflowStage.Evaluation, "011", CancellationToken.None);
@@ -122,7 +127,7 @@ public sealed class DeskQueueServiceTests
 
         var deskAfter = await desk.GetMyDeskAsync(evaluator, CancellationToken.None);
         Assert.Null(deskAfter.CurrentClaim);
-        Assert.DoesNotContain(deskAfter.Items, i => i.LamId == "LAM-CANCEL");
+        Assert.DoesNotContain(deskAfter.Items, c => c.Applications.Any(a => a.LamId == "LAM-CANCEL"));
 
         var claimAfter = await desk.ClaimHeadAsync(evaluator, CancellationToken.None);
         Assert.NotNull(claimAfter);

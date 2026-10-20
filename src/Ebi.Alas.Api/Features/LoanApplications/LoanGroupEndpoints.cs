@@ -68,5 +68,33 @@ public static class LoanGroupEndpoints
             return Results.Ok(new LoanGroupResponseDto(groupNo, loans));
         })
         .WithName("GetLoanGroup");
+
+        group.MapPut("/{groupNo}/status", async (
+            string groupNo,
+            GroupStatusRequest request,
+            AlasDbContext db,
+            WorkflowActions.LoanWorkflowService workflow,
+            ClaimsPrincipal user,
+            TimeProvider timeProvider,
+            CancellationToken ct) =>
+        {
+            var caller = CallerContext.Require(user);
+            if (string.IsNullOrWhiteSpace(groupNo))
+            {
+                throw new NotFoundException("Loan group", groupNo);
+            }
+
+            var result = await LoanGroupStatusHandler.ApplyAsync(db, workflow, caller, groupNo, request, ct);
+            return Results.Ok(new
+            {
+                success = true,
+                message = $"Applied to {result.Succeeded} of {result.Succeeded + result.Failed} loan(s).",
+                data = result,
+                errors = Array.Empty<string>(),
+                timestamp = timeProvider.GetUtcNow(),
+            });
+        })
+        .RequireRateLimiting("write")
+        .WithName("UpdateLoanGroupStatus");
     }
 }

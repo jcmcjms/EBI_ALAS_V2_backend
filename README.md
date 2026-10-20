@@ -577,15 +577,25 @@ A loan application flows through a strict state machine (`LoanStatus`). Each tra
 
 | Action | Endpoint | Who | Effect |
 |---|---|---|---|
-| Recommend | `POST /api/loans/{id}/recommend` | Recommender | → `ForChecking`, signs slot, enqueues evaluation, notifies evaluators. *(An Evaluator hitting this on a `ForChecking` loan fast-paths into evaluate.)* |
-| Evaluate | `POST /api/loans/{id}/evaluate` | Evaluator | Body `{ "recommend": true/false }` → `ForApproval`, signs slot, enqueues approval |
-| Approve | `POST /api/loans/{id}/approve` | Approver | → `Approved`, signs slot, notifies encoder |
-| Reject | `POST /api/loans/{id}/reject` | Approver | → `Rejected` |
+| Recommend | `POST /api/loans/{id}/recommend` | Recommender | Optional body `{ "remarks" }` → `ForChecking`, signs slot, enqueues evaluation, notifies evaluators. *(An Evaluator hitting this on a `ForChecking` loan fast-paths into evaluate.)* |
+| Evaluate | `POST /api/loans/{id}/evaluate` | Evaluator | Body `{ "recommend": true/false, "remarks"? }` → `ForApproval`, signs slot, enqueues approval |
+| Approve | `POST /api/loans/{id}/approve` | Approver | Optional body `{ "remarks" }` → `Approved`, signs slot, notifies encoder |
+| Reject | `POST /api/loans/{id}/reject` | Approver | Optional body `{ "remarks" }` → `Rejected` |
 | Push back | `POST /api/loans/{id}/pushback` | Recommender / Evaluator / Approver | Body `{ section, comment }` → `ForRevision`, creates a `RevisionRequest`, reassigns to the encoder, notifies |
 | Cancel | `POST /api/loans/{id}/cancel` | Owner / Approver / Admin | → `Cancelled`, closes open queue items |
 | Revise | `PUT /api/loans/{id}/revise` | Encoder (`CanReviseLoan`) | From `ForRevision` only; recomputes figures, requires notes ≥ 10 chars, re-enters the pipeline at the configured initial stage |
 
-Every action records an immutable `LoanApplicationAction` (actor, from/to status, verb, comments, timestamp) — the source for the loan **history** and **timeline** endpoints — and broadcasts a `DashboardUpdated` SignalR event.
+Every action records an immutable `LoanApplicationAction` (actor, from/to status, verb, comments, timestamp) — the source for the loan **history** and **timeline** endpoints — and broadcasts a `DashboardUpdated` SignalR event. Optional `remarks` (≤ 2000 chars, rich text from the review UI) are stored as the action's comments; every transition also clears the loan's per-reviewer **review drafts** (see below).
+
+### Review Drafts (auto-save)
+
+Reviewers' in-progress remarks auto-save while they type, so a refresh, crash or device switch never discards work:
+
+- `GET /api/loans/{id}/review-draft` — the caller's draft for one loan (`204` when none)
+- `PUT /api/loans/{id}/review-draft` — upsert `{ "remarks" }` (≤ 2000 chars; blank remarks delete the draft) *(draft RL — 120/min, own budget so auto-save can't starve decision writes)*
+- `DELETE /api/loans/{id}/review-draft` — discard the caller's draft *(write RL)*
+
+Drafts are private to the authoring officer (unique per loan + user), branch-isolated through the loan, and cleared server-side whenever the loan transitions to another stage. The frontend mirrors keystrokes to `localStorage` as an offline fallback and flushes with `fetch keepalive` on `pagehide`.
 
 Revision requests can be listed (`GET /api/loans/{id}/revision-requests`) and resolved (`PUT …/resolve`) with branch isolation enforced on both.
 
@@ -607,9 +617,10 @@ Active review stages are backed by `WorkflowQueueItems`:
 | `Approval` | branch code | Branch desk queue for Area Heads |
 
 - **Sequenced FIFO** within a partition; claiming takes the head (or a specific item)
+- **Client bundles** — the desk serves *clients*, not single applications: items sharing an `ApplicationGroupNo` are grouped into one queue entry, and claiming takes **every** queued application of that client under one lease (release frees them all). A bundle held by another officer is skipped; a sibling that re-enters the queue while the bundle is held is absorbed by the holder.
 - **Leasing** — a claim marks the item `Active` with a 30-minute lease; `RowVersion` makes concurrent claims fail fast (`409`)
 - **Reaping** — expired leases are reaped on read and by a background service every 5 minutes; claims on cancelled loans are released automatically
-- **Desk endpoints** — `GET /api/loans/queue/my` returns the caller's role desk (label, waiting list, current claim); `POST /api/loans/queue/claim` claims the head; `POST /api/loans/queue/release` and `POST /api/loans/queue/{loanId}/claim` manage specific claims. Admins/System can target any branch via `/api/workflow/queue*`.
+- **Desk endpoints** — `GET /api/loans/queue/my` returns the caller's role desk (label, waiting **clients** with their applications, current claim); `POST /api/loans/queue/claim` claims the head client bundle; `POST /api/loans/queue/release` and `POST /api/loans/queue/{loanId}/claim` manage specific claims (claim-by-loan takes that loan's whole bundle and `409`s when the client is queued behind another). Admins/System can target any branch via `/api/workflow/queue*`.
 - A `LoanAssigned` SignalR event notifies the claiming user.
 
 ### Signature Chain & E-Signatures
@@ -787,10 +798,14 @@ Errors use **RFC 9457 `ProblemDetails`** (`{ type, title, status, detail }`). Pa
 | Method | Path | Description |
 |---|---|---|
 | `GET` | `/api/loan-groups/{groupNo}` | All loans in an application group |
-| `GET` | `/api/loans/queue/my` | Caller's role desk (branch partition) |
-| `POST` | `/api/loans/queue/claim` | Claim the head of my desk *(write RL)* |
-| `POST` | `/api/loans/queue/release` | Release my current claim *(write RL)* |
-| `POST` | `/api/loans/queue/{loanId}/claim` | Claim a specific loan *(write RL)* |
+| `PUT` | `/api/loan-groups/{groupNo}/status` | Apply one decision (`ForChecking`/`ForApproval`/`Approved`/`Rejected`/`ForRevision`) to selected loans of a bundle; per-loan results, comments required for revision *(write RL)* |
+| `GET` | `/api/loans/queue/my` | Caller's role desk — clients with their bundled applications (branch partition) |
+| `POST` | `/api/loans/queue/claim` | Claim the head client's whole bundle *(write RL)* |
+| `POST` | `/api/loans/queue/release` | Release my current claim (entire bundle) *(write RL)* |
+| `POST` | `/api/loans/queue/{loanId}/claim` | Claim a specific loan's bundle *(write RL)* |
+| `GET` | `/api/loans/{id}/review-draft` | My auto-saved review remarks for the loan |
+| `PUT` | `/api/loans/{id}/review-draft` | Upsert my review draft (≤ 2000 chars) *(draft RL)* |
+| `DELETE` | `/api/loans/{id}/review-draft` | Discard my review draft *(write RL)* |
 | `GET` | `/api/workflow/queue` | Queue view (`stage`, optional `branchId` for Admin/System) |
 | `POST` | `/api/workflow/queue/claim` | Claim *(write RL)* |
 | `POST` | `/api/workflow/queue/{id}/release` | Release *(write RL)* |

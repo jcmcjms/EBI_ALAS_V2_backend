@@ -17,10 +17,11 @@ public static class LoanWorkflowEndpoints
             Guid id,
             LoanWorkflowService service,
             ClaimsPrincipal user,
-            CancellationToken cancellationToken) =>
+            CancellationToken cancellationToken,
+            WorkflowRemarksRequest? request = null) =>
         {
             var caller = CallerContext.Require(user);
-            var result = await service.RecommendAsync(id, caller, cancellationToken);
+            var result = await service.RecommendAsync(id, caller, cancellationToken, request?.Remarks);
             return Results.Ok(result);
         });
 
@@ -32,7 +33,7 @@ public static class LoanWorkflowEndpoints
             CancellationToken cancellationToken) =>
         {
             var caller = CallerContext.Require(user);
-            var result = await service.EvaluateAsync(id, request.Recommend, caller, cancellationToken);
+            var result = await service.EvaluateAsync(id, request.Recommend, caller, cancellationToken, request.Remarks);
             return Results.Ok(result);
         });
 
@@ -40,10 +41,11 @@ public static class LoanWorkflowEndpoints
             Guid id,
             LoanWorkflowService service,
             ClaimsPrincipal user,
-            CancellationToken cancellationToken) =>
+            CancellationToken cancellationToken,
+            WorkflowRemarksRequest? request = null) =>
         {
             var caller = CallerContext.Require(user);
-            var result = await service.ApproveAsync(id, caller, cancellationToken);
+            var result = await service.ApproveAsync(id, caller, cancellationToken, request?.Remarks);
             return Results.Ok(result);
         });
 
@@ -51,10 +53,11 @@ public static class LoanWorkflowEndpoints
             Guid id,
             LoanWorkflowService service,
             ClaimsPrincipal user,
-            CancellationToken cancellationToken) =>
+            CancellationToken cancellationToken,
+            WorkflowRemarksRequest? request = null) =>
         {
             var caller = CallerContext.Require(user);
-            var result = await service.RejectAsync(id, caller, cancellationToken);
+            var result = await service.RejectAsync(id, caller, cancellationToken, request?.Remarks);
             return Results.Ok(result);
         });
 
@@ -113,6 +116,8 @@ public static class LoanWorkflowEndpoints
     }
 }
 
-public sealed record EvaluateRequest(bool Recommend);
+public sealed record EvaluateRequest(bool Recommend, string? Remarks = null);
+
+public sealed record WorkflowRemarksRequest(string? Remarks);
 
 public sealed record PushbackRequest(string Section, string Comment);

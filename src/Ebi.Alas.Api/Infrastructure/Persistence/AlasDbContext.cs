@@ -58,6 +58,8 @@ public sealed class AlasDbContext(DbContextOptions<AlasDbContext> options) : DbC
 
     public DbSet<Branch> Branches => Set<Branch>();
 
+    public DbSet<ReviewDraft> ReviewDrafts => Set<ReviewDraft>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.ApplyConfiguration(new UserConfiguration());
@@ -98,6 +100,15 @@ public sealed class AlasDbContext(DbContextOptions<AlasDbContext> options) : DbC
             b.Property(x => x.Body).HasMaxLength(2000).IsRequired();
             b.HasIndex(x => x.LoanApplicationId);
             b.HasIndex(x => x.ParentRemarkId);
+        });
+
+        modelBuilder.Entity<ReviewDraft>(b =>
+        {
+            b.ToTable("ReviewDrafts");
+            b.HasKey(x => x.Id);
+            b.Property(x => x.Remarks).HasMaxLength(ReviewDraft.MaxRemarksLength).IsRequired();
+            b.Property(x => x.UpdatedAt).IsRequired();
+            b.HasIndex(x => new { x.LoanApplicationId, x.UserId }).IsUnique();
         });
 
         modelBuilder.Entity<LoanApplicationAction>(b =>

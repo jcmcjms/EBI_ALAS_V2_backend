@@ -462,6 +462,34 @@ namespace Ebi.Alas.Api.Migrations
                     b.ToTable("LoanApplicationActions", (string)null);
                 });
 
+            modelBuilder.Entity("Ebi.Alas.Api.Features.LoanApplications.Domain.ReviewDraft", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("LoanApplicationId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Remarks")
+                        .IsRequired()
+                        .HasMaxLength(2000)
+                        .HasColumnType("nvarchar(2000)");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("LoanApplicationId", "UserId")
+                        .IsUnique();
+
+                    b.ToTable("ReviewDrafts", (string)null);
+                });
+
             modelBuilder.Entity("Ebi.Alas.Api.Features.LoanProducts.LoanProduct", b =>
                 {
                     b.Property<Guid>("Id")
