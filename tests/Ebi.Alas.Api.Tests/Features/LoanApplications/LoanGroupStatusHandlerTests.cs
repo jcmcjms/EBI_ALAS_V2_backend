@@ -156,14 +156,30 @@ public sealed class LoanGroupStatusHandlerTests
     public async Task Apply_OtherBranchCaller_CannotTouchBundle()
     {
         await using var db = Db();
+        db.LoanApplications.Add(BundleLoan("LAM-1", "GRP-X", LoanStatus.ForRevision, branch: "011"));
+        await db.SaveChangesAsync();
+
+        var caller = new CallerContext(Guid.NewGuid(), UserRole.Recommender, "999");
+        await Assert.ThrowsAsync<NotFoundException>(() => LoanGroupStatusHandler.ApplyAsync(
+            db, Service(db), caller, "GRP-X",
+            new GroupStatusRequest("ForChecking", null, null),
+            CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task Apply_Evaluator_OtherBranch_CanTouchBundle()
+    {
+        await using var db = Db();
         db.LoanApplications.Add(BundleLoan("LAM-1", "GRP-X", LoanStatus.ForChecking, branch: "011"));
         await db.SaveChangesAsync();
 
         var caller = new CallerContext(Guid.NewGuid(), UserRole.Evaluator, "999");
-        await Assert.ThrowsAsync<NotFoundException>(() => LoanGroupStatusHandler.ApplyAsync(
+        var result = await LoanGroupStatusHandler.ApplyAsync(
             db, Service(db), caller, "GRP-X",
             new GroupStatusRequest("ForApproval", null, null),
-            CancellationToken.None));
+            CancellationToken.None);
+
+        Assert.Equal(1, result.Succeeded);
     }
 
     [Fact]
