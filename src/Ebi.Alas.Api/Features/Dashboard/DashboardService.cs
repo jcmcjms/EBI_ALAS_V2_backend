@@ -92,7 +92,7 @@ public sealed class DashboardService(AlasDbContext db)
     {
         var (dayStart, dayEnd) = ManilaDayRange(asOfDay);
         var query = db.LoanApplications.AsQueryable();
-        if (!caller.CanAccessAllBranches)
+        if (!caller.CanViewAllLoanBranches)
         {
             query = query.Where(l => l.BranchId == caller.BranchId);
         }
@@ -114,7 +114,7 @@ public sealed class DashboardService(AlasDbContext db)
             .FirstOrDefaultAsync(cancellationToken);
 
         var scoped = db.LoanApplications.AsNoTracking();
-        if (!caller.CanAccessAllBranches)
+        if (!caller.CanViewAllLoanBranches)
         {
             scoped = scoped.Where(l => l.BranchId == caller.BranchId);
         }
@@ -149,7 +149,7 @@ public sealed class DashboardService(AlasDbContext db)
             from q in db.WorkflowQueueItems.AsNoTracking()
             where q.State == QueueItemState.Active && q.OwnerUserId != null
             join l in db.LoanApplications.AsNoTracking() on q.LoanApplicationId equals l.Id
-            where (caller.CanAccessAllBranches || l.BranchId == caller.BranchId)
+            where (caller.CanViewAllLoanBranches || l.BranchId == caller.BranchId)
                 && (!isEncoderScope || q.OwnerUserId == caller.UserId)
             orderby q.LeasedAt
             select new
@@ -212,7 +212,7 @@ public sealed class DashboardService(AlasDbContext db)
             join l in db.LoanApplications.AsNoTracking() on a.LoanApplicationId equals l.Id
             where a.ActionDate >= weekStart
                 && a.ActionDate < weekEnd
-                && (caller.CanAccessAllBranches || l.BranchId == caller.BranchId)
+                && (caller.CanViewAllLoanBranches || l.BranchId == caller.BranchId)
             select new { a.Action, a.ActionDate }
         ).ToListAsync(cancellationToken);
 
@@ -303,7 +303,7 @@ public sealed class DashboardService(AlasDbContext db)
         CancellationToken cancellationToken)
     {
         var flaggedQuery = db.LoanApplications.AsNoTracking();
-        if (!caller.CanAccessAllBranches)
+        if (!caller.CanViewAllLoanBranches)
         {
             flaggedQuery = flaggedQuery.Where(l => l.BranchId == caller.BranchId);
         }
