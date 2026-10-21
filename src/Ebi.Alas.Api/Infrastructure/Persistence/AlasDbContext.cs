@@ -60,6 +60,8 @@ public sealed class AlasDbContext(DbContextOptions<AlasDbContext> options) : DbC
 
     public DbSet<ReviewDraft> ReviewDrafts => Set<ReviewDraft>();
 
+    public DbSet<LoanCreationDraft> LoanCreationDrafts => Set<LoanCreationDraft>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.ApplyConfiguration(new UserConfiguration());
@@ -111,6 +113,15 @@ public sealed class AlasDbContext(DbContextOptions<AlasDbContext> options) : DbC
             b.HasIndex(x => new { x.LoanApplicationId, x.UserId }).IsUnique();
         });
 
+        modelBuilder.Entity<LoanCreationDraft>(b =>
+        {
+            b.ToTable("LoanCreationDrafts");
+            b.HasKey(x => x.Id);
+            b.Property(x => x.Payload).IsRequired();
+            b.Property(x => x.UpdatedAt).IsRequired();
+            b.HasIndex(x => x.UserId).IsUnique();
+        });
+
         modelBuilder.Entity<LoanApplicationAction>(b =>
         {
             b.ToTable("LoanApplicationActions");
@@ -127,9 +138,10 @@ public sealed class AlasDbContext(DbContextOptions<AlasDbContext> options) : DbC
             b.ToTable("LoanProductDocumentRequirements");
             b.HasKey(x => x.Id);
             b.Property(x => x.ProductCode).HasMaxLength(20).IsRequired();
+            b.Property(x => x.LoanType).HasConversion<int>();
             b.Property(x => x.Code).HasMaxLength(50).IsRequired();
             b.Property(x => x.Description).HasMaxLength(200).IsRequired();
-            b.HasIndex(x => new { x.ProductCode, x.Code }).IsUnique();
+            b.HasIndex(x => new { x.ProductCode, x.LoanType, x.Code }).IsUnique();
         });
 
         modelBuilder.Entity<LoanDeviation>(b =>

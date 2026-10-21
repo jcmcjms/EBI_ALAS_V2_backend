@@ -462,6 +462,30 @@ namespace Ebi.Alas.Api.Migrations
                     b.ToTable("LoanApplicationActions", (string)null);
                 });
 
+            modelBuilder.Entity("Ebi.Alas.Api.Features.LoanApplications.Domain.LoanCreationDraft", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Payload")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId")
+                        .IsUnique();
+
+                    b.ToTable("LoanCreationDrafts", (string)null);
+                });
+
             modelBuilder.Entity("Ebi.Alas.Api.Features.LoanApplications.Domain.ReviewDraft", b =>
                 {
                     b.Property<Guid>("Id")
@@ -582,6 +606,9 @@ namespace Ebi.Alas.Api.Migrations
                         .HasMaxLength(200)
                         .HasColumnType("nvarchar(200)");
 
+                    b.Property<int>("LoanType")
+                        .HasColumnType("int");
+
                     b.Property<string>("ProductCode")
                         .IsRequired()
                         .HasMaxLength(20)
@@ -589,7 +616,7 @@ namespace Ebi.Alas.Api.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("ProductCode", "Code")
+                    b.HasIndex("ProductCode", "LoanType", "Code")
                         .IsUnique();
 
                     b.ToTable("LoanProductDocumentRequirements", (string)null);
@@ -735,6 +762,11 @@ namespace Ebi.Alas.Api.Migrations
                         .IsRequired()
                         .HasMaxLength(100)
                         .HasColumnType("nvarchar(100)");
+
+                    b.Property<bool>("IsAvailable")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bit")
+                        .HasDefaultValue(true);
 
                     b.Property<string>("JobTitle")
                         .HasMaxLength(100)

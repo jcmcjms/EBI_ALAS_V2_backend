@@ -44,6 +44,9 @@ public sealed class User
 
     public UserStatus Status { get; private set; }
 
+    /// <summary>Duty status for receiving evaluation/approval work. Separate from account Active/Suspended.</summary>
+    public bool IsAvailable { get; private set; } = true;
+
     public bool MustChangePassword { get; private set; }
 
     public DateTimeOffset? PasswordResetSentAt { get; private set; }
@@ -87,6 +90,7 @@ public sealed class User
             JobTitle = NormalizeJobTitle(jobTitle),
             Role = role,
             Status = UserStatus.Active,
+            IsAvailable = true,
             MustChangePassword = true,
             CreatedAt = now,
             UpdatedAt = now
@@ -112,6 +116,17 @@ public sealed class User
         }
 
         Status = UserStatus.Active;
+        UpdatedAt = now;
+    }
+
+    public void SetAvailable(bool available, DateTimeOffset now)
+    {
+        if (IsAvailable == available)
+        {
+            return;
+        }
+
+        IsAvailable = available;
         UpdatedAt = now;
     }
 

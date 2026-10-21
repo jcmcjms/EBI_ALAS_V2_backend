@@ -23,6 +23,7 @@ public sealed class UserConfiguration : IEntityTypeConfiguration<User>
         builder.Property(x => x.JobTitle).HasMaxLength(100);
         builder.Property(x => x.Role).HasConversion<int>();
         builder.Property(x => x.Status).HasConversion<int>();
+        builder.Property(x => x.IsAvailable).IsRequired().HasDefaultValue(true);
         builder.Property(x => x.MustChangePassword).IsRequired();
         builder.Property(x => x.PasswordResetSentAt);
         builder.Property(x => x.ESignature);
