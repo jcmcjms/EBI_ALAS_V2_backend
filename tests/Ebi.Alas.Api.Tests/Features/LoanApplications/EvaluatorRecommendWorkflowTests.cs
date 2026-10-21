@@ -38,7 +38,8 @@ public sealed class EvaluatorRecommendWorkflowTests
         await db.SaveChangesAsync();
 
         var result = await Service(db).EvaluateAsync(
-            loan.Id, true, new CallerContext(userId, UserRole.Evaluator, "001"), CancellationToken.None);
+            loan.Id, true, new CallerContext(userId, UserRole.Evaluator, "001"), CancellationToken.None,
+            "Capacity verified for approval.");
 
         Assert.Equal(nameof(LoanStatus.ForApproval), result.Status);
     }
@@ -54,7 +55,8 @@ public sealed class EvaluatorRecommendWorkflowTests
         await db.SaveChangesAsync();
 
         var result = await Service(db).RecommendAsync(
-            loan.Id, new CallerContext(userId, UserRole.Evaluator, "001"), CancellationToken.None);
+            loan.Id, new CallerContext(userId, UserRole.Evaluator, "001"), CancellationToken.None,
+            "Capacity verified for approval.");
 
         Assert.Equal(nameof(LoanStatus.ForApproval), result.Status);
     }

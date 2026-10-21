@@ -236,7 +236,7 @@ public sealed class ReviewDraftApiTests : IClassFixture<WebApplicationFactory<Pr
     }
 
     [Fact]
-    public async Task Evaluate_WithoutRemarks_StillSucceeds()
+    public async Task Evaluate_WithoutRemarks_IsRejected()
     {
         var client = AuthenticatedClient();
         var loanId = SeedLoan(LoanStatus.ForChecking);
@@ -245,6 +245,6 @@ public sealed class ReviewDraftApiTests : IClassFixture<WebApplicationFactory<Pr
             $"/api/loans/{loanId}/evaluate",
             new { recommend = true });
 
-        Assert.Equal(HttpStatusCode.OK, evaluate.StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, evaluate.StatusCode);
     }
 }

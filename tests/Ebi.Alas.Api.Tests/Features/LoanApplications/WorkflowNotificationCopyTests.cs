@@ -33,7 +33,8 @@ public sealed class WorkflowNotificationCopyTests
             new Ebi.Alas.Api.Features.Notifications.ApplicationArrivalNotifier(db, null, TimeProvider.System),
             TimeProvider.System);
         await service.EvaluateAsync(
-            loan.Id, true, new CallerContext(userId, UserRole.Evaluator, "001"), CancellationToken.None);
+            loan.Id, true, new CallerContext(userId, UserRole.Evaluator, "001"), CancellationToken.None,
+            "Capacity verified for approval.");
 
         var notification = await db.Notifications.AsNoTracking().SingleAsync();
         Assert.DoesNotContain("recommend=", notification.Title, StringComparison.OrdinalIgnoreCase);

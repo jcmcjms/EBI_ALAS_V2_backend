@@ -82,6 +82,16 @@ public sealed class ReviewDraftTests
         Assert.Equal("Capacity verified, no adverse findings.", action.Comments);
     }
 
+    private static async Task<User> SeedProductHead(AlasDbContext db, Guid userId)
+    {
+        var user = User.Create(
+            $"ph-{userId:N}", "hash", "P", "Head", "", "ph@x.com", "001",
+            UserRole.Approver, DateTimeOffset.UtcNow, "Product Head");
+        db.Users.Add(user);
+        await db.SaveChangesAsync();
+        return user;
+    }
+
     [Fact]
     public async Task Approve_WithoutRemarks_KeepsHistoryCommentNull()
     {
@@ -90,11 +100,12 @@ public sealed class ReviewDraftTests
         var loan = LoanInChecking(userId);
         loan.TransitionTo(LoanStatus.ForApproval, DateTimeOffset.UtcNow);
         db.LoanApplications.Add(loan);
+        var head = await SeedProductHead(db, userId);
         await db.SaveChangesAsync();
 
         await Service(db).ApproveAsync(
             loan.Id,
-            new CallerContext(userId, UserRole.Approver, "001"),
+            new CallerContext(head.Id, UserRole.Approver, "001"),
             CancellationToken.None);
 
         var action = await db.LoanApplicationActions.SingleAsync(a => a.LoanApplicationId == loan.Id);
@@ -109,12 +120,13 @@ public sealed class ReviewDraftTests
         var loan = LoanInChecking(userId);
         loan.TransitionTo(LoanStatus.ForApproval, DateTimeOffset.UtcNow);
         db.LoanApplications.Add(loan);
+        var head = await SeedProductHead(db, userId);
         await db.SaveChangesAsync();
 
         var remarks = new string('x', ReviewDraft.MaxRemarksLength + 1);
         await Assert.ThrowsAsync<ValidationException>(() => Service(db).ApproveAsync(
             loan.Id,
-            new CallerContext(userId, UserRole.Approver, "001"),
+            new CallerContext(head.Id, UserRole.Approver, "001"),
             CancellationToken.None,
             remarks));
     }

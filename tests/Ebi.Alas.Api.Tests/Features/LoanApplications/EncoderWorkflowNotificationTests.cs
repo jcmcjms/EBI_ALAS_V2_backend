@@ -80,17 +80,20 @@ public sealed class EncoderWorkflowNotificationTests
     {
         await using var db = Db();
         var encoder = Guid.NewGuid();
-        var approver = Guid.NewGuid();
         var loan = Loan(encoder);
         loan.TransitionTo(LoanStatus.ForChecking, DateTimeOffset.UtcNow);
         loan.TransitionTo(LoanStatus.ForApproval, DateTimeOffset.UtcNow);
         db.LoanApplications.Add(loan);
+        var head = User.Create(
+            "ph", "hash", "P", "Head", "", "ph@x.com", "BR-A",
+            UserRole.Approver, DateTimeOffset.UtcNow, "Product Head");
+        db.Users.Add(head);
         await db.SaveChangesAsync();
 
         var (service, notifier) = Service(db);
         await service.ApproveAsync(
             loan.Id,
-            new CallerContext(approver, UserRole.Approver, "BR-A"),
+            new CallerContext(head.Id, UserRole.Approver, "BR-A"),
             CancellationToken.None);
 
         var encoderNotes = await db.Notifications

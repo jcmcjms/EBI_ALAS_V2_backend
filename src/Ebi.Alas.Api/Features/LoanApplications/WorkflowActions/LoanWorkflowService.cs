@@ -63,12 +63,26 @@ public sealed class LoanWorkflowService(
     {
         EnsureRole(caller, UserRole.Evaluator);
         var loan = await LoadScopedAsync(loanId, caller, cancellationToken);
+        var comments = NormalizeRemarks(remarks);
+        if (recommend)
+        {
+            RequireRecommendRemarks(comments);
+        }
+
         var fromEval = loan.Status;
         var evalVerb = recommend ? "EvaluatedRecommended" : "EvaluatedNotRecommended";
         loan.TransitionTo(LoanStatus.ForApproval, timeProvider.GetUtcNow(), caller.UserId, evalVerb);
-        RecordAction(loan, caller.UserId, evalVerb, fromEval.ToString(), loan.Status.ToString(), NormalizeRemarks(remarks), timeProvider.GetUtcNow());
+        RecordAction(loan, caller.UserId, evalVerb, fromEval.ToString(), loan.Status.ToString(), comments, timeProvider.GetUtcNow());
         await ClearReviewDraftsAsync(loan.Id, cancellationToken);
-        loan.AssignTo(null, timeProvider.GetUtcNow());
+        var assignment = await new Approvals.ApproverAssignmentService(db).PickAsync(loan, cancellationToken);
+        if (assignment.AssignedUserId is { } assigneeId)
+        {
+            loan.AssignTo(assigneeId, timeProvider.GetUtcNow());
+        }
+        else
+        {
+            loan.AssignTo(null, timeProvider.GetUtcNow());
+        }
         await queue.CompleteAsync(await ActiveQueueIdAsync(loanId, WorkflowStage.Evaluation, cancellationToken), caller.UserId, cancellationToken);
         await queue.EnqueueAsync(loanId, WorkflowStage.Approval, loan.BranchId, cancellationToken);
         await SignatureChainService.SignAsync(db, loanId, "Evaluator", caller.UserId, timeProvider.GetUtcNow(), cancellationToken);
@@ -92,6 +106,7 @@ public sealed class LoanWorkflowService(
     {
         EnsureRole(caller, UserRole.Approver);
         var loan = await LoadScopedAsync(loanId, caller, cancellationToken);
+        await EnsureCanDecideAsync(loan, caller, cancellationToken);
         var fromApprove = loan.Status;
         loan.TransitionTo(LoanStatus.Approved, timeProvider.GetUtcNow(), caller.UserId, "Approved");
         RecordAction(loan, caller.UserId, "Approved", fromApprove.ToString(), loan.Status.ToString(), NormalizeRemarks(remarks), timeProvider.GetUtcNow());
@@ -118,6 +133,7 @@ public sealed class LoanWorkflowService(
     {
         EnsureRole(caller, UserRole.Approver);
         var loan = await LoadScopedAsync(loanId, caller, cancellationToken);
+        await EnsureCanDecideAsync(loan, caller, cancellationToken);
         var fromReject = loan.Status;
         loan.TransitionTo(LoanStatus.Rejected, timeProvider.GetUtcNow(), caller.UserId, "Rejected");
         RecordAction(loan, caller.UserId, "Rejected", fromReject.ToString(), loan.Status.ToString(), NormalizeRemarks(remarks), timeProvider.GetUtcNow());
@@ -232,6 +248,52 @@ public sealed class LoanWorkflowService(
         }
     }
 
+    private async Task EnsureCanDecideAsync(
+        LoanApplication loan,
+        CallerContext caller,
+        CancellationToken cancellationToken)
+    {
+        if (caller.CanAccessAllBranches)
+        {
+            return;
+        }
+
+        if (loan.AssignedToUserId is { } assigneeId && assigneeId != caller.UserId)
+        {
+            throw new ForbiddenException("You are not the assigned approver for this application.");
+        }
+
+        var deviations = await db.LoanDeviations.AsNoTracking()
+            .Where(d => d.LoanApplicationId == loan.Id)
+            .Select(d => new { d.Description, d.Severity })
+            .ToListAsync(cancellationToken);
+
+        var maxSeverity = deviations.Count == 0 ? 0 : deviations.Max(d => d.Severity);
+        var ratePrice = deviations.Any(d => Approvals.ApprovalMatrix.IsRatePriceDeviation(d.Description));
+        var decision = Approvals.ApprovalMatrix.Resolve(new Approvals.ApprovalInputs(
+            loan.LoanType,
+            maxSeverity,
+            loan.Principal + loan.TotalInterest,
+            ratePrice));
+
+        if (decision.NoAuthorityReason is not null)
+        {
+            throw new ForbiddenException(decision.NoAuthorityReason);
+        }
+
+        var jobTitle = await db.Users.AsNoTracking()
+            .Where(u => u.Id == caller.UserId)
+            .Select(u => u.JobTitle)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        var level = Approvals.AuthorityJobTitles.Map(jobTitle);
+        if (level is null || (int)level.Value < (int)decision.RequiredLevel)
+        {
+            throw new ForbiddenException(
+                $"Your authority ({jobTitle ?? "unknown"}) is below the required {decision.MatchedRule}.");
+        }
+    }
+
     private async Task<LoanApplication> LoadScopedAsync(
         Guid loanId,
         CallerContext caller,
@@ -264,6 +326,17 @@ public sealed class LoanWorkflowService(
     {
         db.LoanApplicationActions.Add(LoanApplicationAction.Create(
             loan.Id, actorId, action, fromStatus, toStatus, comments, at));
+    }
+
+    private const int MinRecommendRemarksLength = 10;
+
+    private static void RequireRecommendRemarks(string? comments)
+    {
+        if (comments is null || comments.Length < MinRecommendRemarksLength)
+        {
+            throw new ValidationException(
+                $"Remarks are required when recommending for approval (minimum {MinRecommendRemarksLength} characters).");
+        }
     }
 
     private static string? NormalizeRemarks(string? remarks)

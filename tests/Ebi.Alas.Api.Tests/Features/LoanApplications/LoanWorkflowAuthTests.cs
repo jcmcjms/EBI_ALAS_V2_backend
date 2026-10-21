@@ -67,9 +67,13 @@ public sealed class LoanWorkflowAuthTests
         loan.TransitionTo(LoanStatus.ForChecking, DateTimeOffset.UtcNow);
         loan.TransitionTo(LoanStatus.ForApproval, DateTimeOffset.UtcNow);
         db.LoanApplications.Add(loan);
+        var head = User.Create(
+            "ph", "hash", "P", "Head", "", "ph@x.com", "BR-A",
+            UserRole.Approver, DateTimeOffset.UtcNow, "Product Head");
+        db.Users.Add(head);
         await db.SaveChangesAsync();
 
-        var caller = new CallerContext(Guid.NewGuid(), UserRole.Approver, "BR-A");
+        var caller = new CallerContext(head.Id, UserRole.Approver, "BR-A");
         var result = await Service(db).ApproveAsync(loan.Id, caller, CancellationToken.None);
         Assert.Equal(nameof(LoanStatus.Approved), result.Status);
     }
