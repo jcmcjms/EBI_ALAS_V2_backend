@@ -1,4 +1,5 @@
 using Ebi.Alas.Api.Composition.Errors;
+using Ebi.Alas.Api.Features.LoanApplications.Domain;
 using Ebi.Alas.Api.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 
@@ -20,8 +21,9 @@ public sealed class GetDocumentRequirementsHandler(AlasDbContext db)
 
         return await db.LoanProductDocumentRequirements.AsNoTracking()
             .Where(r => r.ProductCode == normalized)
-            .OrderBy(r => r.Code)
-            .Select(r => new DocumentRequirementItemDto(r.Code, r.Description))
+            .OrderBy(r => r.LoanType)
+            .ThenBy(r => r.Code)
+            .Select(r => new DocumentRequirementItemDto(r.Code, r.Description, r.LoanType.ToString()))
             .ToListAsync(cancellationToken);
     }
 
@@ -51,6 +53,7 @@ public sealed class ReplaceDocumentRequirementsHandler(AlasDbContext db)
         }
 
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var parsed = new List<(string Code, string Description, LoanType LoanType)>(items.Count);
         foreach (var item in items)
         {
             if (string.IsNullOrWhiteSpace(item.Code) || item.Code.Trim().Length > 50)
@@ -63,10 +66,15 @@ public sealed class ReplaceDocumentRequirementsHandler(AlasDbContext db)
                 throw new ArgumentException(
                     "Each document requirement description is required and must be 200 characters or fewer.");
             }
-            if (!seen.Add(item.Code.Trim()))
+
+            var loanType = ParseLoanType(item.LoanType);
+            if (!seen.Add($"{item.Code.Trim()}\n{loanType}"))
             {
-                throw new ArgumentException($"Duplicate document requirement code '{item.Code.Trim()}'.");
+                throw new ArgumentException(
+                    $"Duplicate document requirement code '{item.Code.Trim()}' for loan type '{loanType}'.");
             }
+
+            parsed.Add((item.Code.Trim(), item.Description.Trim(), loanType));
         }
 
         var existing = await db.LoanProductDocumentRequirements
@@ -74,17 +82,26 @@ public sealed class ReplaceDocumentRequirementsHandler(AlasDbContext db)
             .ToListAsync(cancellationToken);
         db.LoanProductDocumentRequirements.RemoveRange(existing);
 
-        foreach (var item in items)
+        foreach (var (itemCode, description, loanType) in parsed)
         {
             db.LoanProductDocumentRequirements.Add(
-                LoanProductDocumentRequirement.Create(product.Code, item.Code, item.Description));
+                LoanProductDocumentRequirement.Create(product.Code, loanType, itemCode, description));
         }
 
         await db.SaveChangesAsync(cancellationToken);
 
-        return items
-            .Select(i => new DocumentRequirementItemDto(i.Code.Trim(), i.Description.Trim()))
-            .OrderBy(i => i.Code, StringComparer.OrdinalIgnoreCase)
+        return parsed
+            .Select(i => new DocumentRequirementItemDto(i.Code, i.Description, i.LoanType.ToString()))
+            .OrderBy(i => i.LoanType, StringComparer.Ordinal)
+            .ThenBy(i => i.Code, StringComparer.OrdinalIgnoreCase)
             .ToList();
     }
+
+    private static LoanType ParseLoanType(string? value) => value?.Trim() switch
+    {
+        null or "" => LoanType.New,
+        nameof(LoanType.New) => LoanType.New,
+        nameof(LoanType.Reloan) => LoanType.Reloan,
+        _ => throw new ArgumentException("LoanType must be 'New' or 'Reloan'.")
+    };
 }

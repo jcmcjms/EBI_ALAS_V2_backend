@@ -12,10 +12,10 @@ public sealed class ProductDocumentRequirementSeeder(AlasDbContext db)
             return false;
         }
 
-        foreach (var (productCode, code) in ProductDocumentRequirementCatalog.Defaults)
+        foreach (var (productCode, loanType, code, description) in ProductDocumentRequirementCatalog.Defaults)
         {
             db.LoanProductDocumentRequirements.Add(
-                LoanProductDocumentRequirement.Create(productCode, code, code));
+                LoanProductDocumentRequirement.Create(productCode, loanType, code, description));
         }
 
         await db.SaveChangesAsync(cancellationToken);
