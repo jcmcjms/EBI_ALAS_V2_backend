@@ -230,4 +230,86 @@ public sealed class ChecklistDocumentReader(
 
         return null;
     }
+
+    public static string? ExtractLoanNoAt(string? formJson, int loanIndex)
+    {
+        if (string.IsNullOrWhiteSpace(formJson) || loanIndex < 0)
+        {
+            return null;
+        }
+
+        try
+        {
+            using var doc = JsonDocument.Parse(formJson);
+            if (!TryGetLoanAt(doc.RootElement, loanIndex, out var loan))
+            {
+                return null;
+            }
+
+            if (!loan.TryGetProperty("loanNo", out var loanNo)
+                || loanNo.ValueKind != JsonValueKind.String)
+            {
+                return null;
+            }
+
+            var value = loanNo.GetString()?.Trim();
+            return string.IsNullOrEmpty(value) ? null : value;
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Form creationTypeCode: 0=New Loan, 1=Reloan, 6=Additional Loan.
+    /// Reloan/Additional use the Reloan document matrix; other codes fall back.
+    /// </summary>
+    public static LoanApplications.Domain.LoanType ResolveLoanTypeAt(
+        string? formJson,
+        int loanIndex,
+        LoanApplications.Domain.LoanType fallback)
+    {
+        if (string.IsNullOrWhiteSpace(formJson) || loanIndex < 0)
+        {
+            return fallback;
+        }
+
+        try
+        {
+            using var doc = JsonDocument.Parse(formJson);
+            if (!TryGetLoanAt(doc.RootElement, loanIndex, out var loan)
+                || !loan.TryGetProperty("creationTypeCode", out var code)
+                || code.ValueKind != JsonValueKind.Number
+                || !code.TryGetInt32(out var creationTypeCode))
+            {
+                return fallback;
+            }
+
+            return creationTypeCode switch
+            {
+                0 => LoanApplications.Domain.LoanType.New,
+                1 or 6 => LoanApplications.Domain.LoanType.Reloan,
+                _ => fallback
+            };
+        }
+        catch (JsonException)
+        {
+            return fallback;
+        }
+    }
+
+    private static bool TryGetLoanAt(JsonElement root, int loanIndex, out JsonElement loan)
+    {
+        loan = default;
+        if (!root.TryGetProperty("loans", out var loans)
+            || loans.ValueKind != JsonValueKind.Array
+            || loanIndex >= loans.GetArrayLength())
+        {
+            return false;
+        }
+
+        loan = loans[loanIndex];
+        return loan.ValueKind == JsonValueKind.Object;
+    }
 }

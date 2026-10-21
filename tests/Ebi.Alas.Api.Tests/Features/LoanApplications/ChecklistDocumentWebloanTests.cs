@@ -28,6 +28,23 @@ public sealed class ChecklistDocumentWebloanTests
         Assert.Null(ChecklistDocumentReader.ExtractLoanNo("""{"loans":[{}]}"""));
     }
 
+    [Fact]
+    public void ExtractLoanNoAt_UsesMatchingLoanIndex()
+    {
+        var form = """{"loans":[{"loanNo":"PN-1"},{"loanNo":"PN-2"}]}""";
+        Assert.Equal("PN-1", ChecklistDocumentReader.ExtractLoanNoAt(form, 0));
+        Assert.Equal("PN-2", ChecklistDocumentReader.ExtractLoanNoAt(form, 1));
+    }
+
+    [Fact]
+    public void ExtractLoanNoAt_MissingOrBlank_ReturnsNull()
+    {
+        Assert.Null(ChecklistDocumentReader.ExtractLoanNoAt(null, 0));
+        Assert.Null(ChecklistDocumentReader.ExtractLoanNoAt("""{"loans":[{"loanNo":"  "}]}""", 0));
+        Assert.Null(ChecklistDocumentReader.ExtractLoanNoAt("""{"loans":[]}""", 0));
+        Assert.Null(ChecklistDocumentReader.ExtractLoanNoAt("""{"loans":[{"loanNo":"PN-1"}]}""", 5));
+    }
+
     [Theory]
     [InlineData("CL20260935507", "CL20260935507")]
     [InlineData("PN-80001", "PN-80001")]

@@ -97,6 +97,7 @@ public sealed class SubmitLoanNotificationTests
             Config(requireRecommendation: true),
             new ApplicationNumberGenerator(db),
             new ApplicationArrivalNotifier(db, notifier, TimeProvider.System),
+            new EmptyChecklistReader(),
             notifier,
             TimeProvider.System);
 
@@ -135,6 +136,7 @@ public sealed class SubmitLoanNotificationTests
             Config(requireRecommendation: false),
             new ApplicationNumberGenerator(db),
             new ApplicationArrivalNotifier(db, notifier, TimeProvider.System),
+            new EmptyChecklistReader(),
             notifier,
             TimeProvider.System);
 

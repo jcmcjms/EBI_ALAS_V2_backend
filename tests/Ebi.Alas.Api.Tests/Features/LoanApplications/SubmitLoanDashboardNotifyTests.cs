@@ -84,6 +84,7 @@ public sealed class SubmitLoanDashboardNotifyTests
             Config(),
             new ApplicationNumberGenerator(db),
             new ApplicationArrivalNotifier(db, null, TimeProvider.System),
+            new EmptyChecklistReader(),
             notifier,
             TimeProvider.System);
 

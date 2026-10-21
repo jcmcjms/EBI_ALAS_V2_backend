@@ -1,7 +1,9 @@
 using System.Text.Json.Nodes;
 using Ebi.Alas.Api.Composition.Auth;
+using Ebi.Alas.Api.Features.LoanApplications.Documents;
 using Ebi.Alas.Api.Features.LoanApplications.Domain;
 using Ebi.Alas.Api.Features.LoanComputation;
+using Ebi.Alas.Api.Features.LoanProducts;
 using Ebi.Alas.Api.Features.Notifications;
 using Ebi.Alas.Api.Features.Users.Domain;
 using Ebi.Alas.Api.Features.Workflow;
@@ -17,10 +19,11 @@ public sealed class SubmitLoanHandler(
     IWorkflowConfiguration workflow,
     ApplicationNumberGenerator numbers,
     ApplicationArrivalNotifier arrivals,
+    IChecklistDocumentReader checklistDocuments,
     IRealtimeNotifier? realtime,
     TimeProvider timeProvider)
 {
-    public async Task<LoanSubmissionResponse> HandleAsync(
+    public async Task<SubmitLoanResult> HandleAsync(
         SubmitLoanApplicationsRequest request,
         CallerContext caller,
         CancellationToken cancellationToken)
@@ -43,6 +46,11 @@ public sealed class SubmitLoanHandler(
         NthpDateGuard.EnsureAcceptable(
             request.Form,
             DateOnly.FromDateTime(timeProvider.GetLocalNow().DateTime));
+        var missingDocuments = await FindMissingRequiredDocumentsAsync(request, cancellationToken);
+        if (missingDocuments.Count > 0)
+        {
+            return SubmitLoanResult.Blocked(missingDocuments);
+        }
         var applicationGroupNo = string.IsNullOrWhiteSpace(request.ApplicationGroupNo)
             ? await numbers.GenerateGroupNumberAsync(cancellationToken)
             : request.ApplicationGroupNo.Trim();
@@ -154,7 +162,7 @@ public sealed class SubmitLoanHandler(
             await realtime.NotifyDashboardUpdatedAsync(cancellationToken);
         }
 
-        return new LoanSubmissionResponse(
+        return SubmitLoanResult.Success(new LoanSubmissionResponse(
             applicationGroupNo,
             created.Select(l => new CreatedLoanSummary(
                 l.Id,
@@ -162,8 +170,77 @@ public sealed class SubmitLoanHandler(
                 l.ProductCode,
                 l.Product,
                 l.Principal,
-                l.Status.ToString())).ToList());
+                l.Status.ToString())).ToList()));
     }
+
+    private async Task<IReadOnlyList<string>> FindMissingRequiredDocumentsAsync(
+        SubmitLoanApplicationsRequest request,
+        CancellationToken cancellationToken)
+    {
+        var productCodes = request.Loans
+            .Select(l => l.ProductCode.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        var requirements = await db.LoanProductDocumentRequirements.AsNoTracking()
+            .Where(r => productCodes.Contains(r.ProductCode))
+            .Select(r => new { r.ProductCode, r.LoanType, r.Code, r.Description })
+            .ToListAsync(cancellationToken);
+
+        if (requirements.Count == 0)
+        {
+            return [];
+        }
+
+        var requiredByProductAndType = requirements
+            .GroupBy(r => (Product: r.ProductCode, Type: r.LoanType))
+            .ToDictionary(
+                g => (Product: g.Key.Product.Trim(), Type: g.Key.Type),
+                g => g.Select(x => new { x.Code, x.Description }).ToList());
+
+        var formJson = request.Form is { } form ? form.GetRawText() : null;
+        var missing = new List<string>();
+
+        for (var i = 0; i < request.Loans.Count; i++)
+        {
+            var line = request.Loans[i];
+            var loanType = ChecklistDocumentReader.ResolveLoanTypeAt(formJson, i, request.LoanType);
+            if (!requiredByProductAndType.TryGetValue((line.ProductCode.Trim(), loanType), out var required)
+                || required.Count == 0)
+            {
+                continue;
+            }
+
+            var loanNo = ChecklistDocumentReader.ExtractLoanNoAt(formJson, i);
+            if (string.IsNullOrWhiteSpace(loanNo))
+            {
+                missing.AddRange(required.Select(r => $"{r.Description} is missing"));
+                continue;
+            }
+
+            var codes = required.Select(r => r.Code).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+            var docs = await checklistDocuments.GetChecklistDocumentsAsync(loanNo, codes, cancellationToken);
+            var uploaded = docs
+                .Where(d => string.Equals(d.UploadStatus, "Uploaded", StringComparison.Ordinal))
+                .Select(d => d.IdCode)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+            foreach (var r in required)
+            {
+                if (!uploaded.Contains(r.Code))
+                {
+                    missing.Add($"{r.Description} is missing");
+                }
+            }
+        }
+
+        return missing;
+    }
+
+    public static string BuildMissingDocumentsMessage(IReadOnlyList<string> missing) =>
+        "Cannot submit the application. Required documents are missing:\n"
+        + string.Join("\n", missing.Select(m => $"• {m}"))
+        + "\nUpload them in the checklist, then try again.";
 
     private static string ScopeFormToLoan(System.Text.Json.JsonElement form, int loanIndex)
     {
