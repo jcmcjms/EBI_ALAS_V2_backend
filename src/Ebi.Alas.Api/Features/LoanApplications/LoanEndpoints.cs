@@ -6,6 +6,7 @@ using Ebi.Alas.Api.Features.LoanApplications.Submit;
 using Ebi.Alas.Api.Features.LoanApplications.Domain;
 using Ebi.Alas.Api.Features.LoanComputation;
 using Ebi.Alas.Api.Composition.Pagination;
+using Microsoft.AspNetCore.Mvc;
 
 namespace Ebi.Alas.Api.Features.LoanApplications;
 
@@ -25,7 +26,12 @@ public static class LoanEndpoints
         {
             var caller = CallerContext.Require(user);
             var result = await handler.HandleAsync(request, caller, cancellationToken);
-            return Results.Created($"/api/loans/{result.Loans[0].Id}", result);
+            if (result.IsBlocked)
+            {
+                return MissingDocumentsProblem(result.MissingDocuments);
+            }
+
+            return Results.Created($"/api/loans/{result.Loans[0].Id}", result.Response);
         })
         .RequireRateLimiting("write");
 
@@ -81,5 +87,17 @@ public static class LoanEndpoints
             var result = service.Compute(input);
             return Results.Ok(result);
         });
+    }
+
+    private static IResult MissingDocumentsProblem(IReadOnlyList<string> missingDocuments)
+    {
+        var problem = new ProblemDetails
+        {
+            Status = StatusCodes.Status400BadRequest,
+            Title = "Missing required documents",
+            Detail = Submit.SubmitLoanHandler.BuildMissingDocumentsMessage(missingDocuments),
+        };
+        problem.Extensions["errors"] = missingDocuments;
+        return Results.Problem(problem);
     }
 }

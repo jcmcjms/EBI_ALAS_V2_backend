@@ -136,6 +136,14 @@ public sealed class ListLoansHandler(AlasDbContext db)
             })
             .ToListAsync(cancellationToken);
 
+        var needsSharedPool = rows.Any(r => r.AssignedToName is null && r.Status == nameof(LoanStatus.ForApproval));
+        string? sharedPoolName = null;
+        if (needsSharedPool)
+        {
+            var names = await Approvals.ApproverAssignmentService.GetSharedPoolNamesAsync(db, cancellationToken);
+            sharedPoolName = names.Count == 0 ? null : string.Join(", ", names);
+        }
+
         List<LoanResponse> items = [.. rows.Select(r => new LoanResponse(
             r.Id,
             r.LamId,
@@ -160,7 +168,8 @@ public sealed class ListLoansHandler(AlasDbContext db)
             r.LastActionByName,
             r.LastActionVerb,
             AssignedToUserId: r.AssignedToUserId,
-            AssignedToName: r.AssignedToName))];
+            AssignedToName: r.AssignedToName
+                ?? (r.Status == nameof(LoanStatus.ForApproval) ? sharedPoolName : null)))];
 
         return new PageResult<LoanResponse>(items, total, normalized.Page, normalized.PageSize);
     }

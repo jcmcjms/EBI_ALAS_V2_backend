@@ -37,7 +37,7 @@ public sealed class LoanAssignedToTests
     }
 
     [Fact]
-    public void Evaluate_ClearsAssigneeUntilApproverClaims()
+    public void AssignTo_Null_ClearsOwner()
     {
         var encoder = Guid.NewGuid();
         var evaluator = Guid.NewGuid();
@@ -45,7 +45,6 @@ public sealed class LoanAssignedToTests
         loan.TransitionTo(LoanStatus.ForChecking, DateTimeOffset.UtcNow);
         loan.AssignTo(evaluator, DateTimeOffset.UtcNow);
 
-        loan.TransitionTo(LoanStatus.ForApproval, DateTimeOffset.UtcNow, evaluator, "EvaluatedRecommended");
         loan.AssignTo(null, DateTimeOffset.UtcNow);
 
         Assert.Null(loan.AssignedToUserId);

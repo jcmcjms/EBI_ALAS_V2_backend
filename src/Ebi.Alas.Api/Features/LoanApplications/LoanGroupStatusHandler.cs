@@ -70,6 +70,12 @@ public static class LoanGroupStatusHandler
             throw new ValidationException("Comments are required when returning a bundle for revision.");
         }
 
+        if (target == LoanStatus.ForApproval && (comments is null || comments.Length < 10))
+        {
+            throw new ValidationException(
+                "Remarks are required when recommending a bundle for approval (minimum 10 characters).");
+        }
+
         var results = new List<GroupLoanResultDto>(selected.Count);
         foreach (var loan in selected)
         {

@@ -79,7 +79,7 @@ public sealed class LoanGroupStatusHandlerTests
         var caller = new CallerContext(Guid.NewGuid(), UserRole.Evaluator, "011");
         var result = await LoanGroupStatusHandler.ApplyAsync(
             db, Service(db), caller, "GRP-M",
-            new GroupStatusRequest("ForApproval", null, null),
+            new GroupStatusRequest("ForApproval", "Bundle capacity verified for approval.", null),
             CancellationToken.None);
 
         Assert.Equal(1, result.Succeeded);
@@ -104,7 +104,7 @@ public sealed class LoanGroupStatusHandlerTests
         var caller = new CallerContext(Guid.NewGuid(), UserRole.Evaluator, "011");
         var result = await LoanGroupStatusHandler.ApplyAsync(
             db, Service(db), caller, "GRP-S",
-            new GroupStatusRequest("ForApproval", null, [a2.Id]),
+            new GroupStatusRequest("ForApproval", "Bundle capacity verified for approval.", [a2.Id]),
             CancellationToken.None);
 
         Assert.Equal(1, result.Succeeded);
@@ -148,7 +148,7 @@ public sealed class LoanGroupStatusHandlerTests
         var caller = new CallerContext(Guid.NewGuid(), UserRole.Evaluator, "011");
         await Assert.ThrowsAsync<NotFoundException>(() => LoanGroupStatusHandler.ApplyAsync(
             db, Service(db), caller, "GRP-MISSING",
-            new GroupStatusRequest("ForApproval", null, null),
+            new GroupStatusRequest("ForApproval", "Bundle capacity verified for approval.", null),
             CancellationToken.None));
     }
 
@@ -176,7 +176,7 @@ public sealed class LoanGroupStatusHandlerTests
         var caller = new CallerContext(Guid.NewGuid(), UserRole.Evaluator, "999");
         var result = await LoanGroupStatusHandler.ApplyAsync(
             db, Service(db), caller, "GRP-X",
-            new GroupStatusRequest("ForApproval", null, null),
+            new GroupStatusRequest("ForApproval", "Bundle capacity verified for approval.", null),
             CancellationToken.None);
 
         Assert.Equal(1, result.Succeeded);
@@ -192,7 +192,7 @@ public sealed class LoanGroupStatusHandlerTests
         var caller = new CallerContext(Guid.NewGuid(), UserRole.Recommender, "011");
         var result = await LoanGroupStatusHandler.ApplyAsync(
             db, Service(db), caller, "GRP-ROLE",
-            new GroupStatusRequest("ForApproval", null, null),
+            new GroupStatusRequest("ForApproval", "Bundle capacity verified for approval.", null),
             CancellationToken.None);
 
         Assert.Equal(0, result.Succeeded);

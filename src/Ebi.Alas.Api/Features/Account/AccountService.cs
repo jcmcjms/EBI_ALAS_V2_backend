@@ -33,7 +33,8 @@ public sealed record AccountProfileDto(
     string? ProfilePhotoUrl,
     DateTimeOffset CreatedAt,
     DateTimeOffset? PasswordChangedAt,
-    AccountStatsDto Stats);
+    AccountStatsDto Stats,
+    bool IsAvailable = true);
 
 public sealed record AccountActivityDto(
     Guid Id,
@@ -110,7 +111,8 @@ public sealed class AccountService(AlasDbContext db, TimeProvider timeProvider)
             ProfilePhotoUrl: null,
             user.CreatedAt,
             PasswordChangedAt: null,
-            stats);
+            stats,
+            user.IsAvailable);
     }
 
     public async Task<bool> UpdateContactAsync(

@@ -21,8 +21,14 @@ public sealed class ApplicationArrivalNotifier(
         ArgumentException.ThrowIfNullOrWhiteSpace(branchId);
         ArgumentException.ThrowIfNullOrWhiteSpace(title);
 
-        var candidates = await db.Users.AsNoTracking()
-            .Where(u => u.Status == UserStatus.Active && u.Role == role)
+        var query = db.Users.AsNoTracking()
+            .Where(u => u.Status == UserStatus.Active && u.Role == role);
+        if (role is UserRole.Evaluator or UserRole.Approver)
+        {
+            query = query.Where(u => u.IsAvailable);
+        }
+
+        var candidates = await query
             .Select(u => new { u.Id, u.BranchId, u.JobTitle })
             .ToListAsync(cancellationToken);
         if (candidates.Count == 0)

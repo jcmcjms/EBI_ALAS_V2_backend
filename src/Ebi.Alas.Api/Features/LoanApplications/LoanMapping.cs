@@ -85,6 +85,11 @@ public static class LoanMapping
                 .Select(u => u.FirstName + " " + u.LastName)
                 .FirstOrDefaultAsync(cancellationToken);
         }
+        else
+        {
+            assignedToName = await Approvals.ApproverAssignmentService.GetSharedPoolDisplayAsync(
+                db, loan, cancellationToken);
+        }
 
         return loan.ToResponse(lastActionByName, assignedToName);
     }
