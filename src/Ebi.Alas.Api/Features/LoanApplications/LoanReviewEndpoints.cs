@@ -64,6 +64,45 @@ public sealed record LoanRoutingResponseDto(
     string? NoAuthorityReason,
     RoutingEvaluatedInputsDto? Evaluated);
 
+public static class LoanRoutingMapper
+{
+    public static LoanRoutingResponseDto Build(
+        LoanApplication loan,
+        int maxSeverity,
+        bool hasRatePriceDeviation,
+        IReadOnlyList<string> missingDocuments,
+        string? assignedApproverName)
+    {
+        ArgumentNullException.ThrowIfNull(loan);
+        ArgumentNullException.ThrowIfNull(missingDocuments);
+
+        var exposure = loan.Principal + loan.TotalInterest;
+        var decision = Approvals.ApprovalMatrix.Resolve(new Approvals.ApprovalInputs(
+            loan.LoanType,
+            maxSeverity,
+            exposure,
+            hasRatePriceDeviation));
+
+        return new LoanRoutingResponseDto(
+            loan.Id,
+            RequiredApprovalTier: (int)decision.RequiredLevel,
+            DeviationSeverity: maxSeverity,
+            TotalExposure: exposure,
+            LoanType: loan.LoanType.ToString(),
+            MatchedRule: decision.MatchedRule,
+            DocumentsComplete: missingDocuments.Count == 0,
+            MissingDocuments: missingDocuments,
+            AssignedApproverId: loan.AssignedToUserId,
+            AssignedApproverName: assignedApproverName,
+            EscalatedFromTier: decision.EscalatedFromLevel is { } el ? (int)el : null,
+            NoAuthorityReason: decision.NoAuthorityReason,
+            Evaluated: new RoutingEvaluatedInputsDto(
+                loan.LoanType == LoanType.Reloan ? "Renewal" : "New",
+                maxSeverity >= 2 ? "Major" : maxSeverity == 1 ? "Minor" : "None",
+                exposure));
+    }
+}
+
 public static class LoanReviewEndpoints
 {
     public static void MapLoanReview(this IEndpointRouteBuilder endpoints)
@@ -279,34 +318,34 @@ public static class LoanReviewEndpoints
                 .OrderBy(n => n)
                 .ToListAsync(ct);
 
-            var maxSeverity = await db.LoanDeviations.AsNoTracking()
+            var deviations = await db.LoanDeviations.AsNoTracking()
                 .Where(d => d.LoanApplicationId == loan.Id)
-                .Select(d => (int?)d.Severity)
-                .MaxAsync(ct) ?? 0;
+                .Select(d => new { d.Description, d.Severity })
+                .ToListAsync(ct);
+
+            var maxSeverity = deviations.Count == 0 ? 0 : deviations.Max(d => d.Severity);
+            var ratePrice = deviations.Any(d => Approvals.ApprovalMatrix.IsRatePriceDeviation(d.Description));
 
             string? assignedApproverName = null;
-            if (loan.LastActionById is { } actorId)
+            if (loan.AssignedToUserId is { } assigneeId)
             {
                 assignedApproverName = await db.Users.AsNoTracking()
-                    .Where(u => u.Id == actorId)
+                    .Where(u => u.Id == assigneeId)
                     .Select(u => u.FirstName + " " + u.LastName)
                     .FirstOrDefaultAsync(ct);
             }
+            else
+            {
+                assignedApproverName = await Approvals.ApproverAssignmentService.GetSharedPoolDisplayAsync(
+                    db, loan, ct);
+            }
 
-            var response = new LoanRoutingResponseDto(
-                loan.Id,
-                RequiredApprovalTier: null,
-                DeviationSeverity: maxSeverity,
-                TotalExposure: loan.Principal + loan.TotalInterest,
-                LoanType: loan.LoanType.ToString(),
-                MatchedRule: null,
-                DocumentsComplete: missingDocuments.Count == 0,
-                MissingDocuments: missingDocuments,
-                AssignedApproverId: loan.LastActionById,
-                AssignedApproverName: assignedApproverName,
-                EscalatedFromTier: null,
-                NoAuthorityReason: null,
-                Evaluated: null);
+            var response = LoanRoutingMapper.Build(
+                loan,
+                maxSeverity,
+                ratePrice,
+                missingDocuments,
+                assignedApproverName);
 
             return Results.Ok(response);
         })
