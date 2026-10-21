@@ -55,6 +55,7 @@ public static class PipelineConfiguration
         app.MapLoanWorkflow();
         app.MapLoanReview();
         app.MapReviewDrafts();
+        app.MapLoanCreationDrafts();
         app.MapRevisionRequestEndpoints();
         app.MapLoanGroups();
         Features.LoanApplications.Documents.ChecklistDocumentEndpoints.MapChecklistDocumentEndpoints(app);
