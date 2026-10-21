@@ -31,12 +31,7 @@ public static class ApiProblemHandler
                 Title = "Conflict",
                 Detail = ex.Message
             },
-            ValidationException ex => new ProblemDetails
-            {
-                Status = StatusCodes.Status400BadRequest,
-                Title = "Bad Request",
-                Detail = ex.Message
-            },
+            ValidationException ex => CreateValidationProblem(ex),
             BadHttpRequestException ex => new ProblemDetails
             {
                 Status = ex.StatusCode,
@@ -68,6 +63,22 @@ public static class ApiProblemHandler
                 Detail = "An unexpected error occurred."
             }
         };
+    }
+
+    private static ProblemDetails CreateValidationProblem(ValidationException ex)
+    {
+        var problem = new ProblemDetails
+        {
+            Status = StatusCodes.Status400BadRequest,
+            Title = ex.Errors.Count > 0 ? "Missing required documents" : "Bad Request",
+            Detail = ex.Message
+        };
+        if (ex.Errors.Count > 0)
+        {
+            problem.Extensions["errors"] = ex.Errors;
+        }
+
+        return problem;
     }
 
     public static IExceptionHandler CreateHandler(IProblemDetailsService problemDetailsService)
