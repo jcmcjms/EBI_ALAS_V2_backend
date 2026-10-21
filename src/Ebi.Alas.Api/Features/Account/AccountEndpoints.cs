@@ -54,6 +54,19 @@ public static class AccountEndpoints
         .RequireRateLimiting("write")
         .WithName("UpdateAccountProfile");
 
+        group.MapPut("/me/availability", async (
+            ClaimsPrincipal user,
+            Users.SetAvailability.SetAvailabilityRequest request,
+            Users.SetAvailability.SetUserAvailabilityHandler handler,
+            CancellationToken cancellationToken) =>
+        {
+            var caller = CallerContext.Require(user);
+            var result = await handler.HandleAsync(caller.UserId, request.Available, cancellationToken);
+            return Results.Ok(result);
+        })
+        .RequireRateLimiting("write")
+        .WithName("SetMyAvailability");
+
         group.MapGet("/me/activity", async (
             ClaimsPrincipal user,
             int? limit,

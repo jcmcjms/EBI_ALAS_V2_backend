@@ -16,5 +16,6 @@ public static class UserMapping
         user.Role.ToString(),
         user.Status.ToString(),
         user.MustChangePassword,
-        user.CreatedAt);
+        user.CreatedAt,
+        user.IsAvailable);
 }

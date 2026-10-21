@@ -59,7 +59,8 @@ public sealed class ListUsersHandler(AlasDbContext db)
                 Role = u.Role.ToString(),
                 Status = u.Status.ToString(),
                 u.MustChangePassword,
-                u.CreatedAt
+                u.CreatedAt,
+                u.IsAvailable
             })
             .ToListAsync(cancellationToken);
 
@@ -77,7 +78,8 @@ public sealed class ListUsersHandler(AlasDbContext db)
                 r.Role,
                 r.Status,
                 r.MustChangePassword,
-                r.CreatedAt))];
+                r.CreatedAt,
+                r.IsAvailable))];
 
         return new PageResult<UserResponse>(items, total, normalized.Page, normalized.PageSize);
     }

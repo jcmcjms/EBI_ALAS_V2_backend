@@ -148,5 +148,16 @@ public static class UserEndpoints
             return Results.Ok(result);
         })
         .RequireRateLimiting("write");
+
+        group.MapPut("/{id:guid}/availability", async (
+            Guid id,
+            SetAvailability.SetAvailabilityRequest request,
+            SetAvailability.SetUserAvailabilityHandler handler,
+            CancellationToken cancellationToken) =>
+        {
+            var result = await handler.HandleAsync(id, request.Available, cancellationToken);
+            return Results.Ok(result);
+        })
+        .RequireRateLimiting("write");
     }
 }

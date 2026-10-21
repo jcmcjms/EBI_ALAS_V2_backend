@@ -14,7 +14,8 @@ public sealed record UserResponse(
     string Role,
     string Status,
     bool MustChangePassword,
-    DateTimeOffset CreatedAt);
+    DateTimeOffset CreatedAt,
+    bool IsAvailable = true);
 
 public sealed record CreateUserRequest(
     string UserName,
