@@ -84,7 +84,12 @@ public sealed class LoanWorkflowService(
             loan.AssignTo(null, timeProvider.GetUtcNow());
         }
         await queue.CompleteAsync(await ActiveQueueIdAsync(loanId, WorkflowStage.Evaluation, cancellationToken), caller.UserId, cancellationToken);
-        await queue.EnqueueAsync(loanId, WorkflowStage.Approval, loan.BranchId, cancellationToken);
+        var approvalItem = await queue.EnqueueAsync(loanId, WorkflowStage.Approval, loan.BranchId, cancellationToken);
+        // Mirror loan assignee onto the queue lease so the Review Desk shows the claim.
+        if (assignment.AssignedUserId is { } deskOwner)
+        {
+            approvalItem.TryClaim(deskOwner, timeProvider.GetUtcNow());
+        }
         await SignatureChainService.SignAsync(db, loanId, "Evaluator", caller.UserId, timeProvider.GetUtcNow(), cancellationToken);
         await NotifyAsync(
             caller.UserId,
@@ -298,16 +303,7 @@ public sealed class LoanWorkflowService(
         Guid loanId,
         CallerContext caller,
         CancellationToken cancellationToken)
-    {
-        var query = db.LoanApplications.Where(l => l.Id == loanId);
-        if (!caller.CanViewAllLoanBranches)
-        {
-            query = query.Where(l => l.BranchId == caller.BranchId);
-        }
-
-        return await query.FirstOrDefaultAsync(cancellationToken)
-            ?? throw new NotFoundException("Loan", loanId.ToString());
-    }
+        => await LoanAccess.RequireAccessibleAsync(db, loanId, caller, cancellationToken, tracked: true);
 
     private async Task<Guid> ActiveQueueIdAsync(Guid loanId, WorkflowStage stage, CancellationToken cancellationToken) =>
         await db.WorkflowQueueItems
@@ -379,7 +375,8 @@ public sealed class LoanWorkflowService(
             title,
             body,
             NotificationType.Action,
-            timeProvider.GetUtcNow());
+            timeProvider.GetUtcNow(),
+            link);
         db.Notifications.Add(notification);
         await db.SaveChangesAsync(cancellationToken);
         if (notifier is not null)

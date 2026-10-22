@@ -23,24 +23,40 @@ public sealed class DeskQueueService(
     {
         if (!TryMapStage(caller.Role, out var stage))
         {
-            return new DeskQueueResult(DeskLabelFor(caller.Role), [], null, "No review desk for this role.");
+            return new DeskQueueResult(DeskLabelFor(caller.Role), [], [], "No review desk for this role.");
         }
 
-        var orgWide = caller.CanViewAllLoanBranches;
+        var partitions = await ResolvePartitionsAsync(caller, stage, cancellationToken);
         foreach (var partition in await DeskMaintenancePartitionsAsync(caller, stage, cancellationToken))
         {
             await queue.ReapExpiredAsync(stage, partition, cancellationToken);
             await ReleaseCancelledClaimsAsync(stage, partition, cancellationToken);
         }
 
-        var rows = await LoadRowsAsync(stage, orgWide ? null : [caller.BranchId], tracked: false, cancellationToken);
+        var rows = await LoadRowsAsync(stage, partitions, tracked: false, cancellationToken);
         var names = await LoadOwnerNamesAsync(rows, cancellationToken);
         var clients = BuildClients(rows, names);
 
-        var current = clients.FirstOrDefault(c => c.OwnerUserId == caller.UserId);
-        var queued = clients.Where(c => c.OwnerUserId is null).ToList();
+        var jobTitle = await db.Users.AsNoTracking()
+            .Where(u => u.Id == caller.UserId)
+            .Select(u => u.JobTitle)
+            .FirstOrDefaultAsync(cancellationToken);
+        var sharedPoolOfficer = Branches.BranchVisibility.IsGlobalAuthority(jobTitle)
+            && Approvals.AuthorityJobTitles.Map(jobTitle) == Approvals.AuthorityLevel.RbgProductCredit;
 
-        var scopeLabel = orgWide ? "All branches" : $"Branch {caller.BranchId}";
+        var current = clients
+            .Where(c => c.OwnerUserId == caller.UserId
+                || c.Applications.Any(a => IsAssignedTo(a.LoanId, rows, caller.UserId))
+                || (sharedPoolOfficer
+                    && c.OwnerUserId is null
+                    && c.Applications.Any(a => a.Status == nameof(LoanStatus.ForApproval))))
+            .ToList();
+        var currentIds = current.Select(c => c.GroupNo).ToHashSet();
+        // Waiting list = every client not currently mine (including held by another
+        // officer). Never drop a client just because a sibling is in another stage.
+        var queued = clients.Where(c => !currentIds.Contains(c.GroupNo)).ToList();
+
+        var scopeLabel = partitions is null ? "All branches" : $"Branch {caller.BranchId}";
         return new DeskQueueResult(
             DeskLabelFor(caller.Role),
             queued,
@@ -55,32 +71,34 @@ public sealed class DeskQueueService(
             return null;
         }
 
-        var orgWide = caller.CanViewAllLoanBranches;
         foreach (var partition in await DeskMaintenancePartitionsAsync(caller, stage, cancellationToken))
         {
             await ReleaseCancelledClaimsAsync(stage, partition, cancellationToken);
         }
 
-        var owned = await db.WorkflowQueueItems
-            .Where(q => q.OwnerUserId == caller.UserId && q.Stage == stage && q.State == QueueItemState.Active)
-            .OrderBy(q => q.Sequence)
-            .ToListAsync(cancellationToken);
-        if (owned.Count > 0)
-        {
-            var ownedPartition = owned[0].PartitionKey;
-            return await ResumeOwnedBundleAsync(stage, ownedPartition, caller.UserId, owned, cancellationToken);
-        }
-
+        // Allow claiming the next queued client even while other bundles are held.
         foreach (var partition in await DeskMaintenancePartitionsAsync(caller, stage, cancellationToken))
         {
             await queue.ReapExpiredAsync(stage, partition, cancellationToken);
         }
 
-        var rows = await LoadRowsAsync(stage, orgWide ? null : [caller.BranchId], tracked: true, cancellationToken);
+        var partitions = await ResolvePartitionsAsync(caller, stage, cancellationToken);
+        var rows = await LoadRowsAsync(stage, partitions, tracked: true, cancellationToken);
+        // New work only — groups already held by this officer are resumed separately.
         var head = GroupRows(rows).FirstOrDefault(g => g.Items.All(i => i.State == QueueItemState.Queued));
         if (head is null)
         {
-            return null;
+            // Queue empty — return the officer to an already-held bundle if any.
+            var owned = await db.WorkflowQueueItems
+                .Where(q => q.OwnerUserId == caller.UserId && q.Stage == stage && q.State == QueueItemState.Active)
+                .OrderBy(q => q.Sequence)
+                .ToListAsync(cancellationToken);
+            if (owned.Count == 0)
+            {
+                return null;
+            }
+
+            return await ResumeOwnedBundleAsync(stage, owned[0].PartitionKey, caller.UserId, owned, cancellationToken);
         }
 
         return await ClaimGroupAsync(stage, head.Items[0].PartitionKey, caller.UserId, head.GroupNo, head, cancellationToken);
@@ -101,6 +119,15 @@ public sealed class DeskQueueService(
         foreach (var item in actives)
         {
             item.Release(caller.UserId, now);
+        }
+
+        var loanIds = actives.Select(i => i.LoanApplicationId).ToList();
+        var loans = await db.LoanApplications
+            .Where(l => loanIds.Contains(l.Id) && l.AssignedToUserId == caller.UserId)
+            .ToListAsync(cancellationToken);
+        foreach (var loan in loans)
+        {
+            loan.AssignTo(null, now);
         }
 
         await db.SaveChangesAsync(cancellationToken);
@@ -145,7 +172,7 @@ public sealed class DeskQueueService(
             return null;
         }
 
-        if (target.Items.Any(i => i.State == QueueItemState.Active))
+        if (target.Items.Any(i => i.State == QueueItemState.Active && i.OwnerUserId != caller.UserId))
         {
             throw new ConflictException("Currently with another officer.");
         }
@@ -153,7 +180,15 @@ public sealed class DeskQueueService(
         var head = groups.FirstOrDefault(g => g.Items.All(i => i.State == QueueItemState.Queued));
         if (head is null || head.GroupNo != target.GroupNo)
         {
-            throw new ConflictException("This client is queued behind another application.");
+            // Allow claiming a mixed bundle (e.g. sibling still in another stage) when
+            // every in-stage item is either queued or already mine.
+            if (!IsClaimableGroup(target, caller.UserId)
+                || groups.Any(g => g.GroupNo != target.GroupNo
+                    && g.Items.All(i => i.State == QueueItemState.Queued)
+                    && g.Items[0].Sequence < target.Items[0].Sequence))
+            {
+                throw new ConflictException("This client is queued behind another application.");
+            }
         }
 
         return await ClaimGroupAsync(stage, partition, caller.UserId, target.GroupNo, target, cancellationToken);
@@ -186,7 +221,7 @@ public sealed class DeskQueueService(
 
         var items = loaded.Items.ToList();
         var loans = loaded.Loans.ToList();
-        foreach (var row in extra)
+        foreach (var row in extra.Where(r => IsStageStatus(stage, r.l.Status)))
         {
             items.Add(row.q);
             loans.Add(row.l);
@@ -194,6 +229,11 @@ public sealed class DeskQueueService(
 
         foreach (var item in items)
         {
+            if (item.State == QueueItemState.Active && item.OwnerUserId == userId)
+            {
+                continue;
+            }
+
             if (!item.TryClaim(userId, now))
             {
                 throw new ConflictException("Queue item was claimed concurrently.");
@@ -295,6 +335,7 @@ public sealed class DeskQueueService(
         IReadOnlyList<LoanApplication> loans,
         DateTimeOffset leasedAt)
     {
+        // Prefer an application that is actually at this desk stage (mixed bundles).
         var primary = loans[0];
         var applications = loans
             .Select(l => new DeskClaimApplicationDto(l.Id, l.LamId, l.Status.ToString()))
@@ -308,6 +349,41 @@ public sealed class DeskQueueService(
             primary.ApplicationGroupNo,
             applications);
     }
+
+    private async Task<IReadOnlyList<string>?> ResolvePartitionsAsync(
+        CallerContext caller,
+        WorkflowStage stage,
+        CancellationToken cancellationToken)
+    {
+        if (caller.CanViewAllLoanBranches)
+        {
+            return null;
+        }
+
+        var jobTitle = await db.Users.AsNoTracking()
+            .Where(u => u.Id == caller.UserId)
+            .Select(u => u.JobTitle)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (Branches.BranchVisibility.IsGlobalAuthority(jobTitle))
+        {
+            return null;
+        }
+
+        return await Branches.BranchVisibility.GetReadableBranchIdsAsync(
+            db,
+            caller.UserId,
+            caller.Role,
+            caller.BranchId,
+            cancellationToken,
+            jobTitle);
+    }
+
+    private static bool IsAssignedTo(
+        Guid loanId,
+        IReadOnlyList<(WorkflowQueueItem QueueItem, LoanApplication Loan)> rows,
+        Guid userId) =>
+        rows.Any(r => r.Loan.Id == loanId && r.Loan.AssignedToUserId == userId);
 
     private async Task<IReadOnlyList<string>> DeskMaintenancePartitionsAsync(
         CallerContext caller,
@@ -373,16 +449,42 @@ public sealed class DeskQueueService(
             select new { q, l }
         ).Take(PageSize).ToListAsync(cancellationToken);
 
-        return rows.Select(r => (r.q, r.l)).ToList();
+        return rows
+            .Where(r => IsStageStatus(stage, r.l.Status))
+            .Select(r => (r.q, r.l))
+            .ToList();
     }
+
+    /// <summary>
+    /// A desk only shows applications that are actually at that stage. A bundle may
+    /// mix stages (one loan ForApproval, a sibling still ForChecking) — only the
+    /// ready loans appear; the client is never dropped because of a sibling.
+    /// </summary>
+    private static bool IsStageStatus(WorkflowStage stage, LoanStatus status) => stage switch
+    {
+        WorkflowStage.Recommendation => status == LoanStatus.ForRecommendation,
+        WorkflowStage.Evaluation => status == LoanStatus.ForChecking,
+        WorkflowStage.Approval => status == LoanStatus.ForApproval,
+        _ => true
+    };
+
+    private static bool IsClaimableGroup(DeskGroup group, Guid userId) =>
+        group.Items.All(i =>
+            i.State == QueueItemState.Queued
+            || (i.State == QueueItemState.Active && i.OwnerUserId == userId));
 
     private async Task<IReadOnlyDictionary<Guid, string>> LoadOwnerNamesAsync(
         IReadOnlyList<(WorkflowQueueItem QueueItem, LoanApplication Loan)> rows,
         CancellationToken cancellationToken)
     {
         var owners = rows
-            .Where(r => r.QueueItem.OwnerUserId is not null)
-            .Select(r => r.QueueItem.OwnerUserId!.Value)
+            .SelectMany(r => new[]
+            {
+                r.QueueItem.OwnerUserId,
+                r.Loan.AssignedToUserId,
+            })
+            .Where(id => id is not null)
+            .Select(id => id!.Value)
             .Distinct()
             .ToList();
         if (owners.Count == 0)
@@ -416,6 +518,19 @@ public sealed class DeskQueueService(
                 {
                     ownerUserId = item.OwnerUserId;
                     break;
+                }
+            }
+
+            // Auto-assigned loans may not have a queue lease yet — surface loan assignee.
+            if (ownerUserId is null)
+            {
+                foreach (var loan in group.Loans)
+                {
+                    if (loan.AssignedToUserId is { } assignee)
+                    {
+                        ownerUserId = assignee;
+                        break;
+                    }
                 }
             }
 

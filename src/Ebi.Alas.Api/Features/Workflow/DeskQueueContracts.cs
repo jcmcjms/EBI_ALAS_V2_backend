@@ -36,11 +36,20 @@ public sealed record DeskQueueClientDto(
     DateTimeOffset EnqueuedAt,
     IReadOnlyList<DeskQueueItemDto> Applications);
 
+/// <summary>
+/// Desk snapshot. An officer may hold several client bundles at once (e.g. waiting
+/// on the encoder for one while reviewing another).
+/// </summary>
 public sealed record DeskQueueResult(
     string DeskLabel,
     IReadOnlyList<DeskQueueClientDto> Items,
-    DeskQueueClientDto? CurrentClaim,
-    string ScopeDescription);
+    IReadOnlyList<DeskQueueClientDto> CurrentClaims,
+    string ScopeDescription)
+{
+    /// <summary>First active claim (legacy single-claim clients).</summary>
+    public DeskQueueClientDto? CurrentClaim =>
+        CurrentClaims.Count > 0 ? CurrentClaims[0] : null;
+}
 
 public sealed record DeskClaimApplicationDto(
     Guid LoanId,

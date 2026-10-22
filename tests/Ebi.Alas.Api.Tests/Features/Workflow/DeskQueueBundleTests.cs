@@ -45,7 +45,19 @@ public sealed class DeskQueueBundleTests
         WorkflowStage stage = WorkflowStage.Evaluation)
     {
         var loan = NewLoan(lamId, groupNo, clientName, now);
-        loan.TransitionTo(LoanStatus.ForChecking, now);
+        switch (stage)
+        {
+            case WorkflowStage.Evaluation:
+                loan.TransitionTo(LoanStatus.ForChecking, now);
+                break;
+            case WorkflowStage.Approval:
+                loan.TransitionTo(LoanStatus.ForChecking, now);
+                loan.TransitionTo(LoanStatus.ForApproval, now);
+                break;
+            default:
+                break;
+        }
+
         db.LoanApplications.Add(loan);
         await db.SaveChangesAsync();
         await queue.EnqueueAsync(loan.Id, stage, "011", CancellationToken.None);
@@ -110,6 +122,116 @@ public sealed class DeskQueueBundleTests
         await db.Entry(a2).ReloadAsync();
         Assert.Equal(evaluatorId, a1.AssignedToUserId);
         Assert.Equal(evaluatorId, a2.AssignedToUserId);
+    }
+
+    [Fact]
+    public async Task GetMyDesk_ShowsClientWhenSiblingIsInAnotherStage()
+    {
+        await using var db = Db();
+        var now = DateTimeOffset.UtcNow;
+        var (desk, queue, _) = Service(db, now);
+
+        // Sibling still at evaluation — must not hide the approval-ready loan.
+        await EnqueueAsync(db, queue, "LAM-B1", "GRP-A", "ACME CORP", now, WorkflowStage.Evaluation);
+        await EnqueueAsync(db, queue, "LAM-A1", "GRP-A", "ACME CORP", now, WorkflowStage.Approval);
+
+        var result = await desk.GetMyDeskAsync(
+            new CallerContext(Guid.NewGuid(), UserRole.Approver, "011"),
+            CancellationToken.None);
+
+        Assert.Single(result.Items);
+        Assert.Equal("GRP-A", result.Items[0].GroupNo);
+        Assert.Equal(["LAM-A1"], result.Items[0].Applications.Select(a => a.LamId).ToArray());
+    }
+
+    [Fact]
+    public async Task ClaimHead_ClaimsApprovalLoanWhenSiblingIsNotReady()
+    {
+        await using var db = Db();
+        var now = DateTimeOffset.UtcNow;
+        var (desk, queue, _) = Service(db, now);
+        var approverId = Guid.NewGuid();
+
+        await EnqueueAsync(db, queue, "LAM-B1", "GRP-A", "ACME CORP", now, WorkflowStage.Evaluation);
+        await EnqueueAsync(db, queue, "LAM-A1", "GRP-A", "ACME CORP", now, WorkflowStage.Approval);
+
+        var claim = await desk.ClaimHeadAsync(
+            new CallerContext(approverId, UserRole.Approver, "011"),
+            CancellationToken.None);
+
+        Assert.NotNull(claim);
+        Assert.Equal("LAM-A1", claim!.LamId);
+    }
+
+    [Fact]
+    public async Task GetMyDesk_ShowsLoanAssignedToCallerEvenWithoutQueueLease()
+    {
+        await using var db = Db();
+        var now = DateTimeOffset.UtcNow;
+        var (desk, queue, _) = Service(db, now);
+        var evaluatorId = Guid.NewGuid();
+        var caller = new CallerContext(evaluatorId, UserRole.Evaluator, "011");
+
+        var loan = await EnqueueAsync(db, queue, "LAM-A1", "GRP-A", "ACME CORP", now);
+        loan.AssignTo(evaluatorId, now);
+        await db.SaveChangesAsync();
+
+        var result = await desk.GetMyDeskAsync(caller, CancellationToken.None);
+
+        Assert.Single(result.CurrentClaims);
+        Assert.Equal(evaluatorId, result.CurrentClaims[0].OwnerUserId);
+        Assert.Empty(result.Items);
+    }
+
+    [Fact]
+    public async Task GetMyDesk_SharedPoolSeesUnassignedForApproval()
+    {
+        await using var db = Db();
+        var now = DateTimeOffset.UtcNow;
+        var (desk, queue, _) = Service(db, now);
+        var productHead = User.Create(
+            "ph", "hash", "P", "Head", "", "p@x.com", "011",
+            UserRole.Approver, now, "Product Head");
+        db.Users.Add(productHead);
+        await db.SaveChangesAsync();
+
+        var loan = await EnqueueAsync(db, queue, "LAM-A1", "GRP-A", "ACME CORP", now, WorkflowStage.Approval);
+        await db.Entry(loan).ReloadAsync();
+        // EnqueueAsync seeds ForChecking — move to ForApproval for the shared pool case.
+        if (loan.Status == LoanStatus.ForChecking)
+        {
+            loan.TransitionTo(LoanStatus.ForApproval, now);
+            await db.SaveChangesAsync();
+        }
+
+        var result = await desk.GetMyDeskAsync(
+            new CallerContext(productHead.Id, UserRole.Approver, "011"),
+            CancellationToken.None);
+
+        Assert.Single(result.CurrentClaims);
+    }
+
+    [Fact]
+    public async Task ClaimHead_AllowsNewClientWhileAlreadyHoldingAClaim()
+    {
+        await using var db = Db();
+        var now = DateTimeOffset.UtcNow;
+        var (desk, queue, _) = Service(db, now);
+
+        await EnqueueAsync(db, queue, "LAM-A1", "GRP-A", "ACME CORP", now);
+        await EnqueueAsync(db, queue, "LAM-B1", "GRP-B", "BETA INC", now);
+        var evaluatorId = Guid.NewGuid();
+        var caller = new CallerContext(evaluatorId, UserRole.Evaluator, "011");
+
+        var first = await desk.ClaimHeadAsync(caller, CancellationToken.None);
+        var second = await desk.ClaimHeadAsync(caller, CancellationToken.None);
+
+        Assert.Equal("GRP-A", first!.GroupNo);
+        Assert.Equal("GRP-B", second!.GroupNo);
+
+        var deskAfter = await desk.GetMyDeskAsync(caller, CancellationToken.None);
+        Assert.Equal(2, deskAfter.CurrentClaims.Count);
+        Assert.Empty(deskAfter.Items);
     }
 
     [Fact]
