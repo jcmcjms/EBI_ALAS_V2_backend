@@ -45,10 +45,7 @@ public static class LoanGroupStatusHandler
         }
 
         var query = db.LoanApplications.Where(l => l.ApplicationGroupNo == groupNo);
-        if (!caller.CanViewAllLoanBranches)
-        {
-            query = query.Where(l => l.BranchId == caller.BranchId);
-        }
+        query = await LoanAccess.FilterAccessibleAsync(db, query, caller, cancellationToken);
 
         var loans = await query.OrderBy(l => l.CreatedAt).ToListAsync(cancellationToken);
         if (loans.Count == 0)

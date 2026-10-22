@@ -33,10 +33,7 @@ public sealed class ReviseLoanHandler(
         }
 
         var query = db.LoanApplications.Where(l => l.Id == loanId);
-        if (!caller.CanViewAllLoanBranches)
-        {
-            query = query.Where(l => l.BranchId == caller.BranchId);
-        }
+        query = await LoanAccess.FilterAccessibleAsync(db, query, caller, cancellationToken);
 
         var loan = await query.FirstOrDefaultAsync(cancellationToken)
             ?? throw new NotFoundException("Loan", loanId.ToString());
@@ -163,7 +160,8 @@ public sealed class ReviseLoanHandler(
             title,
             body,
             NotificationType.Action,
-            timeProvider.GetUtcNow());
+            timeProvider.GetUtcNow(),
+            link);
         db.Notifications.Add(notification);
         await db.SaveChangesAsync(cancellationToken);
         if (realtime is null)

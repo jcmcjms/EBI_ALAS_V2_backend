@@ -22,6 +22,31 @@ public sealed class BranchVisibilityTests
     public void IsAreaHead_MatchesJobTitle(string? jobTitle, bool expected)
         => Assert.Equal(expected, BranchVisibility.IsAreaHead(jobTitle));
 
+    [Theory]
+    [InlineData("President & CEO", true)]
+    [InlineData("COO", true)]
+    [InlineData("RBG Head", true)]
+    [InlineData("Product Head", true)]
+    [InlineData("Credit Head", true)]
+    [InlineData("Branch Head", false)]
+    [InlineData("Area Head", false)]
+    public void IsGlobalAuthority_MatchesBoardTitles(string? jobTitle, bool expected)
+        => Assert.Equal(expected, BranchVisibility.IsGlobalAuthority(jobTitle));
+
+    [Fact]
+    public async Task ProductHead_SeesAllBranches()
+    {
+        await using var db = Db();
+        db.Branches.Add(Branch.Create("001", "Main", "A1", DateTimeOffset.UtcNow));
+        db.Branches.Add(Branch.Create("002", "Satellite", "B9", DateTimeOffset.UtcNow));
+        await db.SaveChangesAsync();
+
+        var ids = await BranchVisibility.GetReadableBranchIdsAsync(
+            db, Guid.NewGuid(), UserRole.Approver, "001", CancellationToken.None, jobTitle: "Product Head");
+
+        Assert.Equal(2, ids.Count);
+    }
+
     [Fact]
     public async Task Encoder_IsHomeBranchOnly()
     {

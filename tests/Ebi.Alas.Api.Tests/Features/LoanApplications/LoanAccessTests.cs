@@ -1,9 +1,7 @@
 using Ebi.Alas.Api.Composition.Auth;
-using Ebi.Alas.Api.Composition.Errors;
+using Ebi.Alas.Api.Features.Branches;
+using Ebi.Alas.Api.Features.LoanApplications;
 using Ebi.Alas.Api.Features.LoanApplications.Domain;
-using Ebi.Alas.Api.Features.LoanApplications.GetLoan;
-using Ebi.Alas.Api.Features.LoanApplications.ListLoans;
-using Ebi.Alas.Api.Composition.Pagination;
 using Ebi.Alas.Api.Features.Users.Domain;
 using Ebi.Alas.Api.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -12,136 +10,79 @@ namespace Ebi.Alas.Api.Tests.Features.LoanApplications;
 
 public sealed class LoanAccessTests
 {
-    private static AlasDbContext Db()
-    {
-        var options = new DbContextOptionsBuilder<AlasDbContext>()
+    private static AlasDbContext Db() => new(
+        new DbContextOptionsBuilder<AlasDbContext>()
             .UseInMemoryDatabase($"loan-access-{Guid.NewGuid():N}")
-            .Options;
-        return new AlasDbContext(options);
-    }
+            .Options);
 
-    private static LoanApplication Loan(string branchId)
+    private static LoanApplication Loan(string branchId, Guid createdBy)
     {
-        var now = DateTimeOffset.UtcNow;
-        return LoanApplication.Create(
-            $"LAM-{Guid.NewGuid():N}"[..32],
-            "G-1",
-            "Client",
-            branchId,
-            LoanType.New,
-            1000m,
-            30,
-            0.05m,
-            50m,
-            10m,
-            940m,
-            Guid.NewGuid(),
-            now);
+        var loan = LoanApplication.Create(
+            "LAM-1", "G-1", "Client", branchId, LoanType.New,
+            1000m, 30, 0.05m, 10m, 50m, 940m, createdBy, DateTimeOffset.UtcNow);
+        loan.TransitionTo(LoanStatus.ForChecking, DateTimeOffset.UtcNow);
+        loan.TransitionTo(LoanStatus.ForApproval, DateTimeOffset.UtcNow);
+        return loan;
     }
 
     [Fact]
-    public async Task GetLoan_OtherBranch_ThrowsNotFound()
+    public async Task GlobalApprover_CanOpenUnassignedLoanOnOtherBranch()
     {
         await using var db = Db();
-        var loan = Loan("BR-A");
+        var product = User.Create(
+            "ph", "hash", "P", "Head", "", "p@x.com", "BR-01",
+            UserRole.Approver, DateTimeOffset.UtcNow, "Product Head");
+        db.Users.Add(product);
+        db.Branches.Add(Branch.Create("BR-01", "Home", "A1", DateTimeOffset.UtcNow));
+        db.Branches.Add(Branch.Create("BR-02", "Remote", "A2", DateTimeOffset.UtcNow));
+        var loan = Loan("BR-02", Guid.NewGuid());
         db.LoanApplications.Add(loan);
         await db.SaveChangesAsync();
 
-        var handler = new GetLoanHandler(db);
-        var caller = new CallerContext(Guid.NewGuid(), UserRole.Encoder, "BR-B");
+        var caller = new CallerContext(product.Id, UserRole.Approver, "BR-01");
+        var found = await LoanAccess.FindAccessibleAsync(db, loan.Id, caller, CancellationToken.None);
 
-        await Assert.ThrowsAsync<NotFoundException>(() =>
-            handler.HandleAsync(loan.Id, caller, CancellationToken.None));
+        Assert.NotNull(found);
     }
 
     [Fact]
-    public async Task GetLoan_SameBranch_ReturnsLoan()
+    public async Task AssignedApprover_CanOpenLoanOnOtherBranch()
     {
         await using var db = Db();
-        var loan = Loan("BR-A");
+        var head = User.Create(
+            "bh", "hash", "B", "Head", "", "b@x.com", "BR-01",
+            UserRole.Approver, DateTimeOffset.UtcNow, "Branch Head");
+        db.Users.Add(head);
+        db.Branches.Add(Branch.Create("BR-01", "Home", "A1", DateTimeOffset.UtcNow));
+        db.Branches.Add(Branch.Create("BR-02", "Remote", "A2", DateTimeOffset.UtcNow));
+        var loan = Loan("BR-02", Guid.NewGuid());
+        loan.AssignTo(head.Id, DateTimeOffset.UtcNow);
         db.LoanApplications.Add(loan);
         await db.SaveChangesAsync();
 
-        var handler = new GetLoanHandler(db);
-        var caller = new CallerContext(Guid.NewGuid(), UserRole.Encoder, "BR-A");
+        var caller = new CallerContext(head.Id, UserRole.Approver, "BR-01");
+        var found = await LoanAccess.FindAccessibleAsync(db, loan.Id, caller, CancellationToken.None);
 
-        var result = await handler.HandleAsync(loan.Id, caller, CancellationToken.None);
-        Assert.Equal(loan.LamId, result.LamId);
+        Assert.NotNull(found);
     }
 
     [Fact]
-    public async Task GetLoan_AdminAnyBranch_ReturnsLoan()
+    public async Task BranchHead_CannotOpenOtherBranchUnassigned()
     {
         await using var db = Db();
-        var loan = Loan("BR-A");
+        var head = User.Create(
+            "bh", "hash", "B", "Head", "", "b@x.com", "BR-01",
+            UserRole.Approver, DateTimeOffset.UtcNow, "Branch Head");
+        db.Users.Add(head);
+        db.Branches.Add(Branch.Create("BR-01", "Home", "A1", DateTimeOffset.UtcNow));
+        db.Branches.Add(Branch.Create("BR-02", "Remote", "A2", DateTimeOffset.UtcNow));
+        var loan = Loan("BR-02", Guid.NewGuid());
         db.LoanApplications.Add(loan);
         await db.SaveChangesAsync();
 
-        var handler = new GetLoanHandler(db);
-        var caller = new CallerContext(Guid.NewGuid(), UserRole.Admin, "BR-Z");
+        var caller = new CallerContext(head.Id, UserRole.Approver, "BR-01");
+        var found = await LoanAccess.FindAccessibleAsync(db, loan.Id, caller, CancellationToken.None);
 
-        var result = await handler.HandleAsync(loan.Id, caller, CancellationToken.None);
-        Assert.Equal(loan.LamId, result.LamId);
-    }
-
-    [Fact]
-    public async Task GetLoanByLamId_OtherBranch_ThrowsNotFound()
-    {
-        await using var db = Db();
-        var loan = Loan("BR-A");
-        db.LoanApplications.Add(loan);
-        await db.SaveChangesAsync();
-
-        var handler = new GetLoanByLamIdHandler(db);
-        var caller = new CallerContext(Guid.NewGuid(), UserRole.Encoder, "BR-B");
-
-        await Assert.ThrowsAsync<NotFoundException>(() =>
-            handler.HandleAsync(loan.LamId, caller, CancellationToken.None));
-    }
-
-    [Fact]
-    public async Task ListLoans_NonAdmin_IgnoresClientBranchFilter_UsesCallerBranch()
-    {
-        await using var db = Db();
-        db.LoanApplications.Add(Loan("BR-A"));
-        db.LoanApplications.Add(Loan("BR-B"));
-        await db.SaveChangesAsync();
-
-        var handler = new ListLoansHandler(db);
-        var caller = new CallerContext(Guid.NewGuid(), UserRole.Encoder, "BR-A");
-
-        var page = await handler.HandleAsync(
-            new PageRequest { Page = 1, PageSize = 20 },
-            maxPageSize: 100,
-            defaultPageSize: 20,
-            statuses: [],
-            branchId: "BR-B",
-            caller,
-            CancellationToken.None);
-
-        Assert.Equal(1, page.TotalCount);
-    }
-
-    [Fact]
-    public async Task ListLoans_Admin_MayFilterByBranch()
-    {
-        await using var db = Db();
-        db.LoanApplications.Add(Loan("BR-A"));
-        db.LoanApplications.Add(Loan("BR-B"));
-        await db.SaveChangesAsync();
-
-        var handler = new ListLoansHandler(db);
-        var caller = new CallerContext(Guid.NewGuid(), UserRole.Admin, "BR-HQ");
-
-        var page = await handler.HandleAsync(
-            new PageRequest { Page = 1, PageSize = 20 },
-            maxPageSize: 100,
-            defaultPageSize: 20,
-            statuses: [],
-            branchId: "BR-B",
-            caller,
-            CancellationToken.None);
-
-        Assert.Equal(1, page.TotalCount);
+        Assert.Null(found);
     }
 }

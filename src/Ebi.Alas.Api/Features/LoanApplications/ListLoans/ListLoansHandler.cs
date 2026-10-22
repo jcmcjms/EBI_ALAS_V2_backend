@@ -59,7 +59,9 @@ public sealed class ListLoansHandler(AlasDbContext db)
                 caller.BranchId,
                 cancellationToken,
                 jobTitle);
-            query = query.Where(l => readable.Contains(l.BranchId));
+            // Assigned work is always visible even if the loan sits on another branch.
+            query = query.Where(l =>
+                readable.Contains(l.BranchId) || l.AssignedToUserId == caller.UserId);
         }
 
         if (statuses.Count > 0)

@@ -18,6 +18,18 @@ public static class BranchVisibility
             || compact.Equals("AreaHeadLevelH", StringComparison.OrdinalIgnoreCase);
     }
 
+    /// <summary>
+    /// Org-wide loan visibility for officers whose board authority is not branch-bound
+    /// (RBG / Product / Credit Head, President, COO, CreCom).
+    /// </summary>
+    public static bool IsGlobalAuthority(string? jobTitle)
+    {
+        var level = Approvals.AuthorityJobTitles.Map(jobTitle);
+        return level is Approvals.AuthorityLevel.RbgProductCredit
+            or Approvals.AuthorityLevel.PresidentCoo
+            or Approvals.AuthorityLevel.CreComBod;
+    }
+
     public static async Task<IReadOnlyList<string>> GetReadableBranchIdsAsync(
         AlasDbContext db,
         Guid userId,
@@ -27,7 +39,8 @@ public static class BranchVisibility
         string? jobTitle = null)
     {
         var home = (branchId ?? string.Empty).Trim();
-        if (role is UserRole.Admin or UserRole.System or UserRole.Evaluator)
+        if (role is UserRole.Admin or UserRole.System or UserRole.Evaluator
+            || IsGlobalAuthority(jobTitle))
         {
             return await db.Branches.AsNoTracking()
                 .Select(b => b.Code)

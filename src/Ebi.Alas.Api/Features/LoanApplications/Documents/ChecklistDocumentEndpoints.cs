@@ -59,27 +59,19 @@ public static class ChecklistDocumentEndpoints
             CancellationToken ct) =>
         {
             var caller = CallerContext.Require(user);
-            var loan = await db.LoanApplications.AsNoTracking()
-                .Where(l => l.Id == id)
-                .Select(l => new { l.Id, l.ProductCode, l.BranchId, l.FormJson })
-                .FirstOrDefaultAsync(ct);
-            if (loan is null)
-            {
-                throw new Composition.Errors.NotFoundException("Loan", id.ToString());
-            }
+            var loan = await LoanAccess.FindAccessibleAsync(db, id, caller, ct)
+                ?? throw new Composition.Errors.NotFoundException("Loan", id.ToString());
 
-            if (!caller.CanViewAllLoanBranches && loan.BranchId != caller.BranchId)
-            {
-                throw new Composition.Errors.NotFoundException("Loan", id.ToString());
-            }
+            var productCode = loan.ProductCode;
+            var formJson = loan.FormJson;
 
             var requirements = await db.LoanProductDocumentRequirements.AsNoTracking()
-                .Where(r => r.ProductCode == loan.ProductCode)
+                .Where(r => r.ProductCode == productCode)
                 .OrderBy(r => r.Code)
                 .Select(r => r.Code)
                 .ToListAsync(ct);
 
-            var loanNo = ChecklistDocumentReader.ExtractLoanNo(loan.FormJson);
+            var loanNo = ChecklistDocumentReader.ExtractLoanNo(formJson);
             if (loanNo is null)
             {
                 return Results.Ok(Array.Empty<LoanChecklistDocumentDto>());

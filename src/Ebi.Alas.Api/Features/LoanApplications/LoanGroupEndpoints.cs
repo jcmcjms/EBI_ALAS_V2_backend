@@ -41,10 +41,7 @@ public static class LoanGroupEndpoints
 
             var query = db.LoanApplications.AsNoTracking()
                 .Where(l => l.ApplicationGroupNo == groupNo);
-            if (!caller.CanViewAllLoanBranches)
-            {
-                query = query.Where(l => l.BranchId == caller.BranchId);
-            }
+            query = await LoanAccess.FilterAccessibleAsync(db, query, caller, ct);
 
             var loans = await query
                 .OrderBy(l => l.CreatedAt)
