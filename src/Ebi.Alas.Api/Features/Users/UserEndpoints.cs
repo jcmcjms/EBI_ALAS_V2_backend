@@ -2,8 +2,11 @@ using Ebi.Alas.Api.Composition.Pagination;
 using Ebi.Alas.Api.Features.Users.ChangeUserStatus;
 using Ebi.Alas.Api.Features.Users.CreateUser;
 using Ebi.Alas.Api.Features.Users.Domain;
+using Ebi.Alas.Api.Features.Users.ForcePasswordReset;
 using Ebi.Alas.Api.Features.Users.GetUser;
 using Ebi.Alas.Api.Features.Users.ListUsers;
+using Ebi.Alas.Api.Features.Users.ResetPassword;
+using Ebi.Alas.Api.Features.Users.RevokeSessions;
 using Ebi.Alas.Api.Features.Users.UpdateUser;
 using Microsoft.AspNetCore.Authorization;
 
@@ -156,6 +159,36 @@ public static class UserEndpoints
             CancellationToken cancellationToken) =>
         {
             var result = await handler.HandleAsync(id, request.Available, cancellationToken);
+            return Results.Ok(result);
+        })
+        .RequireRateLimiting("write");
+
+        group.MapPost("/{id:guid}/reset-password", async (
+            Guid id,
+            ResetPassword.ResetPasswordHandler handler,
+            CancellationToken cancellationToken) =>
+        {
+            var result = await handler.HandleAsync(id, cancellationToken);
+            return Results.Ok(result);
+        })
+        .RequireRateLimiting("write");
+
+        group.MapPost("/{id:guid}/force-password-reset", async (
+            Guid id,
+            ForcePasswordReset.ForcePasswordResetHandler handler,
+            CancellationToken cancellationToken) =>
+        {
+            var result = await handler.HandleAsync(id, cancellationToken);
+            return Results.Ok(result);
+        })
+        .RequireRateLimiting("write");
+
+        group.MapPost("/{id:guid}/revoke-sessions", async (
+            Guid id,
+            RevokeSessions.RevokeSessionsHandler handler,
+            CancellationToken cancellationToken) =>
+        {
+            var result = await handler.HandleAsync(id, cancellationToken);
             return Results.Ok(result);
         })
         .RequireRateLimiting("write");

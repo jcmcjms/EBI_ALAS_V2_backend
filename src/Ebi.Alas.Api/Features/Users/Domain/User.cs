@@ -144,6 +144,12 @@ public sealed class User
         UpdatedAt = now;
     }
 
+    public void ForcePasswordReset(DateTimeOffset now)
+    {
+        MustChangePassword = true;
+        UpdatedAt = now;
+    }
+
     public void MarkPasswordResetSent(DateTimeOffset now)
     {
         PasswordResetSentAt = now;

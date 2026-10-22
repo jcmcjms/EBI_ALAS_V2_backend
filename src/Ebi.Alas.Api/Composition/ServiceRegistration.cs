@@ -173,6 +173,9 @@ public static class ServiceRegistration
         services.AddScoped<UpdateUserHandler>();
         services.AddScoped<ChangeUserStatusHandler>();
         services.AddScoped<Features.Users.SetAvailability.SetUserAvailabilityHandler>();
+        services.AddScoped<Features.Users.ResetPassword.ResetPasswordHandler>();
+        services.AddScoped<Features.Users.ForcePasswordReset.ForcePasswordResetHandler>();
+        services.AddScoped<Features.Users.RevokeSessions.RevokeSessionsHandler>();
         services.AddScoped<Features.LoanProducts.UpdateLoanProductPolicyHandler>();
         services.AddScoped<Features.LoanProducts.DocumentRequirements.GetDocumentRequirementsHandler>();
         services.AddScoped<Features.LoanProducts.DocumentRequirements.ReplaceDocumentRequirementsHandler>();
