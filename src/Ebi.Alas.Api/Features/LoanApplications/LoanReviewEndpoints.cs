@@ -5,6 +5,7 @@ using Ebi.Alas.Api.Composition.Errors;
 using Ebi.Alas.Api.Composition.Pagination;
 using Ebi.Alas.Api.Features.Deviations;
 using Ebi.Alas.Api.Features.LoanApplications.Domain;
+using Ebi.Alas.Api.Features.Users.Domain;
 using Ebi.Alas.Api.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 
@@ -35,6 +36,8 @@ public sealed record DeviationRemarkDto(
 public sealed record CreateDeviationRemarkRequest(
     string Body,
     Guid? ParentRemarkId);
+
+public sealed record CreateDeviationUpdateRequest(string Instructions);
 
 public sealed record LoanDeviationDto(
     Guid Id,
@@ -105,6 +108,9 @@ public static class LoanRoutingMapper
 
 public static class LoanReviewEndpoints
 {
+    private static string Truncate(string value, int max) =>
+        value.Length <= max ? value : value[..(max - 1)] + "…";
+
     public static void MapLoanReview(this IEndpointRouteBuilder endpoints)
     {
         var group = endpoints.MapGroup("/api/loans").WithTags("Loans").RequireAuthorization();
@@ -302,6 +308,77 @@ public static class LoanReviewEndpoints
         .RequireRateLimiting("write")
         .WithName("CreateDeviationRemark");
 
+        group.MapPost("/{id:guid}/deviation-update-request", async (
+            Guid id,
+            CreateDeviationUpdateRequest request,
+            AlasDbContext db,
+            Features.Notifications.IRealtimeNotifier? realtime,
+            ClaimsPrincipal user,
+            TimeProvider timeProvider,
+            CancellationToken ct) =>
+        {
+            var caller = CallerContext.Require(user);
+            if (caller.Role is not (UserRole.Evaluator or UserRole.Recommender or UserRole.Approver or UserRole.Admin))
+            {
+                throw new ForbiddenException("You are not allowed to request a deviation update.");
+            }
+
+            var instructions = request.Instructions?.Trim() ?? string.Empty;
+            if (instructions.Length < 10)
+            {
+                throw new ValidationException("Instructions are required (minimum 10 characters).");
+            }
+
+            if (instructions.Length > 2000)
+            {
+                throw new ValidationException("Instructions must not exceed 2000 characters.");
+            }
+
+            var loan = await FindAccessibleLoanAsync(db, id, caller, ct)
+                ?? throw new NotFoundException("Loan", id.ToString());
+
+            var now = timeProvider.GetUtcNow();
+            db.LoanApplicationActions.Add(LoanApplicationAction.Create(
+                loan.Id,
+                caller.UserId,
+                "DeviationUpdateRequested",
+                loan.Status.ToString(),
+                loan.Status.ToString(),
+                instructions,
+                now));
+
+            var link = $"/loans/revision/{loan.Id}#deviations";
+            if (loan.CreatedBy != caller.UserId)
+            {
+                var notification = Features.Notifications.Notification.Create(
+                    loan.CreatedBy,
+                    "Deviation update requested",
+                    $"Loan {loan.LamId}: update or add deviations. {Truncate(instructions, 120)}",
+                    Features.Notifications.NotificationType.Action,
+                    now,
+                    link);
+                db.Notifications.Add(notification);
+            }
+
+            await db.SaveChangesAsync(ct);
+
+            if (realtime is not null && loan.CreatedBy != caller.UserId)
+            {
+                await realtime.NotifyUserAsync(
+                    Guid.NewGuid(),
+                    loan.CreatedBy,
+                    "Deviation update requested",
+                    $"Loan {loan.LamId}: update or add deviations.",
+                    link,
+                    now,
+                    ct);
+            }
+
+            return Results.Ok(new { loanId = loan.Id, link });
+        })
+        .RequireRateLimiting("write")
+        .WithName("RequestDeviationUpdate");
+
         group.MapGet("/{id:guid}/routing", async (
             Guid id,
             AlasDbContext db,
@@ -352,20 +429,12 @@ public static class LoanReviewEndpoints
         .WithName("GetLoanRouting");
     }
 
-    private static async Task<LoanApplication?> FindAccessibleLoanAsync(
+    private static Task<LoanApplication?> FindAccessibleLoanAsync(
         AlasDbContext db,
         Guid id,
         CallerContext caller,
         CancellationToken ct)
-    {
-        var query = db.LoanApplications.AsNoTracking().Where(l => l.Id == id);
-        if (!caller.CanViewAllLoanBranches)
-        {
-            query = query.Where(l => l.BranchId == caller.BranchId);
-        }
-
-        return await query.FirstOrDefaultAsync(ct);
-    }
+        => LoanAccess.FindAccessibleAsync(db, id, caller, ct);
 
     public static async Task<List<TimelineEventDto>> BuildTimelineEventsAsync(
         AlasDbContext db,

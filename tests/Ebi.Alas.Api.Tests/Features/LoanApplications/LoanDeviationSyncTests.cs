@@ -145,7 +145,7 @@ public sealed class LoanDeviationSyncTests
         Assert.Contains(notifier.Sent, s =>
             s.UserId == evaluator.Id
             && s.Title == "New deviation remark"
-            && s.Link == $"/loans/approval/{loan.Id}");
+            && s.Link != null && s.Link.StartsWith($"/loans/approval/{loan.Id}#deviations:", StringComparison.Ordinal));
         Assert.DoesNotContain(notifier.Sent, s => s.UserId == encoder.Id);
     }
 }
