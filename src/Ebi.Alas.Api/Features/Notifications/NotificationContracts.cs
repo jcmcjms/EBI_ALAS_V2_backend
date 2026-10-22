@@ -6,4 +6,5 @@ public sealed record NotificationResponse(
     string Body,
     string Type,
     DateTimeOffset CreatedAt,
-    DateTimeOffset? ReadAt);
+    DateTimeOffset? ReadAt,
+    string? Link = null);

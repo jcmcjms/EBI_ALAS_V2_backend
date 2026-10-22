@@ -24,7 +24,8 @@ public static class NotificationEndpoints
                     n.Body,
                     n.Type.ToString(),
                     n.CreatedAt,
-                    n.ReadAt))
+                    n.ReadAt,
+                    n.Link))
                 .ToListAsync(cancellationToken);
             return Results.Ok(items);
         })

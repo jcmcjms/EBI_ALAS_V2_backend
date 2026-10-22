@@ -30,12 +30,15 @@ public sealed class Notification
 
     public DateTimeOffset? ReadAt { get; private set; }
 
+    public string? Link { get; private set; }
+
     public static Notification Create(
         Guid userId,
         string title,
         string body,
         NotificationType type,
-        DateTimeOffset now)
+        DateTimeOffset now,
+        string? link = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(title);
         return new Notification
@@ -45,7 +48,8 @@ public sealed class Notification
             Title = title.Trim(),
             Body = body.Trim(),
             Type = type,
-            CreatedAt = now
+            CreatedAt = now,
+            Link = string.IsNullOrWhiteSpace(link) ? null : link.Trim()
         };
     }
 
