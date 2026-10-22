@@ -1,4 +1,5 @@
 using Ebi.Alas.Api.Composition.Auth;
+using Ebi.Alas.Api.Composition.Pagination;
 using Ebi.Alas.Api.Features.Dashboard;
 using Ebi.Alas.Api.Features.LoanApplications.Domain;
 using Ebi.Alas.Api.Features.Users.Domain;
@@ -43,7 +44,7 @@ public sealed class DashboardServiceTests
     {
         await using var db = Db();
         var now = new DateTimeOffset(2026, 10, 9, 12, 0, 0, TimeSpan.Zero);
-        var service = new DashboardService(db);
+        var service = new DashboardService(db, DashboardTestConfig.Config());
         var caller = new CallerContext(Guid.NewGuid(), UserRole.Admin, "011");
 
         db.LoanApplications.Add(NewLoan("LAM-REC", "011", now));
@@ -83,7 +84,7 @@ public sealed class DashboardServiceTests
     {
         await using var db = Db();
         var now = new DateTimeOffset(2026, 10, 9, 12, 0, 0, TimeSpan.Zero);
-        var service = new DashboardService(db);
+        var service = new DashboardService(db, DashboardTestConfig.Config());
 
         db.LoanApplications.Add(NewLoan("LAM-01-REC", "BR-01", now));
         db.LoanApplications.Add(NewLoan("LAM-02-REC", "BR-02", now));
@@ -111,7 +112,7 @@ public sealed class DashboardServiceTests
     {
         await using var db = Db();
         var now = new DateTimeOffset(2026, 10, 9, 12, 0, 0, TimeSpan.Zero);
-        var service = new DashboardService(db);
+        var service = new DashboardService(db, DashboardTestConfig.Config());
 
         db.LoanApplications.Add(NewLoan("LAM-01-REC", "BR-01", now));
         db.LoanApplications.Add(NewLoan("LAM-02-REC", "BR-02", now));
@@ -122,5 +123,85 @@ public sealed class DashboardServiceTests
         var overview = await service.GetOverviewAsync(caller, new DateOnly(2026, 10, 9), CancellationToken.None);
 
         Assert.Equal(2, overview.PendingRecommendation);
+    }
+
+    [Fact]
+    public async Task GetOverviewAsync_ReflectsRecommendationWorkflowFlag()
+    {
+        await using var db = Db();
+        var service = new DashboardService(db, DashboardTestConfig.Config(requireRecommendation: false));
+        var caller = new CallerContext(Guid.NewGuid(), UserRole.Admin, "011");
+
+        var overview = await service.GetOverviewAsync(caller, new DateOnly(2026, 10, 9), CancellationToken.None);
+
+        Assert.False(overview.RequireRecommendation);
+    }
+
+    [Fact]
+    public async Task GetOverviewAsync_PositionsRestartWithinEachQueue()
+    {
+        await using var db = Db();
+        var now = new DateTimeOffset(2026, 10, 9, 12, 0, 0, TimeSpan.Zero);
+        var service = new DashboardService(db, DashboardTestConfig.Config());
+
+        db.LoanApplications.Add(NewLoan("LAM-REC-1", "011", now));
+
+        var chk1 = NewLoan("LAM-CHK-1", "011", now);
+        chk1.TransitionTo(LoanStatus.ForChecking, now);
+        db.LoanApplications.Add(chk1);
+
+        var chk2 = NewLoan("LAM-CHK-2", "011", now.AddMinutes(1));
+        chk2.TransitionTo(LoanStatus.ForChecking, now.AddMinutes(1));
+        db.LoanApplications.Add(chk2);
+
+        var apr1 = NewLoan("LAM-APR-1", "011", now);
+        apr1.TransitionTo(LoanStatus.ForChecking, now);
+        apr1.TransitionTo(LoanStatus.ForApproval, now);
+        db.LoanApplications.Add(apr1);
+
+        await db.SaveChangesAsync();
+
+        var caller = new CallerContext(Guid.NewGuid(), UserRole.Admin, "011");
+        var overview = await service.GetOverviewAsync(caller, new DateOnly(2026, 10, 9), CancellationToken.None);
+
+        Assert.Equal(
+            new[] { 1 },
+            overview.PendingQueue.Where(q => q.StatusKey == "ForRecommendation").Select(q => q.Position).ToArray());
+        Assert.Equal(
+            new[] { 1, 2 },
+            overview.PendingQueue.Where(q => q.StatusKey == "ForChecking").Select(q => q.Position).ToArray());
+        Assert.Equal(
+            new[] { 1 },
+            overview.PendingQueue.Where(q => q.StatusKey == "ForApproval").Select(q => q.Position).ToArray());
+    }
+
+    [Fact]
+    public async Task GetPendingQueueAsync_PaginatesWithPositions()
+    {
+        await using var db = Db();
+        var now = new DateTimeOffset(2026, 10, 9, 12, 0, 0, TimeSpan.Zero);
+        var service = new DashboardService(db, DashboardTestConfig.Config());
+
+        for (var i = 0; i < 7; i++)
+        {
+            var loan = NewLoan($"LAM-CHK-{i + 1}", "011", now.AddMinutes(i));
+            loan.TransitionTo(LoanStatus.ForChecking, now.AddMinutes(i));
+            db.LoanApplications.Add(loan);
+        }
+
+        await db.SaveChangesAsync();
+
+        var caller = new CallerContext(Guid.NewGuid(), UserRole.Admin, "011");
+
+        var page1 = await service.GetPendingQueueAsync(
+            caller, LoanStatus.ForChecking, new PageRequest { Page = 1, PageSize = 5 }, 100, 20, CancellationToken.None);
+        var page2 = await service.GetPendingQueueAsync(
+            caller, LoanStatus.ForChecking, new PageRequest { Page = 2, PageSize = 5 }, 100, 20, CancellationToken.None);
+
+        Assert.Equal(7, page1.TotalCount);
+        Assert.Equal(5, page1.Items.Count);
+        Assert.Equal(new[] { 1, 2, 3, 4, 5 }, page1.Items.Select(i => i.Position).ToArray());
+        Assert.Equal(2, page2.Items.Count);
+        Assert.Equal(new[] { 6, 7 }, page2.Items.Select(i => i.Position).ToArray());
     }
 }

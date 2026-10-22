@@ -55,7 +55,7 @@ public sealed class DashboardDateFilterTests
         db.LoanApplications.AddRange(returnedToday, returnedYesterday);
         await db.SaveChangesAsync();
 
-        var service = new DashboardService(db);
+        var service = new DashboardService(db, DashboardTestConfig.Config());
         var caller = new CallerContext(encoderId, UserRole.Admin, "BR-01");
         var overview = await service.GetOverviewAsync(caller, selected, CancellationToken.None);
 
@@ -78,7 +78,7 @@ public sealed class DashboardDateFilterTests
         db.LoanApplications.Add(historical);
         await db.SaveChangesAsync();
 
-        var service = new DashboardService(db);
+        var service = new DashboardService(db, DashboardTestConfig.Config());
         var caller = new CallerContext(encoderId, UserRole.Admin, "BR-01");
 
         var onDay = await service.GetOverviewAsync(caller, selected, CancellationToken.None);
@@ -105,7 +105,7 @@ public sealed class DashboardDateFilterTests
         db.LoanApplications.Add(approved);
         await db.SaveChangesAsync();
 
-        var service = new DashboardService(db);
+        var service = new DashboardService(db, DashboardTestConfig.Config());
         var caller = new CallerContext(encoderId, UserRole.Admin, "BR-01");
         var overview = await service.GetOverviewAsync(caller, selected, CancellationToken.None);
 

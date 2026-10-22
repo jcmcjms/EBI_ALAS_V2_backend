@@ -37,7 +37,7 @@ public sealed class DashboardQueuesTests
         db.LoanApplications.AddRange(pending, approved);
         await db.SaveChangesAsync();
 
-        var service = new DashboardService(db);
+        var service = new DashboardService(db, DashboardTestConfig.Config());
         var caller = new CallerContext(encoder.Id, UserRole.Admin, "001");
 
         var overview = await service.GetOverviewAsync(caller, DateOnly.FromDateTime(now.UtcDateTime), CancellationToken.None);

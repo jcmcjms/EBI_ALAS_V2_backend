@@ -1,4 +1,5 @@
 using Ebi.Alas.Api.Composition.Auth;
+using Ebi.Alas.Api.Composition.Pagination;
 using Ebi.Alas.Api.Features.LoanApplications.Domain;
 using Ebi.Alas.Api.Features.Users.Domain;
 using Ebi.Alas.Api.Features.Workflow;
@@ -64,9 +65,10 @@ public sealed record DashboardOverview(
     IReadOnlyList<NowServingItem> NowServing,
     IReadOnlyList<PushBackItem> PushBackItems,
     IReadOnlyList<ApprovedLoanItem> ApprovedLoans,
-    IReadOnlyList<WeeklyTrendPoint> WeeklyTrend);
+    IReadOnlyList<WeeklyTrendPoint> WeeklyTrend,
+    bool RequireRecommendation);
 
-public sealed class DashboardService(AlasDbContext db)
+public sealed class DashboardService(AlasDbContext db, IWorkflowConfiguration workflow)
 {
     public const int ListCap = 50;
     public const int FlaggedDocumentsCap = 20;
@@ -91,11 +93,9 @@ public sealed class DashboardService(AlasDbContext db)
         CancellationToken cancellationToken)
     {
         var (dayStart, dayEnd) = ManilaDayRange(asOfDay);
-        var query = db.LoanApplications.AsQueryable();
-        if (!caller.CanViewAllLoanBranches)
-        {
-            query = query.Where(l => l.BranchId == caller.BranchId);
-        }
+        await workflow.EnsureLoadedAsync(cancellationToken);
+        var readable = await ResolveReadableBranchesAsync(caller, cancellationToken);
+        var query = ApplyBranchScope(db.LoanApplications.AsQueryable(), readable);
 
         var counts = await query
             .GroupBy(_ => 1)
@@ -113,11 +113,7 @@ public sealed class DashboardService(AlasDbContext db)
             })
             .FirstOrDefaultAsync(cancellationToken);
 
-        var scoped = db.LoanApplications.AsNoTracking();
-        if (!caller.CanViewAllLoanBranches)
-        {
-            scoped = scoped.Where(l => l.BranchId == caller.BranchId);
-        }
+        var scoped = ApplyBranchScope(db.LoanApplications.AsNoTracking(), readable);
 
         var isEncoderScope = caller.Role == UserRole.Encoder;
 
@@ -149,7 +145,7 @@ public sealed class DashboardService(AlasDbContext db)
             from q in db.WorkflowQueueItems.AsNoTracking()
             where q.State == QueueItemState.Active && q.OwnerUserId != null
             join l in db.LoanApplications.AsNoTracking() on q.LoanApplicationId equals l.Id
-            where (caller.CanViewAllLoanBranches || l.BranchId == caller.BranchId)
+            where (readable == null || readable.Contains(l.BranchId))
                 && (!isEncoderScope || q.OwnerUserId == caller.UserId)
             orderby q.LeasedAt
             select new
@@ -212,11 +208,11 @@ public sealed class DashboardService(AlasDbContext db)
             join l in db.LoanApplications.AsNoTracking() on a.LoanApplicationId equals l.Id
             where a.ActionDate >= weekStart
                 && a.ActionDate < weekEnd
-                && (caller.CanViewAllLoanBranches || l.BranchId == caller.BranchId)
+                && (readable == null || readable.Contains(l.BranchId))
             select new { a.Action, a.ActionDate }
         ).ToListAsync(cancellationToken);
 
-        var flagged = await LoadFlaggedAsync(caller, cancellationToken);
+        var flagged = await LoadFlaggedAsync(caller, readable, cancellationToken);
 
         var personIds = pendingRows.Select(r => r.CreatedBy)
             .Concat(servingRows.Select(r => r.OwnerUserId!.Value))
@@ -228,7 +224,8 @@ public sealed class DashboardService(AlasDbContext db)
             .ToDictionaryAsync(u => u.Id, u => (u.FirstName + " " + u.LastName).Trim(), cancellationToken);
 
         var pendingQueue = pendingRows
-            .Select((r, i) =>
+            .GroupBy(r => r.Status)
+            .SelectMany(group => group.Select((r, i) =>
             {
                 names.TryGetValue(r.CreatedBy, out var encoderName);
                 return new PendingQueueItem(
@@ -240,7 +237,7 @@ public sealed class DashboardService(AlasDbContext db)
                     r.LastActionDate,
                     r.ClientName,
                     encoderName ?? string.Empty);
-            })
+            }))
             .ToList();
 
         var nowServing = servingRows
@@ -295,18 +292,114 @@ public sealed class DashboardService(AlasDbContext db)
             nowServing,
             pushBackItems,
             approvedLoans,
-            trend);
+            trend,
+            workflow.RequireRecommendation);
+    }
+
+    public async Task<PageResult<PendingQueueItem>> GetPendingQueueAsync(
+        CallerContext caller,
+        LoanStatus status,
+        PageRequest page,
+        int maxPageSize,
+        int defaultPageSize,
+        CancellationToken cancellationToken)
+    {
+        var normalized = page.Normalize(maxPageSize, defaultPageSize);
+        var readable = await ResolveReadableBranchesAsync(caller, cancellationToken);
+        var query = ApplyBranchScope(db.LoanApplications.AsNoTracking(), readable)
+            .Where(l => l.Status == status);
+
+        if (caller.Role == UserRole.Encoder)
+        {
+            query = query.Where(l => l.CreatedBy == caller.UserId);
+        }
+
+        var total = await query.CountAsync(cancellationToken);
+        var rows = await query
+            .OrderBy(l => l.LastActionDate)
+            .ThenBy(l => l.LamId)
+            .Skip(normalized.Skip)
+            .Take(normalized.PageSize)
+            .Select(l => new
+            {
+                l.LamId,
+                l.BranchId,
+                Status = l.Status.ToString(),
+                l.LastActionDate,
+                l.ClientName,
+                l.CreatedBy,
+            })
+            .ToListAsync(cancellationToken);
+
+        var personIds = rows.Select(r => r.CreatedBy).Distinct().ToList();
+        var names = await db.Users.AsNoTracking()
+            .Where(u => personIds.Contains(u.Id))
+            .ToDictionaryAsync(u => u.Id, u => (u.FirstName + " " + u.LastName).Trim(), cancellationToken);
+
+        var items = rows.Select((r, i) =>
+        {
+            names.TryGetValue(r.CreatedBy, out var encoderName);
+            return new PendingQueueItem(
+                normalized.Skip + i + 1,
+                r.LamId,
+                r.BranchId,
+                r.Status,
+                r.Status.Replace(" ", string.Empty),
+                r.LastActionDate,
+                r.ClientName,
+                encoderName ?? string.Empty);
+        }).ToList();
+
+        return new PageResult<PendingQueueItem>(items, total, normalized.Page, normalized.PageSize);
+    }
+
+    private static IQueryable<LoanApplication> ApplyBranchScope(
+        IQueryable<LoanApplication> query,
+        IReadOnlyList<string>? readableBranches)
+    {
+        if (readableBranches is null)
+        {
+            return query;
+        }
+
+        return query.Where(l => readableBranches.Contains(l.BranchId));
+    }
+
+    /// <summary>null means org-wide (no branch filter).</summary>
+    private async Task<IReadOnlyList<string>?> ResolveReadableBranchesAsync(
+        CallerContext caller,
+        CancellationToken cancellationToken)
+    {
+        if (caller.CanViewAllLoanBranches)
+        {
+            return null;
+        }
+
+        var jobTitle = await db.Users.AsNoTracking()
+            .Where(u => u.Id == caller.UserId)
+            .Select(u => u.JobTitle)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (Branches.BranchVisibility.IsGlobalAuthority(jobTitle))
+        {
+            return null;
+        }
+
+        return await Branches.BranchVisibility.GetReadableBranchIdsAsync(
+            db,
+            caller.UserId,
+            caller.Role,
+            caller.BranchId,
+            cancellationToken,
+            jobTitle);
     }
 
     private async Task<IReadOnlyList<FlaggedDocumentItem>> LoadFlaggedAsync(
         CallerContext caller,
+        IReadOnlyList<string>? readableBranches,
         CancellationToken cancellationToken)
     {
-        var flaggedQuery = db.LoanApplications.AsNoTracking();
-        if (!caller.CanViewAllLoanBranches)
-        {
-            flaggedQuery = flaggedQuery.Where(l => l.BranchId == caller.BranchId);
-        }
+        var flaggedQuery = ApplyBranchScope(db.LoanApplications.AsNoTracking(), readableBranches);
 
         if (caller.Role == UserRole.Encoder)
         {

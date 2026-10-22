@@ -47,7 +47,7 @@ public sealed class DashboardEncoderScopeTests
     {
         await using var db = Db();
         var now = new DateTimeOffset(2026, 10, 9, 12, 0, 0, TimeSpan.Zero);
-        var service = new DashboardService(db);
+        var service = new DashboardService(db, DashboardTestConfig.Config());
         var encoderId = Guid.NewGuid();
 
         var mine = NewLoan("LAM-MINE", "BR-01", now, createdBy: encoderId);
@@ -79,7 +79,7 @@ public sealed class DashboardEncoderScopeTests
     {
         await using var db = Db();
         var now = new DateTimeOffset(2026, 10, 9, 12, 0, 0, TimeSpan.Zero);
-        var service = new DashboardService(db);
+        var service = new DashboardService(db, DashboardTestConfig.Config());
 
         db.LoanApplications.Add(NewLoan("LAM-A", "BR-01", now, createdBy: Guid.NewGuid()));
         db.LoanApplications.Add(NewLoan("LAM-B", "BR-01", now, createdBy: Guid.NewGuid()));
@@ -97,7 +97,7 @@ public sealed class DashboardEncoderScopeTests
     {
         await using var db = Db();
         var now = new DateTimeOffset(2026, 10, 9, 12, 0, 0, TimeSpan.Zero);
-        var service = new DashboardService(db);
+        var service = new DashboardService(db, DashboardTestConfig.Config());
 
         db.LoanApplications.Add(NewLoan("LAM-LOCAL", "BR-01", now, createdBy: Guid.NewGuid()));
         db.LoanApplications.Add(NewLoan("LAM-REMOTE", "BR-02", now, createdBy: Guid.NewGuid()));
@@ -112,11 +112,35 @@ public sealed class DashboardEncoderScopeTests
     }
 
     [Fact]
+    public async Task GetOverviewAsync_ProductHeadApprover_SeesAllBranches()
+    {
+        await using var db = Db();
+        var now = new DateTimeOffset(2026, 10, 9, 12, 0, 0, TimeSpan.Zero);
+        var service = new DashboardService(db, DashboardTestConfig.Config());
+        var approver = Ebi.Alas.Api.Features.Users.Domain.User.Create(
+            "ph", "hash", "P", "Head", "", "p@x.com", "BR-01",
+            Ebi.Alas.Api.Features.Users.Domain.UserRole.Approver, now, "Product Head");
+        db.Users.Add(approver);
+        db.LoanApplications.Add(NewLoan("LAM-LOCAL", "BR-01", now, createdBy: Guid.NewGuid()));
+        db.LoanApplications.Add(NewLoan("LAM-REMOTE", "BR-02", now, createdBy: Guid.NewGuid()));
+        await db.SaveChangesAsync();
+
+        var caller = new CallerContext(
+            approver.Id,
+            Ebi.Alas.Api.Features.Users.Domain.UserRole.Approver,
+            "BR-01");
+        var overview = await service.GetOverviewAsync(caller, new DateOnly(2026, 10, 9), CancellationToken.None);
+
+        Assert.Equal(2, overview.PendingQueue.Count);
+        Assert.Contains(overview.PendingQueue, i => i.LamId == "LAM-REMOTE");
+    }
+
+    [Fact]
     public async Task GetOverviewAsync_Encoder_StillHomeBranchOnly()
     {
         await using var db = Db();
         var now = new DateTimeOffset(2026, 10, 9, 12, 0, 0, TimeSpan.Zero);
-        var service = new DashboardService(db);
+        var service = new DashboardService(db, DashboardTestConfig.Config());
         var encoderId = Guid.NewGuid();
 
         db.LoanApplications.Add(NewLoan("LAM-LOCAL", "BR-01", now, createdBy: encoderId));

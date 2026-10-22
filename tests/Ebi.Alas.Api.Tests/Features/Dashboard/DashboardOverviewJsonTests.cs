@@ -15,7 +15,8 @@ public sealed class DashboardOverviewJsonTests
             [],
             [new PushBackItem(1, "LAM-1", "001", DateTimeOffset.UtcNow, "Returned")],
             [],
-            []);
+            [],
+            true);
 
         var json = JsonSerializer.Serialize(overview, new JsonSerializerOptions
         {
@@ -25,5 +26,6 @@ public sealed class DashboardOverviewJsonTests
         Assert.Contains("\"pushbacks\":5", json);
         Assert.Contains("\"pushBackItems\"", json);
         Assert.DoesNotContain("\"pushBacks\":", json);
+        Assert.Contains("\"requireRecommendation\":true", json);
     }
 }
