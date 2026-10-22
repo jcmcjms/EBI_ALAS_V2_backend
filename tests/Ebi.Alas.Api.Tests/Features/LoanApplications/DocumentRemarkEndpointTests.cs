@@ -118,7 +118,7 @@ public sealed class DocumentRemarkEndpointTests
         Assert.Contains(notifier.Sent, s =>
             s.UserId == evaluator.Id
             && s.Title == "New document remark"
-            && s.Link == $"/loans/approval/{loan.Id}");
+            && s.Link != null && s.Link.StartsWith($"/loans/approval/{loan.Id}#files:", StringComparison.Ordinal));
         Assert.Contains(notifier.Sent, s => s.UserId == evaluator.Id);
         Assert.DoesNotContain(notifier.Sent, s => s.UserId == encoder.Id);
     }

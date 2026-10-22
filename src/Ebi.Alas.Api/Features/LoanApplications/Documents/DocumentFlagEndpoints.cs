@@ -56,7 +56,8 @@ public sealed class DocumentFlagHandler(
             "Documents Flagged — Upload Required",
             $"A reviewer flagged {loan.LamId} as lacking documents. Missing: {missingList}. Reason: {request.Reason.Trim()}.",
             NotificationType.Action,
-            now));
+            now,
+            $"/loans/revision/{loan.Id}#files"));
 
         await db.SaveChangesAsync(cancellationToken);
 
@@ -67,7 +68,7 @@ public sealed class DocumentFlagHandler(
                 loan.CreatedBy,
                 "Documents Flagged — Upload Required",
                 $"Missing: {missingList}.",
-                $"/loans/review/{loan.Id}",
+                $"/loans/revision/{loan.Id}#files",
                 now,
                 cancellationToken);
             await realtime.NotifyDashboardUpdatedAsync(cancellationToken);
@@ -119,7 +120,9 @@ public sealed class DocumentFlagHandler(
             return;
         }
 
-        if (!caller.CanViewAllLoanBranches && loan.BranchId != caller.BranchId)
+        if (!caller.CanViewAllLoanBranches
+            && loan.BranchId != caller.BranchId
+            && loan.AssignedToUserId != caller.UserId)
         {
             throw new Composition.Errors.ForbiddenException("You cannot flag documents for this branch.");
         }

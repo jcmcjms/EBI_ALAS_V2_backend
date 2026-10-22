@@ -89,7 +89,7 @@ public sealed class DocumentRemarkService(
             : remark.Body;
         var title = "New document remark";
         var body = $"Loan {loan.LamId} · {remark.ChecklistIdCode}: {preview}";
-        var link = $"/loans/approval/{loan.Id}";
+        var link = $"/loans/approval/{loan.Id}#files:{Uri.EscapeDataString(remark.ChecklistIdCode)}";
 
         foreach (var recipient in recipients)
         {
@@ -98,7 +98,8 @@ public sealed class DocumentRemarkService(
                 title,
                 body,
                 NotificationType.Action,
-                now);
+                now,
+                link);
             db.Notifications.Add(notification);
             await db.SaveChangesAsync(cancellationToken);
 

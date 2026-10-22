@@ -83,7 +83,7 @@ public sealed class ApplicationArrivalNotifier(
 
         var now = timeProvider.GetUtcNow();
         var notifications = recipientIds
-            .Select(userId => Notification.Create(userId, title, body, NotificationType.Application, now))
+            .Select(userId => Notification.Create(userId, title, body, NotificationType.Application, now, link))
             .ToList();
 
         db.Notifications.AddRange(notifications);

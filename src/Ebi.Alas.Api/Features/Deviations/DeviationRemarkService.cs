@@ -87,7 +87,7 @@ public sealed class DeviationRemarkService(
             : remark.Body;
         var title = "New deviation remark";
         var body = $"Loan {loan.LamId} · {deviation.Description}: {preview}";
-        var link = $"/loans/approval/{loan.Id}";
+        var link = $"/loans/approval/{loan.Id}#deviations:{deviation.Id}";
 
         foreach (var recipient in recipients)
         {
@@ -96,7 +96,8 @@ public sealed class DeviationRemarkService(
                 title,
                 body,
                 NotificationType.Action,
-                now);
+                now,
+                link);
             db.Notifications.Add(notification);
             await db.SaveChangesAsync(cancellationToken);
 

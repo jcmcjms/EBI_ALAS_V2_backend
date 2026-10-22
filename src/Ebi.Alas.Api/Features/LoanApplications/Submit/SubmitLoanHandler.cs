@@ -268,7 +268,8 @@ public sealed class SubmitLoanHandler(
             title,
             body,
             NotificationType.Application,
-            now);
+            now,
+            link);
         db.Notifications.Add(notification);
         await db.SaveChangesAsync(cancellationToken);
         if (realtime is null)
