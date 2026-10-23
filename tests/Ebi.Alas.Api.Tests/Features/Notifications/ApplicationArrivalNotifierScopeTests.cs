@@ -84,4 +84,32 @@ public sealed class ApplicationArrivalNotifierScopeTests
         Assert.Contains(enc1, recipients);
         Assert.DoesNotContain(enc2, recipients);
     }
+
+    [Fact]
+    public async Task NotifyRole_Evaluator_AllBranches_GetNotification()
+    {
+        await using var db = Db();
+        await SeedAsync(db);
+        var now = DateTimeOffset.UtcNow;
+        var evalHome = User.Create("ev1", "h", "Eval", "Home", "M", "ev1@x.com", "001", UserRole.Evaluator, now);
+        var evalFar = User.Create("ev2", "h", "Eval", "Far", "M", "ev2@x.com", "003", UserRole.Evaluator, now);
+        var evalUnavailable = User.Create("ev3", "h", "Eval", "Away", "M", "ev3@x.com", "003", UserRole.Evaluator, now);
+        evalUnavailable.SetAvailable(false, now);
+        db.Users.AddRange(evalHome, evalFar, evalUnavailable);
+        await db.SaveChangesAsync();
+        var notifier = new ApplicationArrivalNotifier(db, null, TimeProvider.System);
+
+        await notifier.NotifyRoleAsync(
+            UserRole.Evaluator,
+            "001",
+            "New application ready for evaluation",
+            "Ready",
+            null,
+            CancellationToken.None);
+
+        var recipients = await db.Notifications.AsNoTracking().Select(n => n.UserId).ToListAsync();
+        Assert.Contains(evalHome.Id, recipients);
+        Assert.Contains(evalFar.Id, recipients);
+        Assert.DoesNotContain(evalUnavailable.Id, recipients);
+    }
 }

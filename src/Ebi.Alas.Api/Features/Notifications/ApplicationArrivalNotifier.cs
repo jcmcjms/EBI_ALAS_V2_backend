@@ -36,6 +36,13 @@ public sealed class ApplicationArrivalNotifier(
             return;
         }
 
+        // Evaluators review ForChecking work across all branches (same as BranchVisibility).
+        if (role == UserRole.Evaluator)
+        {
+            await SaveAndPushAsync(candidates.Select(c => c.Id).ToList(), title, body, link, cancellationToken);
+            return;
+        }
+
         var homeCodes = candidates.Select(c => c.BranchId).Distinct().ToList();
         var areaByHome = await db.Branches.AsNoTracking()
             .Where(b => homeCodes.Contains(b.Code))
@@ -82,6 +89,21 @@ public sealed class ApplicationArrivalNotifier(
             }
         }
 
+        if (recipientIds.Count == 0)
+        {
+            return;
+        }
+
+        await SaveAndPushAsync(recipientIds, title, body, link, cancellationToken);
+    }
+
+    private async Task SaveAndPushAsync(
+        IReadOnlyList<Guid> recipientIds,
+        string title,
+        string body,
+        string? link,
+        CancellationToken cancellationToken)
+    {
         if (recipientIds.Count == 0)
         {
             return;
