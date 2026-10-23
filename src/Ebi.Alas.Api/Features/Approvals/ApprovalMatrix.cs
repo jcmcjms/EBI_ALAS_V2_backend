@@ -6,10 +6,14 @@ public enum AuthorityLevel
 {
     None = 0,
     BranchHead = 1,
-    AreaHead = 2,
-    RbgProductCredit = 3,
-    PresidentCoo = 4,
-    CreComBod = 5
+    OfficerInCharge = 2,
+    AreaHead = 3,
+    RbgHead = 4,
+    ProductHead = 5,
+    CreditHead = 6,
+    Coo = 7,
+    PresidentCeo = 8,
+    CreComBod = 9
 }
 
 public sealed record ApprovalInputs(
@@ -83,10 +87,14 @@ public static class ApprovalMatrix
 
     public static string Describe(AuthorityLevel level) => level switch
     {
-        AuthorityLevel.BranchHead => "Branch Head / OIC",
+        AuthorityLevel.BranchHead => "Branch Head",
+        AuthorityLevel.OfficerInCharge => "Officer In Charge",
         AuthorityLevel.AreaHead => "Area Head",
-        AuthorityLevel.RbgProductCredit => "RBG / Product / Credit Head",
-        AuthorityLevel.PresidentCoo => "President / COO",
+        AuthorityLevel.RbgHead => "RBG Head",
+        AuthorityLevel.ProductHead => "Product Head",
+        AuthorityLevel.CreditHead => "Credit Head",
+        AuthorityLevel.Coo => "COO",
+        AuthorityLevel.PresidentCeo => "President / CEO",
         AuthorityLevel.CreComBod => "CreCom / Board",
         _ => "None"
     };
@@ -98,23 +106,23 @@ public static class ApprovalMatrix
 
         if (severity >= 2)
         {
-            return inputs.TotalExposure <= 1_500_000m
-                ? AuthorityLevel.PresidentCoo
+            return inputs.TotalExposure <= 1_200_000m
+                ? AuthorityLevel.Coo
                 : AuthorityLevel.CreComBod;
         }
 
         if (severity == 1)
         {
             return inputs.TotalExposure <= 1_000_000m
-                ? AuthorityLevel.RbgProductCredit
-                : AuthorityLevel.PresidentCoo;
+                ? AuthorityLevel.RbgHead
+                : AuthorityLevel.Coo;
         }
 
         if (!isReloan)
         {
             return inputs.TotalExposure <= 1_000_000m
-                ? AuthorityLevel.RbgProductCredit
-                : AuthorityLevel.PresidentCoo;
+                ? AuthorityLevel.RbgHead
+                : AuthorityLevel.Coo;
         }
 
         if (inputs.TotalExposure <= 300_000m)
@@ -129,10 +137,15 @@ public static class ApprovalMatrix
 
         if (inputs.TotalExposure <= 1_000_000m)
         {
-            return AuthorityLevel.RbgProductCredit;
+            return AuthorityLevel.RbgHead;
         }
 
-        return AuthorityLevel.PresidentCoo;
+        if (inputs.TotalExposure <= 1_200_000m)
+        {
+            return AuthorityLevel.Coo;
+        }
+
+        return AuthorityLevel.PresidentCeo;
     }
 
     private static AuthorityDecision Blocked(string reason) =>
