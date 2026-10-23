@@ -25,13 +25,13 @@ public static class BranchVisibility
     /// </summary>
     public static bool IsGlobalAuthority(string? jobTitle)
     {
-        var level = Approvals.AuthorityJobTitles.Map(jobTitle);
-        return level is Approvals.AuthorityLevel.RbgHead
-            or Approvals.AuthorityLevel.ProductHead
-            or Approvals.AuthorityLevel.CreditHead
-            or Approvals.AuthorityLevel.Coo
-            or Approvals.AuthorityLevel.PresidentCeo
-            or Approvals.AuthorityLevel.CreComBod;
+        var level = AuthorityJobTitles.Map(jobTitle);
+        return level is AuthorityLevel.RbgHead
+            or AuthorityLevel.ProductHead
+            or AuthorityLevel.CreditHead
+            or AuthorityLevel.Coo
+            or AuthorityLevel.PresidentCeo
+            or AuthorityLevel.CreComBod;
     }
 
     /// <summary>

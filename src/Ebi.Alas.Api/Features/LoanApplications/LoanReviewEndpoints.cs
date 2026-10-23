@@ -24,6 +24,34 @@ public sealed record TimelineEventDto(
     string? Subject,
     string? SubjectCode);
 
+internal static class DocumentLabelLookup
+{
+    public static async Task<IReadOnlyDictionary<string, string>> LoadAsync(
+        Infrastructure.Persistence.AlasDbContext db,
+        CancellationToken cancellationToken)
+    {
+        var rows = await db.LoanProductDocumentRequirements.AsNoTracking()
+            .Select(r => new { r.Code, r.Description })
+            .ToListAsync(cancellationToken);
+
+        var map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var row in rows)
+        {
+            if (!map.ContainsKey(row.Code))
+            {
+                map[row.Code] = row.Description;
+            }
+        }
+
+        return map;
+    }
+
+    public static string Resolve(IReadOnlyDictionary<string, string> labels, string code) =>
+        labels.TryGetValue(code, out var description) && !string.IsNullOrWhiteSpace(description)
+            ? description
+            : code;
+}
+
 public sealed record DeviationRemarkDto(
     Guid Id,
     Guid LoanDeviationId,
@@ -611,6 +639,8 @@ public static class LoanReviewEndpoints
             })
             .ToListAsync(ct);
 
+        var docLabelByCode = await DocumentLabelLookup.LoadAsync(db, ct);
+
         foreach (var docRemark in documentRemarks)
         {
             string? authorName = null;
@@ -629,6 +659,7 @@ public static class LoanReviewEndpoints
                 authorRole = author?.Role;
             }
 
+            var documentLabel = DocumentLabelLookup.Resolve(docLabelByCode, docRemark.ChecklistIdCode);
             events.Add(new TimelineEventDto(
                 $"documentRemark:{docRemark.Id}",
                 "documentRemark",
@@ -639,7 +670,7 @@ public static class LoanReviewEndpoints
                 null,
                 null,
                 docRemark.Body,
-                docRemark.ChecklistIdCode,
+                documentLabel,
                 docRemark.ChecklistIdCode));
         }
 

@@ -87,8 +87,13 @@ public sealed class DocumentRemarkService(
         var preview = remark.Body.Length > 120
             ? remark.Body[..117] + "..."
             : remark.Body;
+        var documentLabel = await db.LoanProductDocumentRequirements.AsNoTracking()
+            .Where(r => r.Code == remark.ChecklistIdCode)
+            .Select(r => r.Description)
+            .FirstOrDefaultAsync(cancellationToken)
+            ?? remark.ChecklistIdCode;
         var title = "New document remark";
-        var body = $"Loan {loan.LamId} · {remark.ChecklistIdCode}: {preview}";
+        var body = $"Loan {loan.LamId} · {documentLabel}: {preview}";
         var link = $"/loans/approval/{loan.Id}#files:{Uri.EscapeDataString(remark.ChecklistIdCode)}";
 
         foreach (var recipient in recipients)
