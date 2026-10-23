@@ -70,6 +70,7 @@ public static class PipelineConfiguration
         Features.LoanProducts.DocumentRequirements.DocumentRequirementEndpoints.MapDocumentRequirementEndpoints(app);
         app.MapSlaPolicyEndpoints();
         app.MapDeviationCatalogEndpoints();
+        app.MapApprovalAuthorities();
         Features.Notifications.NotificationHubModule.MapNotificationHub(app);
 
         return app;

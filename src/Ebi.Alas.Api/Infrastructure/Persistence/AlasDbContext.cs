@@ -1,6 +1,7 @@
 using Ebi.Alas.Api.Features.Auth.Domain;
 using Ebi.Alas.Api.Features.Auth.Persistence;
 using Ebi.Alas.Api.Features.Approvals;
+using Ebi.Alas.Api.Features.Approvals.Persistence;
 using Ebi.Alas.Api.Features.Branches;
 using Ebi.Alas.Api.Features.Branches.Persistence;
 using Ebi.Alas.Api.Features.Deviations;
@@ -62,6 +63,10 @@ public sealed class AlasDbContext(DbContextOptions<AlasDbContext> options) : DbC
 
     public DbSet<LoanCreationDraft> LoanCreationDrafts => Set<LoanCreationDraft>();
 
+    public DbSet<ApprovalAuthority> ApprovalAuthorities => Set<ApprovalAuthority>();
+
+    public DbSet<ApprovalAuthorityUser> ApprovalAuthorityUsers => Set<ApprovalAuthorityUser>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.ApplyConfiguration(new UserConfiguration());
@@ -70,6 +75,8 @@ public sealed class AlasDbContext(DbContextOptions<AlasDbContext> options) : DbC
         modelBuilder.ApplyConfiguration(new LoanApplicationConfiguration());
         modelBuilder.ApplyConfiguration(new WorkflowQueueItemConfiguration());
         modelBuilder.ApplyConfiguration(new BranchConfiguration());
+        modelBuilder.ApplyConfiguration(new ApprovalAuthorityConfiguration());
+        modelBuilder.ApplyConfiguration(new ApprovalAuthorityUserConfiguration());
 
         modelBuilder.Entity<SystemSetting>(b =>
         {

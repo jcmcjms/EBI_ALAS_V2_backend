@@ -188,6 +188,7 @@ public static class ServiceRegistration
         services.AddScoped<Features.Branches.UpdateBranchStatusHandler>();
         services.AddScoped<Features.Users.Seed.AdminUserSeeder>();
         services.AddScoped<Features.LoanProducts.ProductDocumentRequirementSeeder>();
+        services.AddScoped<Features.Approvals.ApprovalAuthoritySeeder>();
         services.AddScoped<
             Features.LoanApplications.Documents.IChecklistDocumentReader,
             Features.LoanApplications.Documents.ChecklistDocumentReader>();
