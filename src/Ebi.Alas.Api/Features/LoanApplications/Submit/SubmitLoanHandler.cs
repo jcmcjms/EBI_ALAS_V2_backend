@@ -20,6 +20,7 @@ public sealed class SubmitLoanHandler(
     ApplicationNumberGenerator numbers,
     ApplicationArrivalNotifier arrivals,
     IChecklistDocumentReader checklistDocuments,
+    WebLoans.IWebLoanReader webLoan,
     IRealtimeNotifier? realtime,
     TimeProvider timeProvider)
 {
@@ -50,6 +51,12 @@ public sealed class SubmitLoanHandler(
         if (missingDocuments.Count > 0)
         {
             return SubmitLoanResult.Blocked(missingDocuments);
+        }
+
+        var missingCocreClient = await CocreClientGate.FindMissingAsync(webLoan, request.Form, cancellationToken);
+        if (missingCocreClient.Count > 0)
+        {
+            return SubmitLoanResult.Blocked(missingCocreClient);
         }
         var applicationGroupNo = string.IsNullOrWhiteSpace(request.ApplicationGroupNo)
             ? await numbers.GenerateGroupNumberAsync(cancellationToken)
@@ -223,10 +230,17 @@ public sealed class SubmitLoanHandler(
                 continue;
             }
 
+            // First amortization in WebLoan means the paper requirements were already filed.
+            if (await webLoan.HasFirstAmortizationAsync(loanNo, cancellationToken))
+            {
+                continue;
+            }
+
             var codes = required.Select(r => r.Code).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
             var docs = await checklistDocuments.GetChecklistDocumentsAsync(loanNo, codes, cancellationToken);
             var uploaded = docs
-                .Where(d => string.Equals(d.UploadStatus, "Uploaded", StringComparison.Ordinal))
+                .Where(d => string.Equals(d.UploadStatus, "Uploaded", StringComparison.Ordinal)
+                    || string.Equals(d.UploadStatus, "Submitted", StringComparison.Ordinal))
                 .Select(d => d.IdCode)
                 .ToHashSet(StringComparer.OrdinalIgnoreCase);
 

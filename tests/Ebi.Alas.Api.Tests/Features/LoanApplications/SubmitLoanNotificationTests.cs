@@ -68,7 +68,9 @@ public sealed class SubmitLoanNotificationTests
         "Juan Dela Cruz",
         branchId,
         LoanType.New,
-        [new SubmitLoanLine("A16", "A16 - Salary Loan", 1000m, 30, 0.05m)]);
+        [new SubmitLoanLine("A16", "A16 - Salary Loan", 1000m, 30, 0.05m)],
+        System.Text.Json.JsonDocument.Parse(
+            """{"client":{"cisId":"0880530879","address":"123 Rizal St"},"loans":[]}""").RootElement.Clone());
 
     private sealed class FakeSettingsStore(SettingSnapshot snapshot) : ISystemSettingsStore
     {
@@ -98,6 +100,7 @@ public sealed class SubmitLoanNotificationTests
             new ApplicationNumberGenerator(db),
             new ApplicationArrivalNotifier(db, notifier, TimeProvider.System),
             new EmptyChecklistReader(),
+            new FakeWebLoanReader(),
             notifier,
             TimeProvider.System);
 
@@ -137,6 +140,7 @@ public sealed class SubmitLoanNotificationTests
             new ApplicationNumberGenerator(db),
             new ApplicationArrivalNotifier(db, notifier, TimeProvider.System),
             new EmptyChecklistReader(),
+            new FakeWebLoanReader(),
             notifier,
             TimeProvider.System);
 

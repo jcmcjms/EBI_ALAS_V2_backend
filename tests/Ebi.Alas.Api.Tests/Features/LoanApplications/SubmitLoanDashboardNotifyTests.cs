@@ -52,7 +52,9 @@ public sealed class SubmitLoanDashboardNotifyTests
         "Client",
         branchId,
         LoanType.New,
-        [new SubmitLoanLine("A16", "A16 - Salary Loan", 1000m, 30, 0.05m)]);
+        [new SubmitLoanLine("A16", "A16 - Salary Loan", 1000m, 30, 0.05m)],
+        System.Text.Json.JsonDocument.Parse(
+            """{"client":{"cisId":"0880530879","address":"123 Rizal St"},"loans":[]}""").RootElement.Clone());
 
     private static IWorkflowConfiguration Config()
     {
@@ -85,6 +87,7 @@ public sealed class SubmitLoanDashboardNotifyTests
             new ApplicationNumberGenerator(db),
             new ApplicationArrivalNotifier(db, null, TimeProvider.System),
             new EmptyChecklistReader(),
+            new FakeWebLoanReader(),
             notifier,
             TimeProvider.System);
 

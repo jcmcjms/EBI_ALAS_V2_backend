@@ -20,7 +20,8 @@ public sealed record CisBorrower(
     string? EmployeeNumber,
     string? MisAgency,
     string? RequestingOfficer,
-    string? LengthOfService);
+    string? LengthOfService,
+    string? Phone = null);
 
 public sealed record CisAccount(
     string BankCode,
@@ -121,6 +122,13 @@ public interface IWebLoanReader
         string cisNo,
         CancellationToken cancellationToken);
 
+    Task<IReadOnlyList<string>> GetMissingCocreeItemsAsync(
+        string cisNo,
+        IReadOnlyCollection<string> requiredItems,
+        CancellationToken cancellationToken);
+
+    Task<bool> HasFirstAmortizationAsync(string loanNo, CancellationToken cancellationToken);
+
     Task<IReadOnlyList<WebLoanChecklistCatalogRow>> GetChecklistCatalogAsync(
         IReadOnlyCollection<string> idCodes,
         CancellationToken cancellationToken);
@@ -162,6 +170,20 @@ public sealed class NullWebLoanReader : IWebLoanReader
         ArgumentException.ThrowIfNullOrWhiteSpace(cisNo);
         return Task.FromResult<IReadOnlyList<WebLoanChecklistRow>>([]);
     }
+
+    public Task<IReadOnlyList<string>> GetMissingCocreeItemsAsync(
+        string cisNo,
+        IReadOnlyCollection<string> requiredItems,
+        CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(cisNo);
+        ArgumentNullException.ThrowIfNull(requiredItems);
+        return Task.FromResult<IReadOnlyList<string>>(
+            requiredItems.Where(c => !string.IsNullOrWhiteSpace(c)).Select(c => c.Trim()).ToList());
+    }
+
+    public Task<bool> HasFirstAmortizationAsync(string loanNo, CancellationToken cancellationToken)
+        => Task.FromResult(false);
 
     public Task<IReadOnlyList<WebLoanChecklistCatalogRow>> GetChecklistCatalogAsync(
         IReadOnlyCollection<string> idCodes,

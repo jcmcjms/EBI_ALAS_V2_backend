@@ -22,6 +22,45 @@ public sealed class WebLoanReader(WebLoanDbContext db) : IWebLoanReader
             .ToList();
     }
 
+    public async Task<IReadOnlyList<string>> GetMissingCocreeItemsAsync(
+        string cisNo,
+        IReadOnlyCollection<string> requiredItems,
+        CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(cisNo);
+        ArgumentNullException.ThrowIfNull(requiredItems);
+        if (requiredItems.Count == 0)
+        {
+            return [];
+        }
+
+        var wanted = requiredItems
+            .Where(c => !string.IsNullOrWhiteSpace(c))
+            .Select(c => c.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        var present = await db.CheckLists.AsNoTracking()
+            .Where(c => c.CisNo == cisNo && wanted.Contains(c.CheckListItem))
+            .Select(c => c.CheckListItem)
+            .ToListAsync(cancellationToken);
+        var presentSet = present.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        return wanted.Where(c => !presentSet.Contains(c)).ToList();
+    }
+
+    public async Task<bool> HasFirstAmortizationAsync(string loanNo, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(loanNo);
+        FormattableString sql = $@"
+            SELECT CASE WHEN EXISTS (
+                SELECT 1 FROM dbo.amort_data
+                WHERE loan_no = {loanNo.Trim()} AND amort_no = 1
+            ) THEN CAST(1 AS bit) ELSE CAST(0 AS bit) END AS [Value]";
+        var exists = await db.Database
+            .SqlQuery<bool>(sql)
+            .FirstOrDefaultAsync(cancellationToken);
+        return exists;
+    }
+
     public async Task<IReadOnlyList<WebLoanChecklistCatalogRow>> GetChecklistCatalogAsync(
         IReadOnlyCollection<string> idCodes,
         CancellationToken cancellationToken)
@@ -157,7 +196,8 @@ public sealed class WebLoanReader(WebLoanDbContext db) : IWebLoanReader
                 EmployeeNumber: cis.EmployeeNo,
                 MisAgency: misAgencyDesc,
                 RequestingOfficer: solicitorDesc,
-                LengthOfService: ComputeLengthOfService(hireDateRow?.Description)),
+                LengthOfService: ComputeLengthOfService(hireDateRow?.Description),
+                Phone: cis.HPhone),
             accounts
                 .Select(a => new CisAccount(
                     a.BankCode ?? string.Empty,
@@ -459,7 +499,7 @@ public sealed class WebLoanReader(WebLoanDbContext db) : IWebLoanReader
         ArgumentException.ThrowIfNullOrWhiteSpace(loanNo);
         var normalized = loanNo.Trim();
         FormattableString sql = $@"
-            SELECT TOP (1) loan_no, loan_product
+            SELECT loan_no, loan_product
             FROM webloan.dbo.loan_data
             WHERE loan_no = {normalized}";
         var row = await db.Database
@@ -499,7 +539,7 @@ public sealed class WebLoanReader(WebLoanDbContext db) : IWebLoanReader
 
         await using var command = connection.CreateCommand();
         command.CommandText = @"
-            SELECT TOP (1) cat_loan_class
+            SELECT cat_loan_class
             FROM webloan.dbo.loan_data
             WHERE bch = @branchCode AND loan_no = @loanNo AND loan_product = @productCode";
 

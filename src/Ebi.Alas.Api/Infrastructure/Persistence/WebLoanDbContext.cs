@@ -53,6 +53,7 @@ public sealed class WebLoanDbContext(DbContextOptions<WebLoanDbContext> options)
             b.Property(x => x.EmployeeNo).HasColumnName("b_employee_no");
             b.Property(x => x.BankCode).HasColumnName("bk");
             b.Property(x => x.BranchCode).HasColumnName("bch");
+            b.Property(x => x.HPhone).HasColumnName("h_phone");
         });
 
         modelBuilder.Entity<WebLoanLoanAccount>(b =>
@@ -181,6 +182,8 @@ public sealed class WebLoanCisInfo
     public string? BankCode { get; set; }
 
     public string? BranchCode { get; set; }
+
+    public string? HPhone { get; set; }
 }
 
 public sealed class WebLoanLoanAccount

@@ -80,11 +80,18 @@ public sealed class ChecklistDocumentReader(
             .ToDictionary(g => g.Key, g => g.First().Description, StringComparer.OrdinalIgnoreCase);
 
         var uploads = await LoadUploadsAsync(sanitizedLoanNo, codes, cancellationToken);
+        // First amortization implies the paper requirements were already filed in WebLoan.
+        var amortized = await webLoan.HasFirstAmortizationAsync(sanitizedLoanNo, cancellationToken);
 
         return codes.Select(code =>
         {
             uploads.TryGetValue(code, out var upload);
             descriptionByCode.TryGetValue(code, out var description);
+            var uploadStatus = upload?.DocId is not null
+                ? "Uploaded"
+                : amortized
+                    ? "Submitted"
+                    : "No uploaded documents";
             return new LoanChecklistDocumentDto(
                 LoanNo: loan.LoanNo,
                 LoanProduct: loan.LoanProduct,
@@ -96,7 +103,7 @@ public sealed class ChecklistDocumentReader(
                 ContentType: upload?.ContentType,
                 Created: upload?.Created,
                 UploadedBy: upload?.UploadedBy,
-                UploadStatus: upload?.DocId is null ? "No uploaded documents" : "Uploaded");
+                UploadStatus: uploadStatus);
         }).ToList();
     }
 

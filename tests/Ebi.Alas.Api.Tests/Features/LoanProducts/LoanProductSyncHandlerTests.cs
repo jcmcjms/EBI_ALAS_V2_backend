@@ -44,6 +44,15 @@ public sealed class LoanProductSyncHandlerTests
             string cisNo, CancellationToken cancellationToken)
             => Task.FromResult<IReadOnlyList<WebLoanChecklistRow>>([]);
 
+        public Task<IReadOnlyList<string>> GetMissingCocreeItemsAsync(
+            string cisNo,
+            IReadOnlyCollection<string> requiredItems,
+            CancellationToken cancellationToken)
+            => Task.FromResult<IReadOnlyList<string>>([]);
+
+        public Task<bool> HasFirstAmortizationAsync(string loanNo, CancellationToken cancellationToken)
+            => Task.FromResult(false);
+
         public Task<IReadOnlyList<WebLoanChecklistCatalogRow>> GetChecklistCatalogAsync(
             IReadOnlyCollection<string> idCodes, CancellationToken cancellationToken)
             => Task.FromResult<IReadOnlyList<WebLoanChecklistCatalogRow>>([]);

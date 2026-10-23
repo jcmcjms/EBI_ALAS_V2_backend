@@ -69,6 +69,7 @@ public sealed class SubmitLoanDocumentGateTests
         new ApplicationNumberGenerator(db),
         new Ebi.Alas.Api.Features.Notifications.ApplicationArrivalNotifier(db, null, TimeProvider.System),
         reader,
+        new FakeWebLoanReader(),
         realtime: null,
         TimeProvider.System);
 
@@ -80,7 +81,7 @@ public sealed class SubmitLoanDocumentGateTests
             loanNos.Select(n => n is null
                 ? "{\"parameters\":{\"nthpDate\":\"" + today + "\"}}"
                 : "{\"loanNo\":\"" + n + "\",\"parameters\":{\"nthpDate\":\"" + today + "\"}}"));
-        return "{\"loans\":[" + loans + "]}";
+        return "{\"client\":{\"cisId\":\"0880530879\",\"address\":\"123 Rizal St\"},\"loans\":[" + loans + "]}";
     }
 
     private static SubmitLoanApplicationsRequest Request(
@@ -166,7 +167,7 @@ public sealed class SubmitLoanDocumentGateTests
         var result = await handler.HandleAsync(
             Request(
                 LoanType.New,
-                """{"loans":[{"loanNo":"PN-1","creationTypeCode":1,"parameters":{"nthpDate":"2026-10-01"}}]}""",
+                """{"client":{"cisId":"0880530879","address":"123 Rizal St"},"loans":[{"loanNo":"PN-1","creationTypeCode":1,"parameters":{"nthpDate":"2026-10-01"}}]}""",
                 new SubmitLoanLine("A17", "A17", 1000m, 30, 0.05m)),
             caller,
             CancellationToken.None);
@@ -193,7 +194,7 @@ public sealed class SubmitLoanDocumentGateTests
         var result = await handler.HandleAsync(
             Request(
                 LoanType.New,
-                """{"loans":[{"loanNo":"PN-1","creationTypeCode":6,"parameters":{"nthpDate":"2026-10-01"}}]}""",
+                """{"client":{"cisId":"0880530879","address":"123 Rizal St"},"loans":[{"loanNo":"PN-1","creationTypeCode":6,"parameters":{"nthpDate":"2026-10-01"}}]}""",
                 new SubmitLoanLine("A17", "A17", 1000m, 30, 0.05m)),
             caller,
             CancellationToken.None);
@@ -417,12 +418,46 @@ public sealed class SubmitLoanDocumentGateTests
         var caller = new CallerContext(Guid.NewGuid(), UserRole.Encoder, "BR-A");
 
         var result = await handler.HandleAsync(
-            Request(LoanType.New, null, new SubmitLoanLine("Z99", "Z99", 1000m, 30, 0.05m)),
+            Request(LoanType.New, FormWithLoans((string?)null), new SubmitLoanLine("Z99", "Z99", 1000m, 30, 0.05m)),
             caller,
             CancellationToken.None);
 
         Assert.Single(result.Loans);
         Assert.Empty(reader.Calls);
+    }
+
+    [Fact]
+    public async Task Submit_AmortNoOne_TreatsRequiredDocsAsSubmitted()
+    {
+        await using var db = Db();
+        await SeedRequirementsAsync(db);
+        var reader = new FakeChecklistReader();
+        var handler = Handler(db, reader);
+        var caller = new CallerContext(Guid.NewGuid(), UserRole.Encoder, "BR-A");
+        // Handler() uses FakeWebLoanReader — enable amort_no=1 via a custom handler below.
+        var webLoan = new FakeWebLoanReader { HasFirstAmortization = true };
+        var handlerWithAmort = new SubmitLoanHandler(
+            db,
+            new Ebi.Alas.Api.Features.LoanComputation.LoanComputationService(),
+            new WorkflowQueueService(db, TimeProvider.System),
+            new WorkflowConfiguration(
+                Options.Create(new WorkflowOptions()).ToMonitor(),
+                new FakeSettingsStore(new SettingSnapshot(false, DateTime.UtcNow, "Admin"))),
+            new ApplicationNumberGenerator(db),
+            new Ebi.Alas.Api.Features.Notifications.ApplicationArrivalNotifier(db, null, TimeProvider.System),
+            reader,
+            webLoan,
+            realtime: null,
+            TimeProvider.System);
+
+        var result = await handlerWithAmort.HandleAsync(
+            Request(LoanType.New, FormWithLoans("PN-1"),
+                new SubmitLoanLine("A16", "A16", 1000m, 30, 0.05m)),
+            caller,
+            CancellationToken.None);
+
+        Assert.False(result.IsBlocked);
+        Assert.Single(result.Loans);
     }
 
     private sealed class FakeSettingsStore(SettingSnapshot snapshot) : ISystemSettingsStore

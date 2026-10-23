@@ -29,7 +29,9 @@ public sealed class SubmitLoanBranchTests
         LoanType.New,
         loans.Length == 0
             ? [new SubmitLoanLine("A16", "A16 - Salary Loan", 1000m, 30, 0.05m)]
-            : loans);
+            : loans,
+        System.Text.Json.JsonDocument.Parse(
+            """{"client":{"cisId":"0880530879","address":"123 Rizal St"},"loans":[]}""").RootElement.Clone());
 
     private static IWorkflowConfiguration Config(bool requireRecommendation)
     {
@@ -50,6 +52,7 @@ public sealed class SubmitLoanBranchTests
         new ApplicationNumberGenerator(db),
         new Ebi.Alas.Api.Features.Notifications.ApplicationArrivalNotifier(db, null, TimeProvider.System),
         new EmptyChecklistReader(),
+        new FakeWebLoanReader(),
         realtime: null,
         TimeProvider.System);
 
@@ -164,7 +167,9 @@ public sealed class SubmitLoanBranchTests
             "Client",
             "BR-A",
             LoanType.New,
-            [new SubmitLoanLine("A16", "A16 - Salary", 1000m, 30, 0.05m)]);
+            [new SubmitLoanLine("A16", "A16 - Salary", 1000m, 30, 0.05m)],
+            System.Text.Json.JsonDocument.Parse(
+                """{"client":{"cisId":"0880530879","address":"123 Rizal St"},"loans":[]}""").RootElement.Clone());
 
         var result = await handler.HandleAsync(request, caller, CancellationToken.None);
 
