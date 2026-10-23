@@ -37,12 +37,6 @@ public sealed class AdminSeedOptions : IValidatableObject
                 $"{SectionName}:{nameof(AdminPassword)} is required. Set with: dotnet user-secrets set \"{SectionName}:{nameof(AdminPassword)}\" \"...\" --project src/Ebi.Alas.Api",
                 [nameof(AdminPassword)]);
         }
-        else if (AdminPassword.Length < MinimumPasswordLength)
-        {
-            yield return new ValidationResult(
-                $"{SectionName}:{nameof(AdminPassword)} must be at least {MinimumPasswordLength} characters.",
-                [nameof(AdminPassword)]);
-        }
 
         if (string.IsNullOrWhiteSpace(AdminBranchId))
         {

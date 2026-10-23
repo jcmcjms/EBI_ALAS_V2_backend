@@ -37,6 +37,8 @@ public sealed class AdminUserSeeder(
             role: UserRole.Admin,
             now: timeProvider.GetUtcNow());
 
+        user.ClearMustChangePassword(timeProvider.GetUtcNow());
+
         db.Users.Add(user);
         await db.SaveChangesAsync(cancellationToken);
         return true;
