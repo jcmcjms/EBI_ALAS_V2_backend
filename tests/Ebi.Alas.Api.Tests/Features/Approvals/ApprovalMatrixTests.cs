@@ -16,11 +16,11 @@ public sealed class ApprovalMatrixTests
     [InlineData(300_000, AuthorityLevel.BranchHead)]
     [InlineData(300_001, AuthorityLevel.AreaHead)]
     [InlineData(600_000, AuthorityLevel.AreaHead)]
-    [InlineData(600_001, AuthorityLevel.RbgProductCredit)]
-    [InlineData(1_000_000, AuthorityLevel.RbgProductCredit)]
-    [InlineData(1_000_001, AuthorityLevel.PresidentCoo)]
-    [InlineData(1_500_000, AuthorityLevel.PresidentCoo)]
-    [InlineData(1_500_001, AuthorityLevel.CreComBod)]
+    [InlineData(600_001, AuthorityLevel.RbgHead)]
+    [InlineData(1_000_000, AuthorityLevel.RbgHead)]
+    [InlineData(1_000_001, AuthorityLevel.Coo)]
+    [InlineData(1_200_000, AuthorityLevel.Coo)]
+    [InlineData(1_200_001, AuthorityLevel.PresidentCeo)]
     public void Reloan_NoDeviation_EscalatesByExposure(decimal exposure, AuthorityLevel expected)
     {
         var decision = ApprovalMatrix.Resolve(Input(LoanType.Reloan, 0, exposure));
@@ -28,9 +28,9 @@ public sealed class ApprovalMatrixTests
     }
 
     [Theory]
-    [InlineData(500_000, AuthorityLevel.RbgProductCredit)]
-    [InlineData(1_000_000, AuthorityLevel.RbgProductCredit)]
-    [InlineData(1_000_001, AuthorityLevel.PresidentCoo)]
+    [InlineData(500_000, AuthorityLevel.RbgHead)]
+    [InlineData(1_000_000, AuthorityLevel.RbgHead)]
+    [InlineData(1_000_001, AuthorityLevel.Coo)]
     public void New_NoDeviation_UsesRbgNotBranch(decimal exposure, AuthorityLevel expected)
     {
         var decision = ApprovalMatrix.Resolve(Input(LoanType.New, 0, exposure));
@@ -43,27 +43,27 @@ public sealed class ApprovalMatrixTests
     public void MinorDeviation_Upto1M_IsRbg(LoanType type)
     {
         var decision = ApprovalMatrix.Resolve(Input(type, 1, 900_000m));
-        Assert.Equal(AuthorityLevel.RbgProductCredit, decision.RequiredLevel);
+        Assert.Equal(AuthorityLevel.RbgHead, decision.RequiredLevel);
     }
 
     [Fact]
-    public void MinorDeviation_Above1M_IsPresidentCoo()
+    public void MinorDeviation_Above1M_IsCoo()
     {
         var decision = ApprovalMatrix.Resolve(Input(LoanType.New, 1, 1_200_000m));
-        Assert.Equal(AuthorityLevel.PresidentCoo, decision.RequiredLevel);
+        Assert.Equal(AuthorityLevel.Coo, decision.RequiredLevel);
     }
 
     [Fact]
-    public void MajorDeviation_Upto1_5M_IsPresidentCoo()
+    public void MajorDeviation_Upto1_2M_IsCoo()
     {
-        var decision = ApprovalMatrix.Resolve(Input(LoanType.New, 2, 1_400_000m));
-        Assert.Equal(AuthorityLevel.PresidentCoo, decision.RequiredLevel);
+        var decision = ApprovalMatrix.Resolve(Input(LoanType.New, 2, 1_100_000m));
+        Assert.Equal(AuthorityLevel.Coo, decision.RequiredLevel);
     }
 
     [Fact]
-    public void MajorDeviation_Above1_5M_IsCreCom()
+    public void MajorDeviation_Above1_2M_IsCreCom()
     {
-        var decision = ApprovalMatrix.Resolve(Input(LoanType.New, 2, 1_500_001m));
+        var decision = ApprovalMatrix.Resolve(Input(LoanType.New, 2, 1_200_001m));
         Assert.Equal(AuthorityLevel.CreComBod, decision.RequiredLevel);
         Assert.NotNull(decision.NoAuthorityReason);
     }
@@ -86,7 +86,14 @@ public sealed class ApprovalMatrixTests
     [Fact]
     public void Describe_ReturnsBoardFacingLabel()
     {
-        Assert.Equal("Branch Head / OIC", ApprovalMatrix.Describe(AuthorityLevel.BranchHead));
+        Assert.Equal("Branch Head", ApprovalMatrix.Describe(AuthorityLevel.BranchHead));
+        Assert.Equal("Officer In Charge", ApprovalMatrix.Describe(AuthorityLevel.OfficerInCharge));
+        Assert.Equal("Area Head", ApprovalMatrix.Describe(AuthorityLevel.AreaHead));
+        Assert.Equal("RBG Head", ApprovalMatrix.Describe(AuthorityLevel.RbgHead));
+        Assert.Equal("Product Head", ApprovalMatrix.Describe(AuthorityLevel.ProductHead));
+        Assert.Equal("Credit Head", ApprovalMatrix.Describe(AuthorityLevel.CreditHead));
+        Assert.Equal("COO", ApprovalMatrix.Describe(AuthorityLevel.Coo));
+        Assert.Equal("President / CEO", ApprovalMatrix.Describe(AuthorityLevel.PresidentCeo));
         Assert.Equal("CreCom / Board", ApprovalMatrix.Describe(AuthorityLevel.CreComBod));
     }
 }

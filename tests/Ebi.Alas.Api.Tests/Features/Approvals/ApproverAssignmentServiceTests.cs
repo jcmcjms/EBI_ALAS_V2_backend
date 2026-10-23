@@ -102,7 +102,7 @@ public sealed class ApproverAssignmentServiceTests
     }
 
     [Fact]
-    public async Task Pick_RbgProductCreditHead_SharedPool_NotSingleAssignee()
+    public async Task Pick_RbgHead_SharedPool_NotSingleAssignee()
     {
         await using var db = Db();
         var rbg = await SeedApprover(db, "RBG Head", "011", "rbg");
@@ -115,7 +115,7 @@ public sealed class ApproverAssignmentServiceTests
         var result = await new ApproverAssignmentService(db).PickAsync(loan, CancellationToken.None);
 
         Assert.Null(result.AssignedUserId);
-        Assert.Equal(AuthorityLevel.RbgProductCredit, result.RequiredLevel);
+        Assert.Equal(AuthorityLevel.RbgHead, result.RequiredLevel);
         Assert.Null(result.NoAuthorityReason);
         Assert.Equal(3, result.SharedPool.Count);
         Assert.Contains(result.SharedPool, c => c.UserId == rbg.Id);

@@ -36,13 +36,13 @@ public sealed class LoanRoutingMapperTests
         Assert.Equal(assignee, dto.AssignedApproverId);
         Assert.NotEqual(lastActor, dto.AssignedApproverId);
         Assert.Equal("Ana Approver", dto.AssignedApproverName);
-        Assert.Equal("Branch Head / OIC", dto.MatchedRule);
+        Assert.Equal("Branch Head", dto.MatchedRule);
         Assert.Null(dto.NoAuthorityReason);
         Assert.Equal("Renewal", dto.Evaluated!.Cycle);
     }
 
     [Fact]
-    public void Build_CreCom_HasReasonAndTier5()
+    public void Build_CreCom_HasReasonAndTier9()
     {
         var loan = Reloan(2_000_000m);
 
@@ -53,7 +53,7 @@ public sealed class LoanRoutingMapperTests
             missingDocuments: ["SOA"],
             assignedApproverName: null);
 
-        Assert.Equal(5, dto.RequiredApprovalTier);
+        Assert.Equal(9, dto.RequiredApprovalTier);
         Assert.Null(dto.AssignedApproverId);
         Assert.NotNull(dto.NoAuthorityReason);
         Assert.False(dto.DocumentsComplete);
