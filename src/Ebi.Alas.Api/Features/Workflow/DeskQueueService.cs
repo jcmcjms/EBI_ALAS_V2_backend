@@ -34,6 +34,7 @@ public sealed class DeskQueueService(
         }
 
         var rows = await LoadRowsAsync(stage, partitions, tracked: false, cancellationToken);
+        rows = await FilterByApproverAuthorityAsync(caller, rows, cancellationToken);
         var names = await LoadOwnerNamesAsync(rows, cancellationToken);
         var clients = BuildClients(rows, names);
 
@@ -89,6 +90,7 @@ public sealed class DeskQueueService(
 
         var partitions = await ResolvePartitionsAsync(caller, stage, cancellationToken);
         var rows = await LoadRowsAsync(stage, partitions, tracked: true, cancellationToken);
+        rows = await FilterByApproverAuthorityAsync(caller, rows, cancellationToken);
         // New work only — groups already held by this officer are resumed separately.
         var head = GroupRows(rows).FirstOrDefault(g => g.Items.All(i => i.State == QueueItemState.Queued));
         if (head is null)
@@ -170,6 +172,7 @@ public sealed class DeskQueueService(
         }
 
         var rows = await LoadRowsAsync(stage, [partition], tracked: true, cancellationToken);
+        rows = await FilterByApproverAuthorityAsync(caller, rows, cancellationToken);
         var groups = GroupRows(rows);
         var target = groups.FirstOrDefault(g => g.Items.Any(i => i.LoanApplicationId == loanId));
         if (target is null)
@@ -389,6 +392,24 @@ public sealed class DeskQueueService(
         IReadOnlyList<(WorkflowQueueItem QueueItem, LoanApplication Loan)> rows,
         Guid userId) =>
         rows.Any(r => r.Loan.Id == loanId && r.Loan.AssignedToUserId == userId);
+
+    private async Task<List<(WorkflowQueueItem QueueItem, LoanApplication Loan)>> FilterByApproverAuthorityAsync(
+        CallerContext caller,
+        List<(WorkflowQueueItem QueueItem, LoanApplication Loan)> rows,
+        CancellationToken cancellationToken)
+    {
+        if (caller.Role != UserRole.Approver || rows.Count == 0)
+        {
+            return rows;
+        }
+
+        var visible = await Approvals.ApproverDeskVisibility.VisibleLoanIdsAsync(
+            db,
+            caller.UserId,
+            rows.Select(r => r.Loan).ToList(),
+            cancellationToken);
+        return rows.Where(r => visible.Contains(r.Loan.Id)).ToList();
+    }
 
     private async Task<IReadOnlyList<string>> DeskMaintenancePartitionsAsync(
         CallerContext caller,

@@ -130,18 +130,22 @@ public sealed class DeskQueueBundleTests
         await using var db = Db();
         var now = DateTimeOffset.UtcNow;
         var (desk, queue, _) = Service(db, now);
+        var rbg = User.Create("rbg", "h", "Rbg", "Head", "", "rbg@x.com", "011", UserRole.Approver, now, "RBG Head");
+        db.Users.Add(rbg);
+        await db.SaveChangesAsync();
 
         // Sibling still at evaluation — must not hide the approval-ready loan.
         await EnqueueAsync(db, queue, "LAM-B1", "GRP-A", "ACME CORP", now, WorkflowStage.Evaluation);
         await EnqueueAsync(db, queue, "LAM-A1", "GRP-A", "ACME CORP", now, WorkflowStage.Approval);
 
         var result = await desk.GetMyDeskAsync(
-            new CallerContext(Guid.NewGuid(), UserRole.Approver, "011"),
+            new CallerContext(rbg.Id, UserRole.Approver, "011"),
             CancellationToken.None);
 
-        Assert.Single(result.Items);
-        Assert.Equal("GRP-A", result.Items[0].GroupNo);
-        Assert.Equal(["LAM-A1"], result.Items[0].Applications.Select(a => a.LamId).ToArray());
+        var visible = result.Items.Concat(result.CurrentClaims).ToList();
+        var group = Assert.Single(visible);
+        Assert.Equal("GRP-A", group.GroupNo);
+        Assert.Equal(["LAM-A1"], group.Applications.Select(a => a.LamId).ToArray());
     }
 
     [Fact]
@@ -150,13 +154,15 @@ public sealed class DeskQueueBundleTests
         await using var db = Db();
         var now = DateTimeOffset.UtcNow;
         var (desk, queue, _) = Service(db, now);
-        var approverId = Guid.NewGuid();
+        var rbg = User.Create("rbg2", "h", "Rbg", "Head", "", "rbg2@x.com", "011", UserRole.Approver, now, "RBG Head");
+        db.Users.Add(rbg);
+        await db.SaveChangesAsync();
 
         await EnqueueAsync(db, queue, "LAM-B1", "GRP-A", "ACME CORP", now, WorkflowStage.Evaluation);
         await EnqueueAsync(db, queue, "LAM-A1", "GRP-A", "ACME CORP", now, WorkflowStage.Approval);
 
         var claim = await desk.ClaimHeadAsync(
-            new CallerContext(approverId, UserRole.Approver, "011"),
+            new CallerContext(rbg.Id, UserRole.Approver, "011"),
             CancellationToken.None);
 
         Assert.NotNull(claim);
