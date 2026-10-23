@@ -223,10 +223,40 @@ public sealed class SubmitLoanDocumentGateTests
             CancellationToken.None);
 
         Assert.True(result.IsBlocked);
-        Assert.Contains("CIBI Report is missing", result.MissingDocuments);
+        Assert.Contains("PN-1 (A16): CIBI Report is missing", result.MissingDocuments);
         var message = SubmitLoanHandler.BuildMissingDocumentsMessage(result.MissingDocuments);
-        Assert.Contains("CIBI Report is missing", message);
+        Assert.Contains("PN-1 (A16): CIBI Report is missing", message);
         Assert.DoesNotContain("A2020", message);
+    }
+
+    [Fact]
+    public async Task Submit_MultiLoan_MissingDocs_LabelsEachApplication()
+    {
+        await using var db = Db();
+        await SeedRequirementsAsync(db);
+        var reader = new FakeChecklistReader
+        {
+            UploadedByLoanNo =
+            {
+                ["PN-1"] = ["A1004", "CCR38", "A2016", "A2008", "PIC03", "A2020"],
+                ["PN-2"] = ["A1004", "CCR38", "A2016", "A2008", "PIC03"],
+            },
+        };
+        var handler = Handler(db, reader);
+        var caller = new CallerContext(Guid.NewGuid(), UserRole.Encoder, "BR-A");
+
+        var result = await handler.HandleAsync(
+            Request(
+                LoanType.New,
+                FormWithLoans("PN-1", "PN-2"),
+                new SubmitLoanLine("A16", "A16", 1000m, 30, 0.05m),
+                new SubmitLoanLine("A16", "A16", 2000m, 60, 0.05m)),
+            caller,
+            CancellationToken.None);
+
+        Assert.True(result.IsBlocked);
+        Assert.Contains("PN-2 (A16): CIBI Report is missing", result.MissingDocuments);
+        Assert.DoesNotContain(result.MissingDocuments, e => e.StartsWith("PN-1", StringComparison.Ordinal));
     }
 
     [Fact]

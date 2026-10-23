@@ -204,17 +204,22 @@ public sealed class SubmitLoanHandler(
         for (var i = 0; i < request.Loans.Count; i++)
         {
             var line = request.Loans[i];
+            var productCode = line.ProductCode.Trim();
             var loanType = ChecklistDocumentReader.ResolveLoanTypeAt(formJson, i, request.LoanType);
-            if (!requiredByProductAndType.TryGetValue((line.ProductCode.Trim(), loanType), out var required)
+            if (!requiredByProductAndType.TryGetValue((productCode, loanType), out var required)
                 || required.Count == 0)
             {
                 continue;
             }
 
             var loanNo = ChecklistDocumentReader.ExtractLoanNoAt(formJson, i);
+            var loanLabel = !string.IsNullOrWhiteSpace(loanNo)
+                ? $"{loanNo} ({productCode})"
+                : $"Application {i + 1} ({productCode})";
+
             if (string.IsNullOrWhiteSpace(loanNo))
             {
-                missing.AddRange(required.Select(r => $"{r.Description} is missing"));
+                missing.AddRange(required.Select(r => $"{loanLabel}: {r.Description} is missing"));
                 continue;
             }
 
@@ -229,7 +234,7 @@ public sealed class SubmitLoanHandler(
             {
                 if (!uploaded.Contains(r.Code))
                 {
-                    missing.Add($"{r.Description} is missing");
+                    missing.Add($"{loanLabel}: {r.Description} is missing");
                 }
             }
         }
