@@ -22,6 +22,67 @@ namespace Ebi.Alas.Api.Migrations
 
             SqlServerModelBuilderExtensions.UseIdentityColumns(modelBuilder);
 
+            modelBuilder.Entity("Ebi.Alas.Api.Features.Approvals.ApprovalAuthority", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<bool>("AllowNew")
+                        .HasColumnType("bit");
+
+                    b.Property<bool>("AllowRenewal")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("DisplayName")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<string>("Key")
+                        .IsRequired()
+                        .HasMaxLength(120)
+                        .HasColumnType("nvarchar(120)");
+
+                    b.Property<int>("MaxSeverity")
+                        .HasColumnType("int");
+
+                    b.Property<decimal>("MaxTotalExposure")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<int>("Priority")
+                        .HasColumnType("int");
+
+                    b.Property<int>("ScopeType")
+                        .HasColumnType("int");
+
+                    b.Property<int>("Tier")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Key")
+                        .IsUnique();
+
+                    b.ToTable("ApprovalAuthorities", (string)null);
+                });
+
+            modelBuilder.Entity("Ebi.Alas.Api.Features.Approvals.ApprovalAuthorityUser", b =>
+                {
+                    b.Property<Guid>("ApprovalAuthorityId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("ApprovalAuthorityId", "UserId");
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("ApprovalAuthorityUsers", (string)null);
+                });
+
             modelBuilder.Entity("Ebi.Alas.Api.Features.Approvals.SignatureChainEntry", b =>
                 {
                     b.Property<Guid>("Id")
@@ -868,6 +929,21 @@ namespace Ebi.Alas.Api.Migrations
                     b.HasIndex("Stage", "PartitionKey", "State", "Sequence");
 
                     b.ToTable("WorkflowQueueItems", (string)null);
+                });
+
+            modelBuilder.Entity("Ebi.Alas.Api.Features.Approvals.ApprovalAuthorityUser", b =>
+                {
+                    b.HasOne("Ebi.Alas.Api.Features.Approvals.ApprovalAuthority", null)
+                        .WithMany()
+                        .HasForeignKey("ApprovalAuthorityId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Ebi.Alas.Api.Features.Users.Domain.User", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("Ebi.Alas.Api.Features.SystemSettings.SystemSetting", b =>
