@@ -104,6 +104,36 @@ public static class LoanRoutingMapper
                 maxSeverity >= 2 ? "Major" : maxSeverity == 1 ? "Minor" : "None",
                 exposure));
     }
+
+    public static LoanRoutingResponseDto BuildFromCatalog(
+        LoanApplication loan,
+        Approvals.CatalogRoutingResult catalog,
+        int maxSeverity,
+        IReadOnlyList<string> missingDocuments,
+        string? assignedApproverName)
+    {
+        ArgumentNullException.ThrowIfNull(loan);
+        ArgumentNullException.ThrowIfNull(missingDocuments);
+
+        var exposure = loan.Principal + loan.TotalInterest;
+        return new LoanRoutingResponseDto(
+            loan.Id,
+            catalog.RequiredTier,
+            maxSeverity,
+            exposure,
+            loan.LoanType.ToString(),
+            catalog.MatchedRule,
+            missingDocuments.Count == 0,
+            missingDocuments,
+            loan.AssignedToUserId,
+            assignedApproverName,
+            catalog.EscalatedFromTier,
+            catalog.NoAuthorityReason,
+            new RoutingEvaluatedInputsDto(
+                loan.LoanType == LoanType.Reloan ? "Renewal" : "New",
+                maxSeverity >= 2 ? "Major" : maxSeverity == 1 ? "Minor" : "None",
+                exposure));
+    }
 }
 
 public static class LoanReviewEndpoints
@@ -417,12 +447,10 @@ public static class LoanReviewEndpoints
                     db, loan, ct);
             }
 
-            var response = LoanRoutingMapper.Build(
-                loan,
-                maxSeverity,
-                ratePrice,
-                missingDocuments,
-                assignedApproverName);
+            var catalog = await new Approvals.ApprovalRoutingService(db).TryResolveAsync(loan, maxSeverity, ratePrice, ct);
+            var response = catalog is not null
+                ? LoanRoutingMapper.BuildFromCatalog(loan, catalog, maxSeverity, missingDocuments, assignedApproverName)
+                : LoanRoutingMapper.Build(loan, maxSeverity, ratePrice, missingDocuments, assignedApproverName);
 
             return Results.Ok(response);
         })

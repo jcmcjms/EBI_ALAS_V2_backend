@@ -275,6 +275,23 @@ public sealed class LoanWorkflowService(
 
         var maxSeverity = deviations.Count == 0 ? 0 : deviations.Max(d => d.Severity);
         var ratePrice = deviations.Any(d => Approvals.ApprovalMatrix.IsRatePriceDeviation(d.Description));
+
+        var catalog = await new Approvals.ApprovalRoutingService(db).TryResolveAsync(loan, maxSeverity, ratePrice, cancellationToken);
+        if (catalog is not null)
+        {
+            if (catalog.NoAuthorityReason is not null)
+            {
+                throw new ForbiddenException(catalog.NoAuthorityReason);
+            }
+
+            if (!catalog.Candidates.Any(c => c.UserId == caller.UserId))
+            {
+                throw new ForbiddenException($"Your authority does not cover the required {catalog.MatchedRule}.");
+            }
+
+            return;
+        }
+
         var decision = Approvals.ApprovalMatrix.Resolve(new Approvals.ApprovalInputs(
             loan.LoanType,
             maxSeverity,

@@ -380,7 +380,7 @@ public sealed class DashboardService(AlasDbContext db, IWorkflowConfiguration wo
             .Select(u => u.JobTitle)
             .FirstOrDefaultAsync(cancellationToken);
 
-        if (Branches.BranchVisibility.IsGlobalAuthority(jobTitle))
+        if (await Branches.BranchVisibility.IsGlobalAuthorityAsync(db, caller.UserId, jobTitle, cancellationToken))
         {
             return null;
         }

@@ -1,3 +1,4 @@
+using Ebi.Alas.Api.Features.Approvals;
 using Ebi.Alas.Api.Features.Users.Domain;
 using Ebi.Alas.Api.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -25,9 +26,61 @@ public static class BranchVisibility
     public static bool IsGlobalAuthority(string? jobTitle)
     {
         var level = Approvals.AuthorityJobTitles.Map(jobTitle);
-        return level is Approvals.AuthorityLevel.RbgProductCredit
-            or Approvals.AuthorityLevel.PresidentCoo
+        return level is Approvals.AuthorityLevel.RbgHead
+            or Approvals.AuthorityLevel.ProductHead
+            or Approvals.AuthorityLevel.CreditHead
+            or Approvals.AuthorityLevel.Coo
+            or Approvals.AuthorityLevel.PresidentCeo
             or Approvals.AuthorityLevel.CreComBod;
+    }
+
+    /// <summary>
+    /// Catalog-aware global authority: the officer is assigned to a global-scope
+    /// authority. Falls back to the job title while no authorities are configured.
+    /// </summary>
+    public static async Task<bool> IsGlobalAuthorityAsync(
+        AlasDbContext db,
+        Guid userId,
+        string? jobTitle,
+        CancellationToken cancellationToken)
+    {
+        var resolution = await new ApprovalScopeService(db).ResolveAsync([userId], cancellationToken);
+        return resolution.CatalogConfigured
+            ? resolution.ScopeFor(userId).ScopeType == AuthorityScopes.Global
+            : IsGlobalAuthority(jobTitle);
+    }
+
+    /// <summary>
+    /// Branches an officer may read under a catalog scope: global officers see
+    /// every branch, area officers their area, branch officers their own branch.
+    /// </summary>
+    public static async Task<IReadOnlyList<string>> GetReadableBranchesAsync(
+        AlasDbContext db,
+        OfficerScope scope,
+        string branchId,
+        CancellationToken cancellationToken)
+    {
+        var home = (branchId ?? string.Empty).Trim();
+        switch (scope.ScopeType)
+        {
+            case AuthorityScopes.Global:
+                return await db.Branches.AsNoTracking()
+                    .Select(b => b.Code)
+                    .ToListAsync(cancellationToken);
+            case AuthorityScopes.Area:
+                if (string.IsNullOrEmpty(home) || scope.AreaCode is null)
+                {
+                    return string.IsNullOrEmpty(home) ? [] : [home];
+                }
+
+                var areaCodes = await db.Branches.AsNoTracking()
+                    .Where(b => b.AreaCode == scope.AreaCode)
+                    .Select(b => b.Code)
+                    .ToListAsync(cancellationToken);
+                return areaCodes.Contains(home) ? areaCodes : areaCodes.Append(home).ToList();
+            default:
+                return string.IsNullOrEmpty(home) ? [] : [home];
+        }
     }
 
     public static async Task<IReadOnlyList<string>> GetReadableBranchIdsAsync(
@@ -39,6 +92,20 @@ public static class BranchVisibility
         string? jobTitle = null)
     {
         var home = (branchId ?? string.Empty).Trim();
+
+        var resolution = await new ApprovalScopeService(db).ResolveAsync([userId], cancellationToken);
+        if (resolution.CatalogConfigured)
+        {
+            if (role is UserRole.Admin or UserRole.System or UserRole.Evaluator)
+            {
+                return await db.Branches.AsNoTracking()
+                    .Select(b => b.Code)
+                    .ToListAsync(cancellationToken);
+            }
+
+            return await GetReadableBranchesAsync(db, resolution.ScopeFor(userId), home, cancellationToken);
+        }
+
         if (role is UserRole.Admin or UserRole.System or UserRole.Evaluator
             || IsGlobalAuthority(jobTitle))
         {

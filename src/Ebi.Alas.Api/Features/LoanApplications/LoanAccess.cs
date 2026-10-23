@@ -50,7 +50,7 @@ public static class LoanAccess
             .Select(u => u.JobTitle)
             .FirstOrDefaultAsync(cancellationToken);
 
-        if (Branches.BranchVisibility.IsGlobalAuthority(jobTitle))
+        if (await Branches.BranchVisibility.IsGlobalAuthorityAsync(db, caller.UserId, jobTitle, cancellationToken))
         {
             return query;
         }
@@ -96,7 +96,7 @@ public static class LoanAccess
             .Select(u => u.JobTitle)
             .FirstOrDefaultAsync(cancellationToken);
 
-        if (Branches.BranchVisibility.IsGlobalAuthority(jobTitle))
+        if (await Branches.BranchVisibility.IsGlobalAuthorityAsync(db, caller.UserId, jobTitle, cancellationToken))
         {
             return await query.FirstOrDefaultAsync(cancellationToken);
         }

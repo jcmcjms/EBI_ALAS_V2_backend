@@ -41,8 +41,13 @@ public sealed class DeskQueueService(
             .Where(u => u.Id == caller.UserId)
             .Select(u => u.JobTitle)
             .FirstOrDefaultAsync(cancellationToken);
-        var sharedPoolOfficer = Branches.BranchVisibility.IsGlobalAuthority(jobTitle)
-            && Approvals.AuthorityJobTitles.Map(jobTitle) == Approvals.AuthorityLevel.RbgProductCredit;
+        var scopeResolution = await new Approvals.ApprovalScopeService(db).ResolveAsync([caller.UserId], cancellationToken);
+        var sharedPoolOfficer = scopeResolution.CatalogConfigured
+            ? scopeResolution.ScopeFor(caller.UserId).SharedDesk
+            : Branches.BranchVisibility.IsGlobalAuthority(jobTitle)
+                && Approvals.AuthorityJobTitles.Map(jobTitle) is Approvals.AuthorityLevel.RbgHead
+                    or Approvals.AuthorityLevel.ProductHead
+                    or Approvals.AuthorityLevel.CreditHead;
 
         var current = clients
             .Where(c => c.OwnerUserId == caller.UserId
@@ -365,7 +370,7 @@ public sealed class DeskQueueService(
             .Select(u => u.JobTitle)
             .FirstOrDefaultAsync(cancellationToken);
 
-        if (Branches.BranchVisibility.IsGlobalAuthority(jobTitle))
+        if (await Branches.BranchVisibility.IsGlobalAuthorityAsync(db, caller.UserId, jobTitle, cancellationToken))
         {
             return null;
         }

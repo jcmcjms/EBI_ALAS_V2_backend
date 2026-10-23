@@ -55,12 +55,18 @@ public sealed class ApplicationArrivalNotifier(
             .GroupBy(b => b.AreaCode)
             .ToDictionary(g => g.Key, g => g.Select(b => b.Code).ToList());
 
+        var scopeResolution = await new Approvals.ApprovalScopeService(db).ResolveAsync(
+            candidates.Select(c => c.Id).ToList(), cancellationToken);
+
         var recipientIds = new List<Guid>();
         foreach (var candidate in candidates)
         {
             var home = candidate.BranchId?.Trim() ?? string.Empty;
             var inScope = home == branchId;
-            if (!inScope && BranchVisibility.IsAreaHead(candidate.JobTitle))
+            var isAreaScoped = scopeResolution.CatalogConfigured
+                ? scopeResolution.ScopeFor(candidate.Id).ScopeType == Approvals.AuthorityScopes.Area
+                : BranchVisibility.IsAreaHead(candidate.JobTitle);
+            if (!inScope && isAreaScoped)
             {
                 if (areaByHome.TryGetValue(home, out var area)
                     && !string.IsNullOrWhiteSpace(area)
