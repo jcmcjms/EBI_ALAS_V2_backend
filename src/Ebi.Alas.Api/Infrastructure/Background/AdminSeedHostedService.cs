@@ -26,6 +26,13 @@ public sealed class AdminSeedHostedService(
             seededRequirements
                 ? "Product document requirements seeded from catalog."
                 : "Product document requirements already present.");
+
+        var authoritySeeder = scope.ServiceProvider.GetRequiredService<Features.Approvals.ApprovalAuthoritySeeder>();
+        var seededAuthorities = await authoritySeeder.SeedAsync(cancellationToken);
+        logger.LogInformation(
+            seededAuthorities
+                ? "Approval authorities seeded from the approval matrix."
+                : "Approval authorities already present.");
     }
 
     public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
