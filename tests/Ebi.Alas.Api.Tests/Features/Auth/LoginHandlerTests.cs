@@ -103,7 +103,7 @@ public sealed class LoginHandlerTests
 
         var success = Assert.IsType<LoginOutcome.Success>(outcome);
         Assert.False(string.IsNullOrEmpty(success.Response.AccessToken));
-        Assert.True(success.Response.MustChangePassword);
+        Assert.False(success.Response.MustChangePassword);
         // Cookie-only: the raw token is handed to the endpoint for Set-Cookie,
         // never placed on the public LoginResponse body.
         Assert.False(string.IsNullOrEmpty(success.RawRefreshToken));

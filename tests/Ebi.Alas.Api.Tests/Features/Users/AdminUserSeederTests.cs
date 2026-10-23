@@ -43,7 +43,7 @@ public sealed class AdminUserSeederTests
         Assert.Equal(UserRole.Admin, user.Role);
         Assert.Equal("BR-HQ", user.BranchId);
         Assert.Equal("System Administrator", user.FullName);
-        Assert.True(user.MustChangePassword);
+        Assert.False(user.MustChangePassword);
         Assert.NotEqual("SeedPass!23456", user.PasswordHash);
     }
 

@@ -37,14 +37,14 @@ public sealed class AdminSeedOptionsTests
     }
 
     [Fact]
-    public void Validate_ShortPassword_ReturnsError()
+    public void Validate_ShortPassword_IsAllowed()
     {
         var results = Validate(new AdminSeedOptions
         {
             AdminUserName = "admin",
-            AdminPassword = "short",
+            AdminPassword = "admin123",
             AdminBranchId = "BR-HQ"
         });
-        Assert.Contains(results, r => r.MemberNames.Contains(nameof(AdminSeedOptions.AdminPassword)));
+        Assert.Empty(results);
     }
 }
