@@ -9,15 +9,33 @@ public static class NotificationEndpoints
     public static void MapNotificationEndpoints(this IEndpointRouteBuilder endpoints)
     {
         endpoints.MapGet("/api/notifications", async (
+            int? page,
+            int? pageSize,
+            string? status,
+            string? type,
+            string? search,
             AlasDbContext db,
             System.Security.Claims.ClaimsPrincipal user,
             CancellationToken cancellationToken) =>
         {
             var caller = CallerContext.Require(user);
-            var items = await db.Notifications.AsNoTracking()
-                .Where(n => n.UserId == caller.UserId)
+            var query = NotificationInboxFilter.Apply(
+                db.Notifications.AsNoTracking().Where(n => n.UserId == caller.UserId),
+                status,
+                type,
+                search);
+
+            var totalCount = await query.CountAsync(cancellationToken);
+            var unreadCount = await db.Notifications.AsNoTracking()
+                .CountAsync(n => n.UserId == caller.UserId && n.ReadAt == null, cancellationToken);
+
+            var take = Math.Clamp(pageSize ?? 10, 1, 100);
+            var skip = Math.Max(0, (Math.Max(page ?? 1, 1) - 1) * take);
+
+            var items = await query
                 .OrderByDescending(n => n.CreatedAt)
-                .Take(50)
+                .Skip(skip)
+                .Take(take)
                 .Select(n => new NotificationResponse(
                     n.Id,
                     n.Title,
@@ -27,7 +45,8 @@ public static class NotificationEndpoints
                     n.ReadAt,
                     n.Link))
                 .ToListAsync(cancellationToken);
-            return Results.Ok(items);
+
+            return Results.Ok(new NotificationInboxPage(items, totalCount, unreadCount));
         })
         .RequireAuthorization()
         .WithTags("Notifications");
@@ -72,6 +91,39 @@ public static class NotificationEndpoints
         .RequireAuthorization()
         .RequireRateLimiting("write")
         .WithTags("Notifications");
+    }
+}
+
+public static class NotificationInboxFilter
+{
+    public static IQueryable<Notification> Apply(
+        IQueryable<Notification> query,
+        string? status,
+        string? type,
+        string? search)
+    {
+        if (string.Equals(status, "unread", StringComparison.OrdinalIgnoreCase))
+        {
+            query = query.Where(n => n.ReadAt == null);
+        }
+        else if (string.Equals(status, "read", StringComparison.OrdinalIgnoreCase))
+        {
+            query = query.Where(n => n.ReadAt != null);
+        }
+
+        if (!string.IsNullOrWhiteSpace(type)
+            && Enum.TryParse<NotificationType>(type.Trim(), ignoreCase: true, out var parsedType))
+        {
+            query = query.Where(n => n.Type == parsedType);
+        }
+
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            var term = search.Trim();
+            query = query.Where(n => n.Title.Contains(term) || n.Body.Contains(term));
+        }
+
+        return query;
     }
 }
 

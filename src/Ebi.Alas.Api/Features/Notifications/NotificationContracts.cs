@@ -8,3 +8,8 @@ public sealed record NotificationResponse(
     DateTimeOffset CreatedAt,
     DateTimeOffset? ReadAt,
     string? Link = null);
+
+public sealed record NotificationInboxPage(
+    IReadOnlyList<NotificationResponse> Items,
+    int TotalCount,
+    int UnreadCount);
