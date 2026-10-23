@@ -1,57 +1,163 @@
+using Ebi.Alas.Api.Features.LoanApplications.Domain;
+using Ebi.Alas.Api.Features.Users.Domain;
+using Ebi.Alas.Api.Infrastructure.Persistence;
+using Microsoft.EntityFrameworkCore;
+
 namespace Ebi.Alas.Api.Features.Approvals;
 
-public sealed record RoutingRequest(
-    decimal TotalExposure,
-    bool IsReloan,
-    int MaxDeviationSeverity,
-    string BranchId,
-    string? AreaKey);
+public sealed record CatalogCandidate(Guid UserId, string Name);
 
-public sealed class ApprovalRoutingService
+public sealed record CatalogRoutingResult(
+    int RequiredTier,
+    string MatchedRule,
+    int? EscalatedFromTier,
+    string? NoAuthorityReason,
+    bool SharedDesk,
+    IReadOnlyList<CatalogCandidate> Candidates);
+
+/// <summary>
+/// Resolves the required approval authority from the configured catalog
+/// (authorities with assigned, available approvers). Returns null when no
+/// authorities are configured so callers can fall back to the legacy matrix.
+/// </summary>
+public sealed class ApprovalRoutingService(AlasDbContext db)
 {
-    public RoutingDecision Route(RoutingRequest request, IReadOnlyList<ApprovalAuthority> authorities)
+    public async Task<CatalogRoutingResult?> TryResolveAsync(
+        LoanApplication loan,
+        int maxSeverity,
+        bool hasRatePriceDeviation,
+        CancellationToken ct)
     {
-        ArgumentNullException.ThrowIfNull(request);
-        ArgumentNullException.ThrowIfNull(authorities);
+        if (hasRatePriceDeviation)
+        {
+            return new CatalogRoutingResult(
+                (int)AuthorityLevel.CreComBod,
+                ApprovalMatrix.Describe(AuthorityLevel.CreComBod),
+                null,
+                "Up to ₱1.5M new/renewal with rate/price deviations — CreCom handling required.",
+                false,
+                []);
+        }
 
-        var requiredTier = ComputeRequiredTier(request);
-        var match = authorities
-            .Where(a => a.Tier >= requiredTier)
-            .Where(a => request.IsReloan ? a.AllowRenewal : a.AllowNew)
-            .Where(a => a.MaxSeverity >= request.MaxDeviationSeverity)
-            .Where(a => a.MaxTotalExposure >= request.TotalExposure)
-            .Where(a => CoversScope(a, request))
+        var authorities = await db.ApprovalAuthorities.AsNoTracking()
             .OrderBy(a => a.Tier)
-            .FirstOrDefault();
+            .ThenBy(a => a.Priority)
+            .ToListAsync(ct);
 
-        return match is null
-            ? new RoutingDecision(requiredTier, null, null, true, "No staffed authority covers the required tier.")
-            : new RoutingDecision(requiredTier, match.Id, null, match.Tier > requiredTier, match.Tier > requiredTier
-                ? "Escalated to a higher tier."
-                : null);
+        if (authorities.Count == 0)
+        {
+            return null;
+        }
+
+        var (candidatesByAuthority, memberCounts) = await LoadCandidatesAsync(ct);
+        if (candidatesByAuthority.Count == 0)
+        {
+            // No authority has an available assignee — the catalog cannot route
+            // anything, so the legacy matrix stays in charge.
+            return null;
+        }
+
+        var areaByBranch = await db.Branches.AsNoTracking()
+            .Where(b => b.AreaCode != null && b.AreaCode != "")
+            .ToDictionaryAsync(b => b.Code, b => b.AreaCode!, ct);
+        var loanArea = await db.Branches.AsNoTracking()
+            .Where(b => b.Code == loan.BranchId)
+            .Select(b => b.AreaCode)
+            .FirstOrDefaultAsync(ct);
+
+        var exposure = loan.Principal + loan.TotalInterest;
+        var isReloan = loan.LoanType == LoanType.Reloan;
+        int? escalatedFrom = null;
+
+        foreach (var authority in authorities)
+        {
+            var covers = authority.MaxSeverity >= maxSeverity
+                && authority.MaxTotalExposure >= exposure
+                && (isReloan ? authority.AllowRenewal : authority.AllowNew);
+
+            if (!covers)
+            {
+                continue;
+            }
+
+            var candidates = InScope(
+                authority,
+                candidatesByAuthority.GetValueOrDefault(authority.Id, []),
+                areaByBranch,
+                loan.BranchId,
+                loanArea);
+
+            if (candidates.Count == 0)
+            {
+                escalatedFrom ??= authority.Tier;
+                continue;
+            }
+
+            return new CatalogRoutingResult(
+                authority.Tier,
+                authority.DisplayName,
+                escalatedFrom,
+                null,
+                memberCounts.GetValueOrDefault(authority.Id) > 1,
+                candidates);
+        }
+
+        return new CatalogRoutingResult(
+            0,
+            "None",
+            escalatedFrom,
+            "No approval authority covers this loan.",
+            false,
+            []);
     }
 
-    private static int ComputeRequiredTier(RoutingRequest request)
+    private async Task<(Dictionary<Guid, List<CandidateRow>> Candidates, Dictionary<Guid, int> MemberCounts)> LoadCandidatesAsync(
+        CancellationToken ct)
     {
-        if (request.TotalExposure >= 1_000_000m || request.MaxDeviationSeverity >= 3)
-        {
-            return 3;
-        }
+        var assignments = await db.ApprovalAuthorityUsers.AsNoTracking().ToListAsync(ct);
+        var memberCounts = assignments
+            .GroupBy(x => x.ApprovalAuthorityId)
+            .ToDictionary(g => g.Key, g => g.Count());
 
-        if (request.TotalExposure >= 250_000m || request.MaxDeviationSeverity >= 2)
-        {
-            return 2;
-        }
+        var userIds = assignments.Select(x => x.UserId).Distinct().ToList();
+        var users = await db.Users.AsNoTracking()
+            .Where(u => userIds.Contains(u.Id)
+                && u.Role == UserRole.Approver
+                && u.Status == UserStatus.Active
+                && u.IsAvailable)
+            .Select(u => new { u.Id, u.BranchId, Name = (u.FirstName + " " + u.LastName).Trim() })
+            .ToDictionaryAsync(u => u.Id, ct);
 
-        return 1;
+        var candidates = assignments
+            .Where(x => users.ContainsKey(x.UserId))
+            .GroupBy(x => x.ApprovalAuthorityId)
+            .ToDictionary(
+                g => g.Key,
+                g => g.Select(x => new CandidateRow(x.UserId, users[x.UserId].Name, users[x.UserId].BranchId)).ToList());
+
+        return (candidates, memberCounts);
     }
 
-    private static bool CoversScope(ApprovalAuthority authority, RoutingRequest request) =>
-        authority.ScopeType switch
-        {
-            ApprovalScope.Global => true,
-            ApprovalScope.Branch => authority.ScopeKey == request.BranchId,
-            ApprovalScope.Area => authority.ScopeKey == request.AreaKey,
-            _ => false
-        };
+    private static List<CatalogCandidate> InScope(
+        ApprovalAuthority authority,
+        List<CandidateRow> candidates,
+        Dictionary<string, string> areaByBranch,
+        string loanBranch,
+        string? loanArea)
+    {
+        return candidates
+            .Where(c => authority.ScopeType switch
+            {
+                AuthorityScopes.Global => true,
+                AuthorityScopes.Area => loanArea is not null
+                    && areaByBranch.TryGetValue(c.BranchId, out var userArea)
+                    && userArea == loanArea,
+                AuthorityScopes.Branch => c.BranchId == loanBranch,
+                _ => false,
+            })
+            .Select(c => new CatalogCandidate(c.UserId, c.Name))
+            .ToList();
+    }
+
+    private sealed record CandidateRow(Guid UserId, string Name, string BranchId);
 }

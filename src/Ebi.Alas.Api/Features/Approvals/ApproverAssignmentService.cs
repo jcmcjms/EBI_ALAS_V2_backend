@@ -38,6 +38,13 @@ public sealed class ApproverAssignmentService(AlasDbContext db)
             : descriptions.Max(d => d.Severity);
         var ratePrice = descriptions.Any(d => ApprovalMatrix.IsRatePriceDeviation(d.Description));
         var exposure = loan.Principal + loan.TotalInterest;
+
+        var catalog = await new ApprovalRoutingService(db).TryResolveAsync(loan, maxSeverity, ratePrice, cancellationToken);
+        if (catalog is not null)
+        {
+            return await PickFromCatalogAsync(catalog, cancellationToken);
+        }
+
         var decision = ApprovalMatrix.Resolve(new ApprovalInputs(
             loan.LoanType,
             maxSeverity,
@@ -68,10 +75,11 @@ public sealed class ApproverAssignmentService(AlasDbContext db)
         }
 
         // RBG / Product / Credit Head share the desk: everyone is assigned; first to serve acts.
-        if (decision.RequiredLevel == AuthorityLevel.RbgProductCredit)
+        var rbgLevels = new[] { AuthorityLevel.RbgHead, AuthorityLevel.ProductHead, AuthorityLevel.CreditHead };
+        if (rbgLevels.Contains(decision.RequiredLevel))
         {
             var shared = candidates
-                .Where(c => c.Level == AuthorityLevel.RbgProductCredit)
+                .Where(c => rbgLevels.Contains(c.Level))
                 .OrderBy(c => c.JobTitle, StringComparer.OrdinalIgnoreCase)
                 .ThenBy(c => c.Name, StringComparer.OrdinalIgnoreCase)
                 .Select(c => new AssignmentCandidate(c.Id, c.Name, c.JobTitle))
@@ -102,6 +110,45 @@ public sealed class ApproverAssignmentService(AlasDbContext db)
             null,
             decision.MatchedRule,
             [new AssignmentCandidate(pick.Id, pick.Name, pick.JobTitle)]);
+    }
+
+    private async Task<AssignmentResult> PickFromCatalogAsync(
+        CatalogRoutingResult catalog,
+        CancellationToken cancellationToken)
+    {
+        if (catalog.NoAuthorityReason is not null)
+        {
+            return new AssignmentResult(
+                null,
+                (AuthorityLevel)catalog.RequiredTier,
+                catalog.EscalatedFromTier is { } escalated ? (AuthorityLevel)escalated : null,
+                catalog.NoAuthorityReason,
+                catalog.MatchedRule,
+                []);
+        }
+
+        var assignedIds = await db.LoanApplications.AsNoTracking()
+            .Where(l => l.Status == LoanStatus.ForApproval && l.AssignedToUserId != null)
+            .Select(l => l.AssignedToUserId)
+            .ToListAsync(cancellationToken);
+
+        var loads = assignedIds
+            .Where(id => id != null)
+            .GroupBy(id => id!.Value)
+            .ToDictionary(g => g.Key, g => g.Count());
+
+        var pick = catalog.Candidates
+            .OrderBy(c => loads.GetValueOrDefault(c.UserId))
+            .ThenBy(c => c.UserId)
+            .First();
+
+        return new AssignmentResult(
+            pick.UserId,
+            (AuthorityLevel)catalog.RequiredTier,
+            null,
+            null,
+            catalog.MatchedRule,
+            [new AssignmentCandidate(pick.UserId, pick.Name, null)]);
     }
 
     private async Task<List<(Guid Id, string Name, string? JobTitle, AuthorityLevel Level, int Load)>> CandidatesAsync(
@@ -159,20 +206,63 @@ public sealed class ApproverAssignmentService(AlasDbContext db)
         return result;
     }
 
+    /// <summary>
+    /// Officers who share a desk. From the catalog these are the members of an
+    /// authority with more than one assignee; without a catalog the legacy
+    /// RBG / Product / Credit Head desk is used.
+    /// </summary>
     public static async Task<IReadOnlyList<string>> GetSharedPoolNamesAsync(
         AlasDbContext db,
         CancellationToken cancellationToken)
     {
+        var scope = new ApprovalScopeService(db);
+        if (await scope.CatalogConfiguredAsync(cancellationToken))
+        {
+            return await scope.GetSharedDeskMemberNamesAsync(cancellationToken);
+        }
+
         var users = await db.Users.AsNoTracking()
             .Where(u => u.Role == UserRole.Approver && u.Status == UserStatus.Active && u.IsAvailable)
             .Select(u => new { u.JobTitle, u.FirstName, u.LastName })
             .ToListAsync(cancellationToken);
 
+        var rbgLevels = new[] { AuthorityLevel.RbgHead, AuthorityLevel.ProductHead, AuthorityLevel.CreditHead };
         return users
-            .Where(u => AuthorityJobTitles.Map(u.JobTitle) == AuthorityLevel.RbgProductCredit)
+            .Where(u => rbgLevels.Contains(AuthorityJobTitles.Map(u.JobTitle) ?? AuthorityLevel.None))
             .Select(u => $"{u.FirstName} {u.LastName}".Trim())
             .OrderBy(n => n, StringComparer.OrdinalIgnoreCase)
             .ToList();
+    }
+
+    /// <summary>
+    /// Shared-desk officers for one loan. From the catalog these are the members
+    /// of the authority that covers the loan; the desk is shared when it holds
+    /// more than one assignee.
+    /// </summary>
+    public static async Task<IReadOnlyList<string>> GetSharedPoolNamesAsync(
+        AlasDbContext db,
+        LoanApplication loan,
+        CancellationToken cancellationToken)
+    {
+        if (!await new ApprovalScopeService(db).CatalogConfiguredAsync(cancellationToken))
+        {
+            return await GetSharedPoolNamesAsync(db, cancellationToken);
+        }
+
+        var deviations = await db.LoanDeviations.AsNoTracking()
+            .Where(d => d.LoanApplicationId == loan.Id)
+            .Select(d => new { d.Description, d.Severity })
+            .ToListAsync(cancellationToken);
+        var maxSeverity = deviations.Count == 0 ? 0 : deviations.Max(d => d.Severity);
+        var ratePrice = deviations.Any(d => ApprovalMatrix.IsRatePriceDeviation(d.Description));
+
+        var routing = await new ApprovalRoutingService(db).TryResolveAsync(loan, maxSeverity, ratePrice, cancellationToken);
+        if (routing is null || !routing.SharedDesk)
+        {
+            return [];
+        }
+
+        return routing.Candidates.Select(c => c.Name).ToList();
     }
 
     public static async Task<string?> GetSharedPoolDisplayAsync(
@@ -185,7 +275,7 @@ public sealed class ApproverAssignmentService(AlasDbContext db)
             return null;
         }
 
-        var names = await GetSharedPoolNamesAsync(db, cancellationToken);
+        var names = await GetSharedPoolNamesAsync(db, loan, cancellationToken);
         return names.Count == 0 ? null : string.Join(", ", names);
     }
 
@@ -200,8 +290,11 @@ public sealed class ApproverAssignmentService(AlasDbContext db)
         AuthorityLevel.AreaHead => loanArea is not null
             && areaBranches.TryGetValue(loanArea, out var branches)
             && branches.Contains(userBranch),
-        AuthorityLevel.RbgProductCredit => true,
-        AuthorityLevel.PresidentCoo => true,
+        AuthorityLevel.RbgHead => true,
+        AuthorityLevel.ProductHead => true,
+        AuthorityLevel.CreditHead => true,
+        AuthorityLevel.Coo => true,
+        AuthorityLevel.PresidentCeo => true,
         AuthorityLevel.CreComBod => true,
         _ => false
     };
