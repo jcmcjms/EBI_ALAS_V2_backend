@@ -1,3 +1,4 @@
+using Ebi.Alas.Api.Composition.Errors;
 using Ebi.Alas.Api.Features.Account;
 using Ebi.Alas.Api.Features.Approvals;
 using Ebi.Alas.Api.Features.Auth.Logout;
@@ -25,6 +26,7 @@ public static class PipelineConfiguration
     public static WebApplication UseApiPipeline(this WebApplication app)
     {
         app.UseExceptionHandler();
+        app.UseDomainExceptions(app.Services.GetRequiredService<Microsoft.AspNetCore.Http.IProblemDetailsService>());
         app.UseStatusCodePages();
         app.UseRateLimiter();
         app.UseAuthentication();
