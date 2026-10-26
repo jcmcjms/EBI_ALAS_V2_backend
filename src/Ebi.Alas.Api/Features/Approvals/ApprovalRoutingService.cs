@@ -34,7 +34,7 @@ public sealed class ApprovalRoutingService(AlasDbContext db)
                 (int)AuthorityLevel.CreComBod,
                 ApprovalMatrix.Describe(AuthorityLevel.CreComBod),
                 null,
-                "Up to ₱1.5M new/renewal with rate/price deviations — CreCom handling required.",
+                "Rate or price deviations need CreCom approval (up to ₱1.5M, new or renewal).",
                 false,
                 []);
         }
