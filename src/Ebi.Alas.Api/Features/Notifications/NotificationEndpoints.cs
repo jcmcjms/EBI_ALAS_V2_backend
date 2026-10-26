@@ -23,7 +23,8 @@ public static class NotificationEndpoints
                 db.Notifications.AsNoTracking().Where(n => n.UserId == caller.UserId),
                 status,
                 type,
-                search);
+                search,
+                forceActionRequired: caller.IsEvaluator);
 
             var totalCount = await query.CountAsync(cancellationToken);
             var unreadCount = await db.Notifications.AsNoTracking()
@@ -100,8 +101,19 @@ public static class NotificationInboxFilter
         IQueryable<Notification> query,
         string? status,
         string? type,
-        string? search)
+        string? search,
+        bool forceActionRequired = false)
     {
+        if (forceActionRequired)
+        {
+            query = query.Where(n => n.Type == NotificationType.Action);
+        }
+        else if (!string.IsNullOrWhiteSpace(type)
+            && Enum.TryParse<NotificationType>(type.Trim(), ignoreCase: true, out var parsedType))
+        {
+            query = query.Where(n => n.Type == parsedType);
+        }
+
         if (string.Equals(status, "unread", StringComparison.OrdinalIgnoreCase))
         {
             query = query.Where(n => n.ReadAt == null);
@@ -109,12 +121,6 @@ public static class NotificationInboxFilter
         else if (string.Equals(status, "read", StringComparison.OrdinalIgnoreCase))
         {
             query = query.Where(n => n.ReadAt != null);
-        }
-
-        if (!string.IsNullOrWhiteSpace(type)
-            && Enum.TryParse<NotificationType>(type.Trim(), ignoreCase: true, out var parsedType))
-        {
-            query = query.Where(n => n.Type == parsedType);
         }
 
         if (!string.IsNullOrWhiteSpace(search))

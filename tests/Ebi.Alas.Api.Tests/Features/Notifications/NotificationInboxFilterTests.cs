@@ -88,4 +88,49 @@ public sealed class NotificationInboxFilterTests
 
         Assert.Equal(["System notice"], rows);
     }
+
+    [Fact]
+    public async Task ForceActionRequired_OnlyReturnsActionType()
+    {
+        await using var db = Db();
+        var userId = Guid.NewGuid();
+        await SeedAsync(db, userId);
+
+        var rows = await NotificationInboxFilter
+            .Apply(db.Notifications.Where(n => n.UserId == userId), null, null, null, forceActionRequired: true)
+            .Select(n => n.Title)
+            .ToListAsync();
+
+        Assert.Equal(["Approve now"], rows);
+    }
+
+    [Fact]
+    public async Task ForceActionRequired_IgnoresTypeArgument()
+    {
+        await using var db = Db();
+        var userId = Guid.NewGuid();
+        await SeedAsync(db, userId);
+
+        var rows = await NotificationInboxFilter
+            .Apply(db.Notifications.Where(n => n.UserId == userId), null, "system", null, forceActionRequired: true)
+            .Select(n => n.Title)
+            .ToListAsync();
+
+        Assert.Equal(["Approve now"], rows);
+    }
+
+    [Fact]
+    public async Task ForceActionRequired_StillAppliesSearch()
+    {
+        await using var db = Db();
+        var userId = Guid.NewGuid();
+        await SeedAsync(db, userId);
+
+        var rows = await NotificationInboxFilter
+            .Apply(db.Notifications.Where(n => n.UserId == userId), null, null, "PN-9", forceActionRequired: true)
+            .Select(n => n.Title)
+            .ToListAsync();
+
+        Assert.Equal(["Approve now"], rows);
+    }
 }
