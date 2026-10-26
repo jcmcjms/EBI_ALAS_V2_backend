@@ -488,3 +488,4 @@ smoke-err.txt
 smoke-out.txt
 architecture_copypaste.txt
 appsettings.Production.json
+.mimocode/
