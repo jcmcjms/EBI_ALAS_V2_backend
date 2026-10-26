@@ -35,10 +35,12 @@ public static class AccountEndpoints
             AccountService service,
             CancellationToken cancellationToken) =>
         {
-            if (request.ESignature is not null && !ESignaturePolicy.IsValid(request.ESignature))
+            if (request.ESignature is not null
+                && request.ESignature.Length > 0
+                && ESignaturePolicy.SanitizeUpload(request.ESignature) is null)
             {
                 throw new ValidationException(
-                    "E-signature must be a base64 PNG, JPEG or WEBP data URL under 2 MB.");
+                    "E-signature must be a valid PNG image under 2 MB within supported dimensions.");
             }
 
             var caller = CallerContext.Require(user);

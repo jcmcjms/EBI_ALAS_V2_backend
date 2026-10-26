@@ -93,7 +93,7 @@ public sealed class SubmitLoanDashboardNotifyTests
 
         await handler.HandleAsync(
             Request("BR-A"),
-            new CallerContext(Guid.NewGuid(), UserRole.Encoder, "BR-A"),
+            await TestUsers.SeedSignedCallerAsync(db),
             CancellationToken.None);
 
         Assert.Equal(1, notifier.DashboardUpdates);

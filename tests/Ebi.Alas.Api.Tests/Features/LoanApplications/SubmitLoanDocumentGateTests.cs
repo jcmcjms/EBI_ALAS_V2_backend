@@ -108,7 +108,7 @@ public sealed class SubmitLoanDocumentGateTests
             },
         };
         var handler = Handler(db, reader);
-        var caller = new CallerContext(Guid.NewGuid(), UserRole.Encoder, "BR-A");
+        var caller = await TestUsers.SeedSignedCallerAsync(db);
 
         var result = await handler.HandleAsync(
             Request(LoanType.New, FormWithLoans("PN-1"),
@@ -133,7 +133,7 @@ public sealed class SubmitLoanDocumentGateTests
             },
         };
         var handler = Handler(db, reader);
-        var caller = new CallerContext(Guid.NewGuid(), UserRole.Encoder, "BR-A");
+        var caller = await TestUsers.SeedSignedCallerAsync(db);
 
         var result = await handler.HandleAsync(
             Request(LoanType.New, FormWithLoans("PN-1"),
@@ -161,7 +161,7 @@ public sealed class SubmitLoanDocumentGateTests
             },
         };
         var handler = Handler(db, reader);
-        var caller = new CallerContext(Guid.NewGuid(), UserRole.Encoder, "BR-A");
+        var caller = await TestUsers.SeedSignedCallerAsync(db);
 
         // request.LoanType is wrongly New; form loan is Reloan (creationTypeCode 1)
         var result = await handler.HandleAsync(
@@ -189,7 +189,7 @@ public sealed class SubmitLoanDocumentGateTests
             },
         };
         var handler = Handler(db, reader);
-        var caller = new CallerContext(Guid.NewGuid(), UserRole.Encoder, "BR-A");
+        var caller = await TestUsers.SeedSignedCallerAsync(db);
 
         var result = await handler.HandleAsync(
             Request(
@@ -215,7 +215,7 @@ public sealed class SubmitLoanDocumentGateTests
             },
         };
         var handler = Handler(db, reader);
-        var caller = new CallerContext(Guid.NewGuid(), UserRole.Encoder, "BR-A");
+        var caller = await TestUsers.SeedSignedCallerAsync(db);
 
         var result = await handler.HandleAsync(
             Request(LoanType.New, FormWithLoans("PN-1"),
@@ -244,7 +244,7 @@ public sealed class SubmitLoanDocumentGateTests
             },
         };
         var handler = Handler(db, reader);
-        var caller = new CallerContext(Guid.NewGuid(), UserRole.Encoder, "BR-A");
+        var caller = await TestUsers.SeedSignedCallerAsync(db);
 
         var result = await handler.HandleAsync(
             Request(
@@ -273,7 +273,7 @@ public sealed class SubmitLoanDocumentGateTests
             },
         };
         var handler = Handler(db, reader);
-        var caller = new CallerContext(Guid.NewGuid(), UserRole.Encoder, "BR-A");
+        var caller = await TestUsers.SeedSignedCallerAsync(db);
 
         var result = await handler.HandleAsync(
             Request(LoanType.Reloan, FormWithLoans("PN-1"),
@@ -297,7 +297,7 @@ public sealed class SubmitLoanDocumentGateTests
             },
         };
         var handler = Handler(db, reader);
-        var caller = new CallerContext(Guid.NewGuid(), UserRole.Encoder, "BR-A");
+        var caller = await TestUsers.SeedSignedCallerAsync(db);
 
         var result = await handler.HandleAsync(
             Request(LoanType.New, FormWithLoans("PN-1"),
@@ -323,7 +323,7 @@ public sealed class SubmitLoanDocumentGateTests
             },
         };
         var handler = Handler(db, reader);
-        var caller = new CallerContext(Guid.NewGuid(), UserRole.Encoder, "BR-A");
+        var caller = await TestUsers.SeedSignedCallerAsync(db);
 
         var result = await handler.HandleAsync(
             Request(LoanType.Reloan, FormWithLoans("PN-1"),
@@ -350,7 +350,7 @@ public sealed class SubmitLoanDocumentGateTests
             },
         };
         var handler = Handler(db, reader);
-        var caller = new CallerContext(Guid.NewGuid(), UserRole.Encoder, "BR-A");
+        var caller = await TestUsers.SeedSignedCallerAsync(db);
 
         var result = await handler.HandleAsync(
             Request(LoanType.New, FormWithLoans("PN-1"),
@@ -369,7 +369,7 @@ public sealed class SubmitLoanDocumentGateTests
         await SeedRequirementsAsync(db);
         var reader = new FakeChecklistReader();
         var handler = Handler(db, reader);
-        var caller = new CallerContext(Guid.NewGuid(), UserRole.Encoder, "BR-A");
+        var caller = await TestUsers.SeedSignedCallerAsync(db);
 
         var result = await handler.HandleAsync(
             Request(LoanType.New, FormWithLoans((string?)null),
@@ -396,7 +396,7 @@ public sealed class SubmitLoanDocumentGateTests
             },
         };
         var handler = Handler(db, reader);
-        var caller = new CallerContext(Guid.NewGuid(), UserRole.Encoder, "BR-A");
+        var caller = await TestUsers.SeedSignedCallerAsync(db);
 
         var result = await handler.HandleAsync(
             Request(LoanType.New, FormWithLoans("PN-1", "PN-2"),
@@ -415,7 +415,7 @@ public sealed class SubmitLoanDocumentGateTests
         await using var db = Db();
         var reader = new FakeChecklistReader();
         var handler = Handler(db, reader);
-        var caller = new CallerContext(Guid.NewGuid(), UserRole.Encoder, "BR-A");
+        var caller = await TestUsers.SeedSignedCallerAsync(db);
 
         var result = await handler.HandleAsync(
             Request(LoanType.New, FormWithLoans((string?)null), new SubmitLoanLine("Z99", "Z99", 1000m, 30, 0.05m)),
@@ -433,7 +433,7 @@ public sealed class SubmitLoanDocumentGateTests
         await SeedRequirementsAsync(db);
         var reader = new FakeChecklistReader();
         var handler = Handler(db, reader);
-        var caller = new CallerContext(Guid.NewGuid(), UserRole.Encoder, "BR-A");
+        var caller = await TestUsers.SeedSignedCallerAsync(db);
         // Handler() uses FakeWebLoanReader — enable amort_no=1 via a custom handler below.
         var webLoan = new FakeWebLoanReader { HasFirstAmortization = true };
         var handlerWithAmort = new SubmitLoanHandler(

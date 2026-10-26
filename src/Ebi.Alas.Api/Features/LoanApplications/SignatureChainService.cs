@@ -83,7 +83,14 @@ public static class SignatureChainService
             .Select(u => u.ESignature)
             .FirstOrDefaultAsync(cancellationToken);
 
-        entry.Sign(userId, now, ink);
+        var snapshot = Users.Domain.ESignaturePolicy.SanitizeForDisplay(ink);
+        if (snapshot is null || !Users.Domain.ESignaturePolicy.IsEligibleForSigning(ink))
+        {
+            throw new Composition.Errors.ValidationException(
+                "A saved PNG e-signature is required before completing this workflow action. Upload one in your account profile.");
+        }
+
+        entry.Sign(userId, now, snapshot);
         await db.SaveChangesAsync(cancellationToken);
     }
 

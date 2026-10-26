@@ -61,7 +61,7 @@ public sealed class SubmitLoanBranchTests
     {
         await using var db = Db();
         var handler = Handler(db, requireRecommendation: true);
-        var caller = new CallerContext(Guid.NewGuid(), UserRole.Encoder, "BR-A");
+        var caller = await TestUsers.SeedSignedCallerAsync(db);
 
         var result = await handler.HandleAsync(Request("BR-HACK"), caller, CancellationToken.None);
 
@@ -74,7 +74,7 @@ public sealed class SubmitLoanBranchTests
     {
         await using var db = Db();
         var handler = Handler(db, requireRecommendation: true);
-        var caller = new CallerContext(Guid.NewGuid(), UserRole.Encoder, "BR-A");
+        var caller = await TestUsers.SeedSignedCallerAsync(db);
         var request = Request(
             "BR-A",
             new SubmitLoanLine("A16", "A16 - Salary", 1000m, 30, 0.05m),
@@ -100,7 +100,7 @@ public sealed class SubmitLoanBranchTests
     {
         await using var db = Db();
         var handler = Handler(db, requireRecommendation: true);
-        var caller = new CallerContext(Guid.NewGuid(), UserRole.Encoder, "BR-A");
+        var caller = await TestUsers.SeedSignedCallerAsync(db);
         var today = DateOnly.FromDateTime(DateTime.Today).ToString("yyyy-MM-dd");
         using var formDoc = JsonDocument.Parse(
             $$"""
@@ -161,7 +161,7 @@ public sealed class SubmitLoanBranchTests
     {
         await using var db = Db();
         var handler = Handler(db, requireRecommendation: true);
-        var caller = new CallerContext(Guid.NewGuid(), UserRole.Encoder, "BR-A");
+        var caller = await TestUsers.SeedSignedCallerAsync(db);
         var request = new SubmitLoanApplicationsRequest(
             null,
             "Client",
@@ -182,7 +182,7 @@ public sealed class SubmitLoanBranchTests
     {
         await using var db = Db();
         var handler = Handler(db, requireRecommendation: true);
-        var caller = new CallerContext(Guid.NewGuid(), UserRole.Encoder, "BR-A");
+        var caller = await TestUsers.SeedSignedCallerAsync(db);
         var request = new SubmitLoanApplicationsRequest(
             "G-1", "Client", "BR-A", LoanType.New, []);
 
@@ -195,7 +195,7 @@ public sealed class SubmitLoanBranchTests
     {
         await using var db = Db();
         var handler = Handler(db, requireRecommendation: false);
-        var caller = new CallerContext(Guid.NewGuid(), UserRole.Encoder, "BR-A");
+        var caller = await TestUsers.SeedSignedCallerAsync(db);
 
         var result = await handler.HandleAsync(Request("BR-A"), caller, CancellationToken.None);
 

@@ -136,7 +136,7 @@ public sealed class AccountService(AlasDbContext db, TimeProvider timeProvider)
         {
             user.SetSignature(eSignature, timeProvider.GetUtcNow());
 
-            if (!string.IsNullOrWhiteSpace(user.ESignature))
+            if (ESignaturePolicy.IsEligibleForSigning(user.ESignature))
             {
                 // Slots may have been signed before the profile ink existed.
                 var signedSlots = await db.SignatureChainEntries

@@ -51,15 +51,16 @@ public sealed class AccountProfileAndSessionTests
     {
         await using var db = Db();
         var user = SeedUser(db);
-        var ink = "data:image/png;base64,iVBORw0KGgo=";
+        var ink = Features.Users.SignatureTestImages.CreatePngDataUrl();
         user.SetSignature(ink, DateTimeOffset.UtcNow);
         await db.SaveChangesAsync();
+        var storedInk = user.ESignature;
 
         var service = new AccountService(db, TimeProvider.System);
         await service.UpdateContactAsync(
             user.Id, "a@x.com", null, null, eSignature: null, CancellationToken.None);
 
-        Assert.Equal(ink, (await db.Users.AsNoTracking().SingleAsync()).ESignature);
+        Assert.Equal(storedInk, (await db.Users.AsNoTracking().SingleAsync()).ESignature);
     }
 
     [Fact]
@@ -68,7 +69,7 @@ public sealed class AccountProfileAndSessionTests
         await using var db = Db();
         var user = SeedUser(db);
         await db.SaveChangesAsync();
-        var ink = "data:image/png;base64,iVBORw0KGgo=";
+        var ink = Features.Users.SignatureTestImages.CreatePngDataUrl();
         var entry = Ebi.Alas.Api.Features.Approvals.SignatureChainEntry.Create(
             Guid.NewGuid(), 1, "Encoder", DateTimeOffset.UtcNow);
         entry.Sign(user.Id, DateTimeOffset.UtcNow, signatureImage: null);
@@ -80,7 +81,8 @@ public sealed class AccountProfileAndSessionTests
             user.Id, null, null, null, eSignature: ink, CancellationToken.None);
 
         var stored = await db.SignatureChainEntries.AsNoTracking().SingleAsync();
-        Assert.Equal(ink, stored.SignatureImage);
+        Assert.NotNull(stored.SignatureImage);
+        Assert.StartsWith("data:image/png;base64,", stored.SignatureImage);
     }
 
     [Fact]
@@ -105,7 +107,7 @@ public sealed class AccountProfileAndSessionTests
         await using var db = Db();
         var user = SeedUser(db);
         await db.SaveChangesAsync();
-        var signature = "data:image/png;base64,iVBORw0KGgo=";
+        var signature = Features.Users.SignatureTestImages.CreatePngDataUrl();
 
         var service = new AccountService(db, TimeProvider.System);
         var ok = await service.UpdateContactAsync(
@@ -118,7 +120,8 @@ public sealed class AccountProfileAndSessionTests
 
         Assert.True(ok);
         var profile = await service.GetProfileAsync(user.Id, CancellationToken.None);
-        Assert.Equal(signature, profile!.ESignature);
+        Assert.NotNull(profile!.ESignature);
+        Assert.StartsWith("data:image/png;base64,", profile.ESignature);
     }
 
     [Fact]

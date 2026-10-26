@@ -37,15 +37,16 @@ public sealed class UserTests
     }
 
     [Fact]
-    public void SetSignature_StoresDataUrl()
+    public void SetSignature_StoresSanitizedPngDataUrl()
     {
         var user = User.Create(
             "ada", "hash", "Ada", "Lovelace", "", "a@x.com", "011", UserRole.Encoder, DateTimeOffset.UtcNow);
-        var signature = "data:image/png;base64,iVBORw0KGgo=";
+        var signature = SignatureTestImages.CreatePngDataUrl();
 
         user.SetSignature(signature, DateTimeOffset.UtcNow);
 
-        Assert.Equal(signature, user.ESignature);
+        Assert.NotNull(user.ESignature);
+        Assert.StartsWith("data:image/png;base64,", user.ESignature);
     }
 
     [Fact]
@@ -53,7 +54,7 @@ public sealed class UserTests
     {
         var user = User.Create(
             "ada", "hash", "Ada", "Lovelace", "", "a@x.com", "011", UserRole.Encoder, DateTimeOffset.UtcNow);
-        user.SetSignature("data:image/png;base64,iVBORw0KGgo=", DateTimeOffset.UtcNow);
+        user.SetSignature(SignatureTestImages.CreatePngDataUrl(), DateTimeOffset.UtcNow);
 
         user.SetSignature(null, DateTimeOffset.UtcNow);
 

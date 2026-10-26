@@ -86,7 +86,7 @@ public sealed class SubmitLoanNotificationTests
     {
         await using var db = Db();
         var now = DateTimeOffset.UtcNow;
-        var encoder = User.Create("ana", "cruz", "Ana", "Cruz", "", "ana@example.com", "BR-A", UserRole.Encoder, now, "Clerk");
+        var encoder = TestUsers.WithSignature(User.Create("ana", "cruz", "Ana", "Cruz", "", "ana@example.com", "BR-A", UserRole.Encoder, now, "Clerk"), now);
         var recommender = User.Create("ben", "reyes", "Ben", "Reyes", "", "ben@example.com", "BR-A", UserRole.Recommender, now, "AO");
         db.Users.AddRange(encoder, recommender);
         await db.SaveChangesAsync();
@@ -126,7 +126,7 @@ public sealed class SubmitLoanNotificationTests
     {
         await using var db = Db();
         var now = DateTimeOffset.UtcNow;
-        var encoder = User.Create("ana", "cruz", "Ana", "Cruz", "", "ana@example.com", "BR-A", UserRole.Encoder, now, "Clerk");
+        var encoder = TestUsers.WithSignature(User.Create("ana", "cruz", "Ana", "Cruz", "", "ana@example.com", "BR-A", UserRole.Encoder, now, "Clerk"), now);
         var evaluator = User.Create("bea", "reyes", "Bea", "Reyes", "", "bea@example.com", "BR-A", UserRole.Evaluator, now, "CI");
         db.Users.AddRange(encoder, evaluator);
         await db.SaveChangesAsync();

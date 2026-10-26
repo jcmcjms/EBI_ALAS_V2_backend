@@ -215,14 +215,15 @@ public sealed class User
             return;
         }
 
-        if (!ESignaturePolicy.IsValid(signatureDataUrl))
+        var sanitized = ESignaturePolicy.SanitizeUpload(signatureDataUrl);
+        if (sanitized is null)
         {
             throw new ArgumentException(
-                "Signature must be a base64 PNG/JPEG/WEBP data URL within the size limit.",
+                "Signature must be a valid PNG data URL within the size and dimension limits.",
                 nameof(signatureDataUrl));
         }
 
-        ESignature = signatureDataUrl.Trim();
+        ESignature = sanitized;
         UpdatedAt = now;
     }
 
