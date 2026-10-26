@@ -39,4 +39,27 @@ internal static class TestUsers
         await db.SaveChangesAsync();
         return new CallerContext(user.Id, role, branchId);
     }
+
+    /// <summary>Seeds an encoder with no e-signature on file.</summary>
+    public static async Task<CallerContext> SeedUnsignedCallerAsync(
+        AlasDbContext db,
+        UserRole role = UserRole.Encoder,
+        string branchId = "BR-A")
+    {
+        var now = DateTimeOffset.UtcNow;
+        var user = User.Create(
+            $"u{Guid.NewGuid():N}"[..12],
+            "hash",
+            "Test",
+            "User",
+            "",
+            $"t{Guid.NewGuid():N}@x.com",
+            branchId,
+            role,
+            now,
+            "Account Officer");
+        db.Users.Add(user);
+        await db.SaveChangesAsync();
+        return new CallerContext(user.Id, role, branchId);
+    }
 }

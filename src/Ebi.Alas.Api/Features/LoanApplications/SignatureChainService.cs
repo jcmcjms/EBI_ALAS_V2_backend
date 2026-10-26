@@ -58,6 +58,28 @@ public static class SignatureChainService
         await db.SaveChangesAsync(cancellationToken);
     }
 
+    /// <summary>
+    /// Fail before any loan rows are written when the signer has no eligible PNG
+    /// e-signature. Checking only inside SignAsync lets a rejected submit persist
+    /// the application, so a retry after uploading a signature creates a duplicate.
+    /// </summary>
+    public static async Task EnsureUserCanSignAsync(
+        AlasDbContext db,
+        Guid userId,
+        CancellationToken cancellationToken)
+    {
+        var ink = await db.Users.AsNoTracking()
+            .Where(u => u.Id == userId)
+            .Select(u => u.ESignature)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (!Users.Domain.ESignaturePolicy.IsEligibleForSigning(ink))
+        {
+            throw new Composition.Errors.ValidationException(
+                "A saved PNG e-signature is required before completing this workflow action. Upload one in your account profile.");
+        }
+    }
+
     public static async Task SignAsync(
         AlasDbContext db,
         Guid loanApplicationId,

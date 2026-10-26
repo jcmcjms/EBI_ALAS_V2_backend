@@ -38,6 +38,10 @@ public sealed class SubmitLoanHandler(
 
         await workflow.EnsureLoadedAsync(cancellationToken);
 
+        // Fail before any loan is written: SignAsync would throw after SaveChanges
+        // and leave a half-created application that a retry would duplicate.
+        await SignatureChainService.EnsureUserCanSignAsync(db, caller.UserId, cancellationToken);
+
         var branchId = caller.CanAccessAllBranches
             ? (string.IsNullOrWhiteSpace(request.BranchId) ? caller.BranchId : request.BranchId.Trim())
             : caller.BranchId;
