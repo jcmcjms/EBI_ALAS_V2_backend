@@ -61,19 +61,49 @@ public sealed class ApprovalMatrixTests
     }
 
     [Fact]
-    public void MajorDeviation_Above1_2M_IsCreCom()
+    public void MajorDeviation_Above1_2M_Upto1_5M_IsPresident()
     {
         var decision = ApprovalMatrix.Resolve(Input(LoanType.New, 2, 1_200_001m));
+        Assert.Equal(AuthorityLevel.PresidentCeo, decision.RequiredLevel);
+        Assert.Null(decision.NoAuthorityReason);
+    }
+
+    [Fact]
+    public void MajorDeviation_Above1_5M_IsCreCom()
+    {
+        var decision = ApprovalMatrix.Resolve(Input(LoanType.New, 2, 1_500_001m));
+        Assert.Equal(AuthorityLevel.CreComBod, decision.RequiredLevel);
+        Assert.NotNull(decision.NoAuthorityReason);
+    }
+
+    [Theory]
+    [InlineData(LoanType.Reloan, 805_000, AuthorityLevel.Coo)]
+    [InlineData(LoanType.New, 800_000, AuthorityLevel.Coo)]
+    [InlineData(LoanType.New, 1_200_000, AuthorityLevel.Coo)]
+    [InlineData(LoanType.New, 1_400_000, AuthorityLevel.PresidentCeo)]
+    public void RatePriceDeviation_Below1_5M_UsesMajorLadder(LoanType type, decimal exposure, AuthorityLevel expected)
+    {
+        var decision = ApprovalMatrix.Resolve(Input(type, 2, exposure, ratePrice: true));
+        Assert.Equal(expected, decision.RequiredLevel);
+        Assert.Null(decision.NoAuthorityReason);
+    }
+
+    [Fact]
+    public void RatePriceDeviation_Above1_5M_IsCreCom()
+    {
+        var decision = ApprovalMatrix.Resolve(Input(LoanType.New, 2, 1_500_001m, ratePrice: true));
         Assert.Equal(AuthorityLevel.CreComBod, decision.RequiredLevel);
         Assert.NotNull(decision.NoAuthorityReason);
     }
 
     [Fact]
-    public void RatePriceDeviation_IsCreCom_EvenBelow1_5M()
+    public void Reloan_InterestRateReduction_805k_IsCooNotCreCom()
     {
-        var decision = ApprovalMatrix.Resolve(Input(LoanType.New, 2, 800_000m, ratePrice: true));
-        Assert.Equal(AuthorityLevel.CreComBod, decision.RequiredLevel);
-        Assert.NotNull(decision.NoAuthorityReason);
+        // Authority Level Consumer Loan + Ammended Active Deviation:
+        // Interest rate reduction is Major; rate/price is CreCom only above ₱1.5M.
+        var decision = ApprovalMatrix.Resolve(Input(LoanType.Reloan, 2, 805_000m, ratePrice: true));
+        Assert.Equal(AuthorityLevel.Coo, decision.RequiredLevel);
+        Assert.Null(decision.NoAuthorityReason);
     }
 
     [Theory]

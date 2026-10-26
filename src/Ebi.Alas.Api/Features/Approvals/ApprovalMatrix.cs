@@ -42,22 +42,20 @@ public static class ApprovalMatrix
     {
         ArgumentNullException.ThrowIfNull(inputs);
 
-        if (inputs.HasRatePriceDeviation)
-        {
-            return Blocked("Up to ₱1.5M new/renewal with rate/price deviations — CreCom handling required.");
-        }
-
-        if (inputs.TotalExposure > 1_500_000m && inputs.MaxDeviationSeverity > 0)
-        {
-            return Blocked("Above ₱1.5M with deviations — CreCom handling required.");
-        }
-
+        // Level B: above ₱1.5M exceeds every delegated officer ceiling.
+        // Rate/price deviations are also CreCom only in this band (not below).
         if (inputs.TotalExposure > 1_500_000m)
         {
             return Blocked("Exposure exceeds delegated authority (₱1.5M) — CreCom handling required.");
         }
 
-        var level = ResolveLevel(inputs);
+        // Rate/price items (e.g. Interest rate reduction) are Major in the
+        // amended deviation list; below ₱1.5M they use the major ladder.
+        var severity = inputs.HasRatePriceDeviation
+            ? Math.Max(inputs.MaxDeviationSeverity, 2)
+            : inputs.MaxDeviationSeverity;
+
+        var level = ResolveLevel(inputs.LoanType, severity, inputs.TotalExposure);
         if (level == AuthorityLevel.CreComBod)
         {
             return Blocked("No officer authority covers this loan — CreCom handling required.");
@@ -99,48 +97,50 @@ public static class ApprovalMatrix
         _ => "None"
     };
 
-    private static AuthorityLevel ResolveLevel(ApprovalInputs inputs)
+    private static AuthorityLevel ResolveLevel(LoanType loanType, int severity, decimal totalExposure)
     {
-        var isReloan = inputs.LoanType == LoanType.Reloan;
-        var severity = inputs.MaxDeviationSeverity;
+        var isReloan = loanType == LoanType.Reloan;
 
+        // Level E / D: major deviations → COO ≤ ₱1.2M, President ≤ ₱1.5M.
         if (severity >= 2)
         {
-            return inputs.TotalExposure <= 1_200_000m
+            return totalExposure <= 1_200_000m
                 ? AuthorityLevel.Coo
-                : AuthorityLevel.CreComBod;
+                : AuthorityLevel.PresidentCeo;
         }
 
+        // Minor deviations → RBG/Product/Credit ≤ ₱1M, else President or COO.
         if (severity == 1)
         {
-            return inputs.TotalExposure <= 1_000_000m
+            return totalExposure <= 1_000_000m
                 ? AuthorityLevel.RbgHead
                 : AuthorityLevel.Coo;
         }
 
         if (!isReloan)
         {
-            return inputs.TotalExposure <= 1_000_000m
+            return totalExposure <= 1_000_000m
                 ? AuthorityLevel.RbgHead
                 : AuthorityLevel.Coo;
         }
 
-        if (inputs.TotalExposure <= 300_000m)
+        // Reloan, no deviation: Branch ≤ ₱300K, Area ≤ ₱600K, RBG ≤ ₱1M.
+        if (totalExposure <= 300_000m)
         {
             return AuthorityLevel.BranchHead;
         }
 
-        if (inputs.TotalExposure <= 600_000m)
+        if (totalExposure <= 600_000m)
         {
             return AuthorityLevel.AreaHead;
         }
 
-        if (inputs.TotalExposure <= 1_000_000m)
+        if (totalExposure <= 1_000_000m)
         {
             return AuthorityLevel.RbgHead;
         }
 
-        if (inputs.TotalExposure <= 1_200_000m)
+        if (totalExposure <= 1_200_000m)
         {
             return AuthorityLevel.Coo;
         }

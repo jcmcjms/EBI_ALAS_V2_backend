@@ -61,9 +61,25 @@ public sealed class LoanRoutingMapperTests
     }
 
     [Fact]
-    public void Build_RatePrice_IsCreComEvenBelow1_5M()
+    public void Build_RatePrice_Below1_5M_IsCooNotCreCom()
     {
         var loan = Reloan(800_000m);
+
+        var dto = LoanRoutingMapper.Build(
+            loan,
+            maxSeverity: 2,
+            hasRatePriceDeviation: true,
+            missingDocuments: [],
+            assignedApproverName: null);
+
+        Assert.Equal((int)AuthorityLevel.Coo, dto.RequiredApprovalTier);
+        Assert.Null(dto.NoAuthorityReason);
+    }
+
+    [Fact]
+    public void Build_RatePrice_Above1_5M_IsCreCom()
+    {
+        var loan = Reloan(1_600_000m);
 
         var dto = LoanRoutingMapper.Build(
             loan,
