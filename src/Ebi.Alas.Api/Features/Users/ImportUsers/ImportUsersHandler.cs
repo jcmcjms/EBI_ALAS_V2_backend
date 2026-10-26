@@ -1,4 +1,5 @@
 using System.Security.Cryptography;
+using Ebi.Alas.Api.Features.Approvals;
 using Ebi.Alas.Api.Features.Auth;
 using Ebi.Alas.Api.Features.Users.Domain;
 using Ebi.Alas.Api.Infrastructure.Persistence;
@@ -9,7 +10,8 @@ namespace Ebi.Alas.Api.Features.Users.ImportUsers;
 public sealed class ImportUsersHandler(
     AlasDbContext db,
     PasswordHasher passwordHasher,
-    TimeProvider timeProvider)
+    TimeProvider timeProvider,
+    ApprovalAuthorityAssigner authorityAssigner)
 {
     public const int MaxImportRows = 500;
     public const int MinPasswordLength = 12;
@@ -86,6 +88,7 @@ public sealed class ImportUsersHandler(
             }
 
             db.Users.Add(user);
+            await authorityAssigner.AssignAsync(user, cancellationToken);
             createdUsernames.Add(user.UserName);
             createdCredentials.Add(new ImportUsersCredential(user.UserName, temporaryPassword));
         }

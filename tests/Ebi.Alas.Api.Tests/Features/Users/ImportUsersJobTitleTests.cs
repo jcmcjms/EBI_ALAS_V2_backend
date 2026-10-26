@@ -43,7 +43,8 @@ public sealed class ImportUsersJobTitleTests
         var handler = new ImportUsersHandler(
             db,
             new Ebi.Alas.Api.Features.Auth.PasswordHasher(),
-            TimeProvider.System);
+            TimeProvider.System,
+            new Ebi.Alas.Api.Features.Approvals.ApprovalAuthorityAssigner(db));
 
         await handler.ImportAsync(new MemoryStream(BuildXlsx()), CancellationToken.None);
 

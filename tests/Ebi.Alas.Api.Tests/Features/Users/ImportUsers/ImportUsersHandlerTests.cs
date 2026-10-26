@@ -23,7 +23,11 @@ public sealed class ImportUsersHandlerTests
     }
 
     private static ImportUsersHandler Handler(AlasDbContext db) =>
-        new(db, new PasswordHasher(), new FixedTimeProvider(new DateTimeOffset(2026, 10, 9, 12, 0, 0, TimeSpan.Zero)));
+        new(
+            db,
+            new PasswordHasher(),
+            new FixedTimeProvider(new DateTimeOffset(2026, 10, 9, 12, 0, 0, TimeSpan.Zero)),
+            new Ebi.Alas.Api.Features.Approvals.ApprovalAuthorityAssigner(db));
 
     private static byte[] BuildWorkbook(params object?[][] rows)
     {
