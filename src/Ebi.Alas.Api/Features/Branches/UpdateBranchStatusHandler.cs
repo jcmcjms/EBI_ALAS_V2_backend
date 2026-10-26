@@ -13,7 +13,7 @@ public static class BranchLoanOpenStatus
 }
 
 public sealed class BranchCloseBlockedException(string code, int openLoans, int activeUsers)
-    : Exception($"Branch '{code}' cannot be closed or merged while {openLoans} open loan(s) and {activeUsers} active user(s) remain.")
+    : Exception($"Branch '{code}' cannot be closed or merged while {openLoans} open {(openLoans == 1 ? "loan" : "loans")} and {activeUsers} active {(activeUsers == 1 ? "user" : "users")} remain.")
 {
     public string Code { get; } = code;
     public int OpenLoans { get; } = openLoans;

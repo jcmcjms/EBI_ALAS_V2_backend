@@ -152,7 +152,7 @@ public sealed class SubmitLoanHandler(
                 audienceRole,
                 branch,
                 audienceTitle,
-                $"Loan application(s) {string.Join(", ", branchLamIds)} submitted by {request.ClientName}.",
+                $"Submitted by {request.ClientName}: {string.Join(", ", branchLamIds)}.",
                 link: approvalLink,
                 cancellationToken);
         }

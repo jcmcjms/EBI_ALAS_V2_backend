@@ -85,7 +85,7 @@ public static class LoanGroupEndpoints
             return Results.Ok(new
             {
                 success = true,
-                message = $"Applied to {result.Succeeded} of {result.Succeeded + result.Failed} loan(s).",
+                message = $"Applied to {result.Succeeded} of {result.Succeeded + result.Failed} {(result.Succeeded + result.Failed == 1 ? "loan" : "loans")}.",
                 data = result,
                 errors = Array.Empty<string>(),
                 timestamp = timeProvider.GetUtcNow(),

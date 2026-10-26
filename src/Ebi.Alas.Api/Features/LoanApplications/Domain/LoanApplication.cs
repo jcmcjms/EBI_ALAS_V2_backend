@@ -167,7 +167,7 @@ public sealed class LoanApplication
         ArgumentOutOfRangeException.ThrowIfNegative(missingCount);
         if (missingCount == 0)
         {
-            throw new ArgumentException("At least one missing requirement is required to flag documents.", nameof(missingCount));
+            throw new ArgumentException("Select at least one missing requirement to flag documents.", nameof(missingCount));
         }
         ArgumentException.ThrowIfNullOrWhiteSpace(reason);
 
