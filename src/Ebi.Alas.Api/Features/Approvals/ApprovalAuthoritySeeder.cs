@@ -12,19 +12,6 @@ namespace Ebi.Alas.Api.Features.Approvals;
 /// </summary>
 public sealed class ApprovalAuthoritySeeder(AlasDbContext db)
 {
-    private static readonly (AuthorityLevel Level, string DisplayName, int Tier, bool AllowNew, bool AllowRenewal, int MaxSeverity, decimal MaxExposure, int ScopeType)[] Defaults =
-    [
-        (AuthorityLevel.BranchHead, "Branch Head", 1, false, true, 0, 300_000m, AuthorityScopes.Branch),
-        (AuthorityLevel.OfficerInCharge, "Officer In Charge", 1, false, true, 0, 300_000m, AuthorityScopes.Branch),
-        (AuthorityLevel.AreaHead, "Area Head", 2, false, true, 0, 600_000m, AuthorityScopes.Area),
-        (AuthorityLevel.RbgHead, "RBG Head", 3, true, true, 1, 1_000_000m, AuthorityScopes.Global),
-        (AuthorityLevel.ProductHead, "Product Head", 3, true, true, 1, 1_000_000m, AuthorityScopes.Global),
-        (AuthorityLevel.CreditHead, "Credit Head", 3, true, true, 1, 1_000_000m, AuthorityScopes.Global),
-        (AuthorityLevel.Coo, "COO", 4, true, true, 2, 1_200_000m, AuthorityScopes.Global),
-        (AuthorityLevel.PresidentCeo, "President / CEO", 5, true, true, 2, 1_500_000m, AuthorityScopes.Global),
-        (AuthorityLevel.CreComBod, "CreCom / Board", 6, true, true, 2, 10_000_000m, AuthorityScopes.Global),
-    ];
-
     public async Task<bool> SeedAsync(CancellationToken cancellationToken)
     {
         if (await db.ApprovalAuthorities.AsNoTracking().AnyAsync(cancellationToken))
@@ -33,19 +20,11 @@ public sealed class ApprovalAuthoritySeeder(AlasDbContext db)
         }
 
         var authorities = new Dictionary<AuthorityLevel, ApprovalAuthority>();
-        foreach (var (level, displayName, tier, allowNew, allowRenewal, maxSeverity, maxExposure, scopeType) in Defaults)
+        foreach (var def in ApprovalAuthorityDefaults.All)
         {
-            var authority = ApprovalAuthority.Create(
-                displayName,
-                tier,
-                0,
-                allowNew,
-                allowRenewal,
-                maxSeverity,
-                maxExposure,
-                scopeType);
+            var authority = ApprovalAuthorityDefaults.Create(def);
             db.ApprovalAuthorities.Add(authority);
-            authorities[level] = authority;
+            authorities[def.Level] = authority;
         }
 
         var approvers = await db.Users.AsNoTracking()
