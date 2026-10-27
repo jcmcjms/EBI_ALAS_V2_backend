@@ -95,15 +95,29 @@ public static class ApiProblemHandler
             Exception exception,
             CancellationToken cancellationToken)
         {
+            // Client already gone — writing a body cannot succeed and may throw
+            // another cancellation that debuggers report as user-unhandled.
+            if (httpContext.RequestAborted.IsCancellationRequested || httpContext.Response.HasStarted)
+            {
+                return true;
+            }
+
             var problem = Map(exception);
             httpContext.Response.StatusCode = problem.Status ?? StatusCodes.Status500InternalServerError;
 
-            return await problemDetailsService.TryWriteAsync(new ProblemDetailsContext
+            try
             {
-                HttpContext = httpContext,
-                ProblemDetails = problem,
-                Exception = exception
-            });
+                return await problemDetailsService.TryWriteAsync(new ProblemDetailsContext
+                {
+                    HttpContext = httpContext,
+                    ProblemDetails = problem,
+                    Exception = exception
+                });
+            }
+            catch (OperationCanceledException)
+            {
+                return true;
+            }
         }
     }
 }

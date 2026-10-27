@@ -149,6 +149,24 @@ public sealed class ApiProblemHandlerTests
         Assert.Equal(StatusCodes.Status500InternalServerError, httpContext.Response.StatusCode);
     }
 
+    [Fact]
+    public async Task TryHandleAsync_WhenRequestAborted_ReturnsTrueWithoutWriting()
+    {
+        var handler = ApiProblemHandler.CreateHandler(CreateProblemDetailsService());
+        var httpContext = CreateHttpContext();
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+        httpContext.RequestAborted = cts.Token;
+
+        var handled = await handler.TryHandleAsync(
+            httpContext,
+            new TaskCanceledException("A task was canceled."),
+            CancellationToken.None);
+
+        Assert.True(handled);
+        Assert.Equal(StatusCodes.Status200OK, httpContext.Response.StatusCode);
+    }
+
     private static IProblemDetailsService CreateProblemDetailsService()
     {
         var services = new ServiceCollection();
