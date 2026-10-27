@@ -46,7 +46,7 @@ public static class ApprovalMatrix
         // Rate/price deviations are also CreCom only in this band (not below).
         if (inputs.TotalExposure > 1_500_000m)
         {
-            return Blocked("Exposure exceeds delegated authority (₱1.5M) — CreCom handling required.");
+            return Blocked("The loan exceeds the ₱1.5M delegated limit, so CreCom must approve it.");
         }
 
         // Rate/price items (e.g. Interest rate reduction) are Major in the
@@ -58,7 +58,7 @@ public static class ApprovalMatrix
         var level = ResolveLevel(inputs.LoanType, severity, inputs.TotalExposure);
         if (level == AuthorityLevel.CreComBod)
         {
-            return Blocked("No officer authority covers this loan — CreCom handling required.");
+            return Blocked("No officer tier covers this loan, so CreCom must approve it.");
         }
 
         return new AuthorityDecision(level, Describe(level), null, null);

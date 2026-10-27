@@ -106,7 +106,7 @@ public sealed class ApprovalRoutingService(AlasDbContext db)
             0,
             "None",
             escalatedFrom,
-            "No approval authority covers this loan.",
+            "No approval tier covers this loan. An administrator can adjust tiers under Approval authorities.",
             false,
             []);
     }
